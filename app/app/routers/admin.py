@@ -1,0 +1,1807 @@
+"""
+app/routers/admin.py
+======================
+Admin Dashboard endpoints:
+  - Credential rotation (manual token paste + TOTP status/force-refresh)
+  - WS status (slot health, connection counts)
+  - Mode toggle (LIVE / PAPER)
+  - Greeks poller interval override
+  - Rate-limit stats
+"""
+import bcrypt as _bcrypt
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
+
+from app.dependencies                        import CurrentUser, get_admin_user, get_super_admin_user
+from app.credentials.credential_store        import (
+    rotate_token,
+    get_client_id,
+    get_access_token,
+    get_token_expiry,
+    is_token_expiring_soon,
+    get_auth_mode,
+    set_auth_mode,
+    get_static_credentials,
+    is_static_configured,
+    update_static_credentials,
+    get_active_auth_mode,
+)
+from app.credentials.token_refresher         import token_refresher
+from app.market_data.websocket_manager        import ws_manager
+from app.market_data.depth_ws_manager         import depth_ws_manager
+from app.market_data.greeks_poller            import greeks_poller
+from app.market_data.rate_limiter             import dhan_client
+from app.market_data.static_auth_monitor      import static_auth_monitor
+from app.execution_simulator.execution_engine import set_mock_mode, is_mock_mode
+import app.instruments.subscription_manager   as _sub_mgr
+
+router = APIRouter(prefix="/admin", tags=["Admin"])
+
+# ── User management constants ──────────────────────────────────────────────────
+_ALLOWED_STATUSES       = {"ACTIVE", "PENDING", "SUSPENDED", "BLOCKED"}
+_ADMIN_CREATABLE_ROLES  = {"USER", "ADMIN"}
+_ALL_ROLES              = {"USER", "ADMIN", "SUPER_USER", "SUPER_ADMIN"}
+
+# ── Models ─────────────────────────────────────────────────────────────────
+
+class TokenRotateRequest(BaseModel):
+    access_token: str
+    reconnect_ws: bool = True
+
+
+class AuthModeRequest(BaseModel):
+    """
+    mode: 'auto_totp'  — system auto-generates & renews token via TOTP (default)
+          'manual'     — auto-refresh paused; admin pastes token via /credentials/rotate
+        'static_ip'  — use API Key + Secret (static IP whitelisted)
+    """
+    mode: str   # 'auto_totp' | 'manual' | 'static_ip'
+
+
+class ModeToggleRequest(BaseModel):
+    paper_mode: bool
+
+
+class GreeksIntervalRequest(BaseModel):
+    seconds: int
+
+
+class CreateUserRequest(BaseModel):
+    first_name:               str
+    last_name:                str           = ""
+    email:                    str           = ""
+    mobile:                   str
+    password:                 str
+    role:                     str           = "USER"
+    status:                   str           = "PENDING"
+    address:                  str           = ""
+    country:                  str           = "India"
+    state:                    str           = ""
+    city:                     str           = ""
+    aadhar_number:            str           = ""
+    pan_number:               str           = ""
+    upi:                      str           = ""
+    bank_account:             str           = ""
+    brokerage_plan_equity_id: Optional[int] = None  # Brokerage plan for equity/options
+    brokerage_plan_futures_id:Optional[int] = None  # Brokerage plan for futures
+    initial_balance:          float         = 0.0
+    margin_allotted:          float         = 0.0
+    aadhar_doc:               Optional[str] = None
+    cancelled_cheque_doc:     Optional[str] = None
+    pan_card_doc:             Optional[str] = None
+
+
+class UpdateUserRequest(BaseModel):
+    first_name:               Optional[str]   = None
+    last_name:                Optional[str]   = None
+    email:                    Optional[str]   = None
+    password:                 Optional[str]   = None
+    role:                     Optional[str]   = None
+    status:                   Optional[str]   = None
+    address:                  Optional[str]   = None
+    country:                  Optional[str]   = None
+    state:                    Optional[str]   = None
+    city:                     Optional[str]   = None
+    aadhar_number:            Optional[str]   = None
+    pan_number:               Optional[str]   = None
+    upi:                      Optional[str]   = None
+    bank_account:             Optional[str]   = None
+    brokerage_plan_equity_id: Optional[int]   = None  # Brokerage plan for equity/options
+    brokerage_plan_futures_id:Optional[int]   = None  # Brokerage plan for futures
+    aadhar_doc:               Optional[str]   = None
+    cancelled_cheque_doc:     Optional[str]   = None
+    pan_card_doc:             Optional[str]   = None
+
+
+class AddFundsRequest(BaseModel):
+    amount: float
+    note:   str = ""
+
+
+# ── Endpoints ──────────────────────────────────────────────────────────────
+
+@router.post("/credentials/rotate")
+async def rotate_access_token(req: TokenRotateRequest):
+    """Manually paste a new DhanHQ access token (fallback when TOTP is not set)."""
+    await rotate_token(req.access_token, reconnect=req.reconnect_ws)
+    return {"success": True, "message": "Token rotated."}
+
+
+@router.get("/credentials")
+@router.get("/credentials/")
+async def get_credentials():
+    """Return current client_id (token masked for safety)."""
+    token = get_access_token()
+    return {
+        "client_id":    get_client_id(),
+        "token_masked": f"****{token[-6:]}" if token else "(not set)",
+    }
+
+
+# ── Auth mode (auto_totp ⇄ manual) ──────────────────────────────────────
+
+@router.get("/auth-mode")
+async def get_auth_mode_status():
+    """
+    Returns which auth mode is currently active and what each mode means.
+    effective_mode values:
+      'auto_totp'  — running normally, token auto-renewed
+      'manual'     — admin has paused TOTP; paste token via /credentials/rotate
+      'disabled'   — TOTP not configured in .env; manual-only for this instance
+    """
+    return {
+        "effective_mode": token_refresher.effective_mode,
+        "db_mode":        get_auth_mode(),
+        "totp_configured": token_refresher.is_enabled,
+        "description": {
+            "auto_totp": "System automatically generates and renews the DhanHQ token using TOTP+PIN. No manual action needed.",
+            "manual":    "Auto-refresh is PAUSED. Admin must paste a fresh 24-hour token via POST /admin/credentials/rotate.",
+        },
+    }
+
+
+@router.post("/auth-mode")
+async def switch_auth_mode(req: AuthModeRequest):
+    """
+    Switch between auto_totp and manual token auth modes.
+
+    **auto_totp** (default): System generates a new token immediately via TOTP
+    and continues renewing it automatically every ~22 hours.
+
+    **manual** (emergency fallback): Pauses the auto-refresh. You must manually
+    paste a fresh token via POST /admin/credentials/rotate before the current
+    token expires.
+    """
+    mode = req.mode
+    if mode not in ("auto_totp", "manual"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="mode must be 'auto_totp' or 'manual'.",
+        )
+
+    if mode == "manual":
+        await token_refresher.pause()
+        await set_auth_mode("manual")
+        expiry = get_token_expiry()
+        from datetime import timezone as tz
+        remaining = ""
+        if expiry:
+            secs = max(0, int((expiry - __import__('datetime').datetime.now(tz=tz.utc)).total_seconds()))
+            remaining = f"{secs // 3600}h {(secs % 3600) // 60}m remaining"
+        return {
+            "success": True,
+            "mode": "manual",
+            "message": (
+                "Auto token refresh PAUSED. "
+                f"Current token expires in {remaining}. "
+                "Use POST /admin/credentials/rotate to paste a new token before it expires."
+            ),
+        }
+
+    # mode == 'auto_totp'
+    if not token_refresher.is_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Cannot switch to auto_totp: TOTP credentials are not configured. "
+                "Set DHAN_PIN and DHAN_TOTP_SECRET in .env and restart the service."
+            ),
+        )
+    try:
+        await token_refresher.resume()
+        await set_auth_mode("auto_totp")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+    expiry = get_token_expiry()
+    return {
+        "success": True,
+        "mode": "auto_totp",
+        "message": "Auto token refresh RESUMED. A fresh token was generated immediately.",
+        "new_expiry": expiry.isoformat() if expiry else None,
+    }
+
+
+# ── Token status & TOTP force-refresh ───────────────────────────────────
+
+@router.get("/token/status")
+@router.get("/token/status/")
+async def token_status():
+    """Show the current token's expiry, time remaining, and active auth mode."""
+    expiry = get_token_expiry()
+    now    = datetime.now(tz=timezone.utc)
+    if expiry:
+        remaining_s = max(0, int((expiry - now).total_seconds()))
+        remaining_h = remaining_s // 3600
+        remaining_m = (remaining_s % 3600) // 60
+    else:
+        remaining_s = remaining_h = remaining_m = None
+
+    return {
+        "effective_mode":  token_refresher.effective_mode,
+        "totp_configured": token_refresher.is_enabled,
+        "token_expiry_utc": expiry.isoformat() if expiry else None,
+        "time_remaining": (
+            f"{remaining_h}h {remaining_m}m" if remaining_s is not None else "unknown"
+        ),
+        "expiring_soon": is_token_expiring_soon(within_minutes=120),
+    }
+
+
+@router.post("/token/refresh")
+async def force_token_refresh():
+    """
+    Immediately force a TOTP-based token refresh.
+    Returns an error if TOTP is not configured.
+    """
+    if not token_refresher.is_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "TOTP auto-refresh is not configured. "
+                "Set DHAN_PIN and DHAN_TOTP_SECRET in .env to enable it."
+            ),
+        )
+    result = await token_refresher.refresh_now()
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Token refresh failed: {result.get('reason', 'unknown error')}",
+        )
+    return result
+
+
+@router.get("/ws/status")
+@router.get("/ws/status/")
+async def ws_status():
+    """Current WebSocket slot health summary."""
+    live_feed_status = ws_manager.get_status()
+    depth_status     = depth_ws_manager.get_status()
+    return {
+        "live_feed_slots":    live_feed_status,
+        "depth_ws":           depth_status,
+        "pending_orders":     __import__("app.execution_simulator.order_queue_manager",
+                                         fromlist=["pending_count"]).pending_count(),
+    }
+
+
+@router.get("/subscriptions")
+async def subscription_stats():
+    """Instrument counts per WS slot."""
+    stats = _sub_mgr.get_stats()
+    return stats
+
+
+@router.post("/mode")
+async def toggle_mode(req: ModeToggleRequest):
+    """Switch between PAPER and LIVE (data-only) mode."""
+    set_mock_mode(req.paper_mode)
+    return {"paper_mode": is_mock_mode()}
+
+
+@router.get("/mode")
+@router.get("/mode/")
+async def get_mode():
+    return {"paper_mode": is_mock_mode()}
+
+
+@router.post("/greeks/interval")
+@router.post("/greeks/interval/")
+async def set_greeks_interval(req: GreeksIntervalRequest):
+    """Override the Greeks poll interval at runtime (min 15s)."""
+    if req.seconds < 15:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Minimum Greeks poll interval is 15 seconds (DhanHQ rate limit).",
+        )
+    await greeks_poller.set_interval(req.seconds)
+    return {"greeks_poll_seconds": req.seconds}
+
+
+@router.get("/users")
+@router.get("/users/")
+async def list_users(
+    caller: CurrentUser = Depends(get_admin_user),
+):
+    """
+    List all users with profile fields + wallet balance.
+    SUPER_ADMIN sees everyone; ADMIN sees USER + ADMIN only.
+    """
+    from app.database import get_pool as _get_pool
+    pool = _get_pool()
+
+    base_q = """
+        SELECT u.user_no, u.id, u.first_name, u.last_name, u.email,
+               u.mobile, u.role, u.status, u.is_active, u.created_at,
+               u.address, u.country, u.state, u.city,
+               u.aadhar_number, u.pan_number, u.upi, u.bank_account,
+               u.brokerage_plan,
+               (u.aadhar_doc IS NOT NULL)           AS has_aadhar_doc,
+               (u.cancelled_cheque_doc IS NOT NULL) AS has_cheque_doc,
+               (u.pan_card_doc IS NOT NULL)         AS has_pan_doc,
+               COALESCE(pa.balance, 0)              AS wallet_balance,
+               COALESCE(pa.margin_allotted, 0)      AS margin_allotted
+        FROM users u
+        LEFT JOIN paper_accounts pa ON pa.user_id = u.id
+    """
+    if caller.role == "SUPER_ADMIN":
+        rows = await pool.fetch(base_q + "ORDER BY u.user_no")
+    else:
+        rows = await pool.fetch(
+            base_q + "WHERE u.role IN ('USER', 'ADMIN') ORDER BY u.user_no"
+        )
+
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["id"] = str(d["id"])
+        d["wallet_balance"] = float(d.get("wallet_balance") or 0)
+        d["margin_allotted"] = float(d.get("margin_allotted") or 0)
+        if d.get("created_at"):
+            d["created_at"] = d["created_at"].isoformat()
+        result.append(d)
+    return {"data": result}
+
+
+# ── Scheduler control (Super Admin) ─────────────────────────────────────────
+
+
+@router.get("/schedulers")
+async def list_schedulers(
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    from app.runtime.scheduler_api import get_scheduler_snapshot
+
+    return await get_scheduler_snapshot()
+
+
+@router.post("/schedulers/{name}/{action}")
+async def control_scheduler(
+    name: str,
+    action: str,
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    from app.runtime.scheduler_api import scheduler_action
+
+    action = (action or "").lower().strip()
+    if action not in ("start", "stop", "refresh", "auto"):
+        raise HTTPException(status_code=400, detail="Invalid action")
+
+    res = await scheduler_action(name, action)
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("detail") or "Action failed")
+    return res
+
+
+@router.get("/users/{user_id}")
+@router.get("/users/{user_id}/")
+async def get_user(
+    user_id: str,
+    caller:  CurrentUser = Depends(get_admin_user),
+):
+    """Return full user record including base64 document fields."""
+    from app.database import get_pool as _get_pool
+    pool = _get_pool()
+    row = await pool.fetchrow(
+        """
+        SELECT u.*, COALESCE(pa.balance, 0) AS wallet_balance,
+               COALESCE(pa.margin_allotted, 0) AS margin_allotted
+        FROM users u
+        LEFT JOIN paper_accounts pa ON pa.user_id = u.id
+        WHERE u.id = $1::uuid
+        """,
+        user_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    # ADMIN cannot see SUPER_USER / SUPER_ADMIN rows
+    if caller.role == "ADMIN" and row["role"] not in ("USER", "ADMIN"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions.")
+
+    d = dict(row)
+    d["id"] = str(d["id"])
+    d["wallet_balance"] = float(d.get("wallet_balance") or 0)
+    d["margin_allotted"] = float(d.get("margin_allotted") or 0)
+    if d.get("created_at"):
+        d["created_at"] = d["created_at"].isoformat()
+    # Remove password hash from response
+    d.pop("password_hash", None)
+    return d
+
+
+@router.post("/users", status_code=201)
+@router.post("/users/", status_code=201)
+async def create_user(
+    req:    CreateUserRequest,
+    caller: CurrentUser = Depends(get_admin_user),
+):
+    """Create a new user.  ADMIN can only assign USER or ADMIN roles."""
+    from app.database import get_pool as _get_pool
+    pool = _get_pool()
+
+    # Role enforcement
+    allowed_roles = _ADMIN_CREATABLE_ROLES if caller.role == "ADMIN" else _ALL_ROLES
+    if req.role not in allowed_roles:
+        raise HTTPException(
+            status_code=403,
+            detail=f"You cannot assign role '{req.role}'.",
+        )
+    if req.status not in _ALLOWED_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status '{req.status}'.")
+
+    # Mobile uniqueness check
+    exists = await pool.fetchval(
+        "SELECT 1 FROM users WHERE mobile = $1", req.mobile
+    )
+    if exists:
+        raise HTTPException(status_code=409, detail="Mobile number already registered.")
+
+    pw_hash   = _bcrypt.hashpw(req.password.encode(), _bcrypt.gensalt()).decode()
+    full_name = f"{req.first_name} {req.last_name}".strip()
+    is_active = req.status == "ACTIVE"
+
+    # Set default brokerage plans if not provided
+    equity_plan_id = req.brokerage_plan_equity_id
+    futures_plan_id = req.brokerage_plan_futures_id
+    
+    if equity_plan_id is None:
+        default_equity = await pool.fetchval(
+            "SELECT plan_id FROM brokerage_plans WHERE plan_code = 'PLAN_A' AND instrument_group = 'EQUITY_OPTIONS' LIMIT 1"
+        )
+        equity_plan_id = default_equity
+    
+    if futures_plan_id is None:
+        default_futures = await pool.fetchval(
+            "SELECT plan_id FROM brokerage_plans WHERE plan_code = 'PLAN_A_FUTURES' AND instrument_group = 'FUTURES' LIMIT 1"
+        )
+        futures_plan_id = default_futures
+
+    row = await pool.fetchrow(
+        """
+        INSERT INTO users
+            (name, first_name, last_name, email, mobile, password_hash,
+             role, status, is_active,
+             address, country, state, city,
+             aadhar_number, pan_number, upi, bank_account,
+             brokerage_plan_equity_id, brokerage_plan_futures_id,
+             aadhar_doc, cancelled_cheque_doc, pan_card_doc)
+        VALUES
+            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+        RETURNING id, user_no
+        """,
+        full_name, req.first_name, req.last_name, req.email, req.mobile, pw_hash,
+        req.role, req.status, is_active,
+        req.address, req.country, req.state, req.city,
+        req.aadhar_number, req.pan_number, req.upi, req.bank_account,
+        equity_plan_id, futures_plan_id,
+        req.aadhar_doc, req.cancelled_cheque_doc, req.pan_card_doc,
+    )
+
+    user_id = row["id"]
+
+    # Create paper_accounts row with initial balance
+    await pool.execute(
+        """
+        INSERT INTO paper_accounts (user_id, display_name, balance, margin_allotted)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (user_id) DO NOTHING
+        """,
+        user_id, full_name, req.initial_balance, req.margin_allotted,
+    )
+
+    # Ledger: opening balance
+    opening = float(req.initial_balance or 0)
+    await pool.execute(
+        """
+        INSERT INTO ledger_entries
+            (user_id, description, debit, credit, balance_after, created_by, ref_type, ref_id)
+        VALUES
+            ($1::uuid, $2, $3, $4, $5, $6::uuid, $7, $8)
+        """,
+        str(user_id),
+        "Opening Balance",
+        abs(opening) if opening < 0 else None,
+        opening if opening > 0 else None,
+        opening,
+        caller.id,
+        "OPENING_BALANCE",
+        str(user_id),
+    )
+
+    return {"success": True, "id": str(user_id), "user_no": row["user_no"]}
+
+
+@router.patch("/users/{user_id}")
+@router.patch("/users/{user_id}/")
+async def update_user(
+    user_id: str,
+    req:     UpdateUserRequest,
+    caller:  CurrentUser = Depends(get_admin_user),
+):
+    """Update user profile / role / status.  ADMIN cannot promote to SUPER_* roles."""
+    from app.database import get_pool as _get_pool
+    pool = _get_pool()
+
+    existing = await pool.fetchrow(
+        "SELECT role, status FROM users WHERE id=$1::uuid", user_id
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    # ADMIN cannot touch SUPER_USER / SUPER_ADMIN rows
+    if caller.role == "ADMIN" and existing["role"] not in ("USER", "ADMIN"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions.")
+
+    # Role change validation
+    if req.role is not None:
+        allowed_roles = _ADMIN_CREATABLE_ROLES if caller.role == "ADMIN" else _ALL_ROLES
+        if req.role not in allowed_roles:
+            raise HTTPException(status_code=403, detail=f"Cannot assign role '{req.role}'.")
+
+    # Status validation
+    if req.status is not None and req.status not in _ALLOWED_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status '{req.status}'.")
+
+    # Build SET clause dynamically — only update provided fields
+    fields: dict = {}
+    if req.first_name           is not None: fields["first_name"]           = req.first_name
+    if req.last_name            is not None: fields["last_name"]            = req.last_name
+    if req.email                is not None: fields["email"]                = req.email
+    if req.mobile               is not None: fields["mobile"]               = req.mobile
+    if req.role                 is not None: fields["role"]                 = req.role
+    if req.status               is not None:
+        fields["status"]    = req.status
+        fields["is_active"] = req.status == "ACTIVE"
+    if req.address              is not None: fields["address"]              = req.address
+    if req.country              is not None: fields["country"]              = req.country
+    if req.state                is not None: fields["state"]                = req.state
+    if req.city                 is not None: fields["city"]                 = req.city
+    if req.aadhar_number        is not None: fields["aadhar_number"]        = req.aadhar_number
+    if req.pan_number           is not None: fields["pan_number"]           = req.pan_number
+    if req.upi                  is not None: fields["upi"]                  = req.upi
+    if req.bank_account         is not None: fields["bank_account"]         = req.bank_account
+    if req.brokerage_plan_equity_id  is not None: fields["brokerage_plan_equity_id"]  = req.brokerage_plan_equity_id
+    if req.brokerage_plan_futures_id is not None: fields["brokerage_plan_futures_id"] = req.brokerage_plan_futures_id
+    if req.aadhar_doc           is not None: fields["aadhar_doc"]           = req.aadhar_doc
+    if req.cancelled_cheque_doc is not None: fields["cancelled_cheque_doc"] = req.cancelled_cheque_doc
+    if req.pan_card_doc         is not None: fields["pan_card_doc"]         = req.pan_card_doc
+
+    margin_updated = False
+    # Margin (stored on paper_accounts, not users)
+    if req.margin_allotted is not None:
+        await pool.execute(
+            """
+            INSERT INTO paper_accounts (user_id, margin_allotted)
+            VALUES ($1::uuid, $2)
+            ON CONFLICT (user_id) DO UPDATE
+                SET margin_allotted = $2
+            """,
+            user_id,
+            float(req.margin_allotted),
+        )
+        margin_updated = True
+
+    if req.password:
+        fields["password_hash"] = _bcrypt.hashpw(
+            req.password.encode(), _bcrypt.gensalt()
+        ).decode()
+
+    # Update name from first+last if either changed
+    first = req.first_name or existing.get("first_name", "")
+    last  = req.last_name  or existing.get("last_name", "")
+    if req.first_name is not None or req.last_name is not None:
+        fields["name"] = f"{first} {last}".strip()
+
+    if not fields:
+        if margin_updated:
+            return {"success": True, "message": "Margin updated."}
+        return {"success": True, "message": "Nothing to update."}
+
+    set_parts = [f"{k} = ${i+2}" for i, k in enumerate(fields)]
+    values    = list(fields.values())
+    await pool.execute(
+        f"UPDATE users SET {', '.join(set_parts)} WHERE id = $1::uuid",
+        user_id, *values,
+    )
+    return {"success": True}
+
+
+@router.post("/users/{user_id}/funds")
+@router.post("/users/{user_id}/funds/")
+async def add_funds(
+    user_id: str,
+    req:     AddFundsRequest,
+    caller:  CurrentUser = Depends(get_admin_user),
+):
+    """Credit or debit a user's paper-trading wallet."""
+    from app.database import get_pool as _get_pool
+    pool = _get_pool()
+
+    if req.amount == 0:
+        raise HTTPException(status_code=400, detail="Amount must be non-zero.")
+
+    await pool.execute(
+        """
+        INSERT INTO paper_accounts (user_id, balance)
+        VALUES ($1::uuid, $2)
+        ON CONFLICT (user_id) DO UPDATE
+            SET balance = paper_accounts.balance + $2
+        """,
+        user_id, req.amount,
+    )
+    new_balance = await pool.fetchval(
+        "SELECT balance FROM paper_accounts WHERE user_id=$1::uuid", user_id
+    )
+
+    # Ledger entry
+    amt = float(req.amount)
+    desc = "Funds Adjustment" + (f": {req.note}" if (req.note or "").strip() else "")
+    await pool.execute(
+        """
+        INSERT INTO ledger_entries
+            (user_id, description, debit, credit, balance_after, created_by, ref_type, ref_id)
+        VALUES
+            ($1::uuid, $2, $3, $4, $5, $6::uuid, $7, $8)
+        """,
+        user_id,
+        desc,
+        abs(amt) if amt < 0 else None,
+        amt if amt > 0 else None,
+        float(new_balance or 0),
+        caller.id,
+        "ADMIN_ADJUSTMENT",
+        user_id,
+    )
+    return {"success": True, "new_balance": float(new_balance or 0)}
+
+
+@router.get("/brokerage-plans")
+@router.get("/brokerage-plans/")
+async def get_brokerage_plans():
+    """Return the fixed list of brokerage plans."""
+    return {"data": BROKERAGE_PLANS}
+
+
+@router.get("/rate-limits")
+async def rate_limit_stats():
+    """
+    Live DhanHQ REST call stats from the universal DhanHttpClient.
+    Shows total calls, throttle events, per-endpoint counts, and
+    current-window call counts relative to each limit.
+    """
+    from app.market_data.rate_limiter import dhan_client
+    return dhan_client.get_stats()
+
+
+# ── Subscription Lists ─────────────────────────────────────────────────────
+
+VALID_LISTS = {"equity", "options_stocks", "futures_stocks", "etf", "mcx_futures", "mcx_options"}
+
+
+@router.get("/subscription-lists/{list_name}")
+async def download_subscription_list(list_name: str):
+    """
+    Download the current subscription list as a CSV file.
+    list_name: equity | options_stocks | futures_stocks | etf | mcx_futures | mcx_options
+    """
+    if list_name not in VALID_LISTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown list '{list_name}'. Valid: {sorted(VALID_LISTS)}",
+        )
+    from app.instruments.scrip_master import get_list_as_csv
+    from fastapi.responses import Response
+    csv_content = await get_list_as_csv(list_name)
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{list_name}.csv"'},
+    )
+
+
+@router.get("/subscription-lists/{list_name}/symbols")
+@router.get("/subscription-lists/{list_name}/symbols/")
+async def get_subscription_list_symbols(list_name: str):
+    """Return the current symbols in a subscription list as JSON."""
+    if list_name not in VALID_LISTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown list '{list_name}'. Valid: {sorted(VALID_LISTS)}",
+        )
+    from app.database import get_pool as _get_pool
+    pool = _get_pool()
+    rows = await pool.fetch(
+        "SELECT symbol FROM subscription_lists WHERE list_name=$1 ORDER BY symbol",
+        list_name,
+    )
+    return {"list_name": list_name, "symbols": [r["symbol"] for r in rows], "count": len(rows)}
+
+
+@router.post("/subscription-lists/{list_name}")
+async def upload_subscription_list(list_name: str, request: Request):
+    """
+    Replace a subscription list with uploaded CSV content and re-classify instruments.
+
+    The CSV must have a header row. The first data column is used (either display
+    names like 'Reliance Industries' or commodity symbols like 'GOLD').
+
+    After replacement the instrument_master tier assignments are updated live.
+    """
+    if list_name not in VALID_LISTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown list '{list_name}'. Valid: {sorted(VALID_LISTS)}",
+        )
+    body = await request.body()
+    if not body:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Request body must contain CSV text.",
+        )
+    try:
+        csv_text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Could not decode body as UTF-8.",
+        )
+
+    from app.instruments.scrip_master import replace_list_from_csv
+    try:
+        imported = await replace_list_from_csv(list_name, csv_text)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    return {"list_name": list_name, "symbols_imported": imported, "success": True}
+
+
+# ── Scrip Master ───────────────────────────────────────────────────────────
+
+@router.post("/scrip-master/refresh")
+async def manual_scrip_master_refresh(request: Request):
+    """
+    Manually trigger a fresh download + reload of the DhanHQ instrument master CSV.
+    Pass ?local=true to reload from the local file instead of downloading from CDN.
+    """
+    use_local: bool = request.query_params.get("local", "false").lower() in ("1", "true", "yes")
+    from app.instruments.scrip_master import refresh_instruments
+    await refresh_instruments(download=not use_local)
+    return {"success": True, "source": "local_file" if use_local else "cdn"}
+
+
+@router.get("/scrip-master/status")
+async def scrip_master_status():
+    """Return last CDN refresh timestamp and instrument counts per tier/segment."""
+    from app.database import get_pool as _get_pool
+    pool = _get_pool()
+
+    # Last refresh time
+    row = await pool.fetchrow(
+        "SELECT value FROM system_config WHERE key='scrip_master_refreshed_at'",
+    )
+    refreshed_at = row["value"] if row else None
+
+    # Counts
+    counts = await pool.fetch(
+        """
+        SELECT
+            COALESCE(tier, 'excluded') AS tier,
+            instrument_type,
+            COUNT(*) AS cnt
+        FROM instrument_master
+        GROUP BY tier, instrument_type
+        ORDER BY tier, instrument_type
+        """,
+    )
+    total = await pool.fetchval("SELECT COUNT(*) FROM instrument_master")
+    subscribed = await pool.fetchval(
+        "SELECT COUNT(*) FROM instrument_master WHERE tier IS NOT NULL",
+    )
+
+    return {
+        "last_refreshed_at": refreshed_at,
+        "total_instruments": total,
+        "subscribed_instruments": subscribed,
+        "breakdown": [dict(r) for r in counts],
+    }
+
+
+# ── SuperAdmin Dashboard convenience endpoints ────────────────────────────
+
+class CredentialsSaveRequest(BaseModel):
+    client_id: str = ""
+    access_token: str = ""
+    api_key: str = ""
+    secret_api: str = ""
+    daily_token: str = ""
+    auth_mode: str = "DAILY_TOKEN"
+
+
+class AuthModeSwitchRequest(BaseModel):
+    """Request to switch authentication mode."""
+    auth_mode: str  # 'static_ip' | 'auto_totp'
+
+
+@router.get("/credentials/active")
+async def get_credentials_active():
+    """Return full credential data for the SuperAdmin dashboard."""
+    token = get_access_token()
+    expiry = get_token_expiry()
+    static_masked = get_static_credentials(masked=True)
+    return {
+        "client_id":   get_client_id(),
+        "token_masked": f"****{token[-6:]}" if token else None,
+        "has_token":   bool(token),
+        "auth_mode":   get_auth_mode(),
+        "last_updated": expiry.isoformat() if expiry else None,
+        "static_configured": is_static_configured(),
+        "static_client_id": static_masked.get("client_id"),
+    }
+
+
+@router.post("/credentials/save")
+async def save_credentials(req: CredentialsSaveRequest):
+    """Save credentials (client_id + access_token) from SuperAdmin dashboard."""
+    from app.credentials.credential_store import update_client_id as _update_client_id
+    if req.client_id:
+        await _update_client_id(req.client_id)
+    if req.client_id and req.api_key and req.secret_api:
+        await update_static_credentials(
+            static_client_id=req.client_id,
+            api_key=req.api_key,
+            api_secret=req.secret_api,
+        )
+    # Accept access_token or daily_token; skip placeholder masks
+    token = req.access_token or req.daily_token
+    if token and not all(c in ("*", "•") for c in token) and len(token) > 8:
+        # For local ops UX: reconnect WS immediately so changes take effect
+        # without requiring a container restart.
+        await rotate_token(token, reconnect=True)
+
+    # If TOTP isn't configured on this instance, keep DB auth_mode consistent.
+    if not token_refresher.is_enabled:
+        try:
+            await set_auth_mode("manual")
+        except Exception:
+            pass
+    return {"success": True, "message": "Credentials saved."}
+
+
+@router.post("/auth-mode/switch")
+async def switch_auth_mode(req: AuthModeSwitchRequest):
+    """
+    Switch authentication mode and verify the change.
+    
+    Modes:
+    - 'static_ip': Use API Key + Secret with HMAC-SHA256 signatures
+    - 'auto_totp': Use Daily Token with auto-refresh
+    """
+    target_mode = req.auth_mode.lower()
+    
+    # Validate mode
+    if target_mode not in ("static_ip", "auto_totp"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid auth_mode: {target_mode!r}. Use 'static_ip' or 'auto_totp'.",
+        )
+    
+    current_mode = get_active_auth_mode()
+    
+    # Already in requested mode?
+    if current_mode == target_mode:
+        return {
+            "success": True,
+            "message": f"Already in {target_mode} mode.",
+            "mode": target_mode,
+            "verification": "no_change",
+        }
+    
+    # Validate preconditions
+    if target_mode == "static_ip":
+        if not is_static_configured():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Static IP credentials not configured. Save API Key + Secret first.",
+            )
+    elif target_mode == "auto_totp":
+        if not get_access_token():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Daily Token not available. Save access token first.",
+            )
+    
+    # Set new mode
+    await set_auth_mode(target_mode)
+    
+    # Verify the new mode works
+    verification_result = "pending"
+    verification_error = None
+    
+    try:
+        if target_mode == "static_ip":
+            # Verify via GET /profile call
+            resp = await dhan_client.verify_static_auth()
+            if resp.status_code == 200:
+                verification_result = "success"
+            else:
+                verification_result = "failed"
+                verification_error = f"HTTP {resp.status_code}: {resp.text[:100]}"
+                # Fallback to auto_totp on verification failure
+                await set_auth_mode("auto_totp")
+        elif target_mode == "auto_totp":
+            # Token refresher will start automatically
+            # Request should succeed on next use
+            if token_refresher.is_enabled:
+                await token_refresher.start()
+            verification_result = "success"
+    except Exception as exc:
+        verification_result = "error"
+        verification_error = str(exc)
+        # Fallback to previous mode on error
+        await set_auth_mode(current_mode)
+    
+    # Reset failure counter on successful mode switch
+    if verification_result == "success":
+        try:
+            await static_auth_monitor.reset_failures()
+        except Exception:
+            pass
+    
+    return {
+        "success": verification_result in ("success", "pending"),
+        "message": f"Switched to {target_mode} mode.",
+        "previous_mode": current_mode,
+        "current_mode": get_active_auth_mode(),
+        "verification": verification_result,
+        "error": verification_error,
+    }
+
+
+@router.get("/auth-status")
+async def get_auth_status():
+    """
+    Return full authentication status for admin diagnostics.
+    """
+    auth_mode = get_active_auth_mode()
+    failure_count = static_auth_monitor.get_failure_count()
+    last_failure = static_auth_monitor.get_last_failure_time()
+    
+    token = get_access_token()
+    token_expiry = get_token_expiry()
+    static_creds = get_static_credentials(masked=True)
+    
+    return {
+        "mode": auth_mode,
+        "static_configured": is_static_configured(),
+        "static_client_id": static_creds.get("client_id"),
+        "daily_token": {
+            "has_token": bool(token),
+            "masked": f"****{token[-6:]}" if token else None,
+            "expiry": token_expiry.isoformat() if token_expiry else None,
+            "expiring_soon": is_token_expiring_soon(120) if token else False,
+        },
+        "monitor": {
+            "enabled": is_static_configured(),
+            "failure_count": failure_count,
+            "failure_threshold": 3,
+            "last_failure": last_failure.isoformat() if last_failure else None,
+            "status": "monitoring" if is_static_configured() else "disabled",
+        },
+        "token_refresher": {
+            "enabled": token_refresher.is_enabled,
+            "running": token_refresher._task is not None and not token_refresher._task.done() if token_refresher._task else False,
+        },
+    }
+
+
+@router.post("/auth-mode/reattempt")
+async def reattempt_auth_mode():
+    """
+    Reset failure counter and reattempt the current auth mode.
+    Use this after fixing the underlying issue (e.g., IP whitelist restored).
+    """
+    current_mode = get_active_auth_mode()
+    failure_count_before = static_auth_monitor.get_failure_count()
+    
+    # Reset failure counter
+    await static_auth_monitor.reset_failures()
+    
+    # Verify current mode still works
+    verification_result = "pending"
+    verification_error = None
+    
+    try:
+        if current_mode == "static_ip":
+            resp = await dhan_client.verify_static_auth()
+            if resp.status_code == 200:
+                verification_result = "success"
+            else:
+                verification_result = "failed"
+                verification_error = f"HTTP {resp.status_code}: {resp.text[:100]}"
+        elif current_mode == "auto_totp":
+            # Token refresher should work if token is valid
+            if get_access_token():
+                verification_result = "success"
+            else:
+                verification_result = "failed"
+                verification_error = "No access token available"
+    except Exception as exc:
+        verification_result = "error"
+        verification_error = str(exc)
+    
+    return {
+        "success": verification_result in ("success", "pending"),
+        "message": f"Reattempted {current_mode} mode.",
+        "mode": current_mode,
+        "failure_count_before": failure_count_before,
+        "failure_count_after": 0,
+        "verification": verification_result,
+        "error": verification_error,
+    }
+
+
+@router.get("/notifications")
+async def get_notifications(
+    limit: int = 50,
+    category: Optional[str] = None,
+    severity: Optional[str] = None,
+    unread_only: bool = False,
+):
+    """Return system notifications for admin dashboard."""
+    from app.database import get_pool
+    
+    pool = get_pool()
+    
+    # Build query conditionally
+    conditions = []
+    params = []
+    param_idx = 1
+    
+    if category:
+        conditions.append(f"category = ${param_idx}")
+        params.append(category)
+        param_idx += 1
+    
+    if severity:
+        conditions.append(f"severity = ${param_idx}")
+        params.append(severity)
+        param_idx += 1
+    
+    if unread_only:
+        conditions.append("read_at IS NULL")
+    
+    where_clause = ""
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+    
+    params.append(limit)
+    
+    query = f"""
+        SELECT id, category, severity, title, message, details, 
+               created_at, read_at, acknowledged_by, acknowledged_at
+        FROM system_notifications
+        {where_clause}
+        ORDER BY created_at DESC
+        LIMIT ${param_idx}
+    """
+    
+    rows = await pool.fetch(query, *params)
+    
+    notifications = []
+    for row in rows:
+        notifications.append({
+            "id": row["id"],
+            "category": row["category"],
+            "severity": row["severity"],
+            "title": row["title"],
+            "message": row["message"],
+            "details": row["details"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "read_at": row["read_at"].isoformat() if row["read_at"] else None,
+            "acknowledged_by": row["acknowledged_by"],
+            "acknowledged_at": row["acknowledged_at"].isoformat() if row["acknowledged_at"] else None,
+        })
+    
+    return notifications
+
+
+@router.get("/market-config")
+async def get_market_config():
+    """Return current market hours configuration."""
+    import json as _json
+    from app.database import get_pool as _get_pool
+    pool = _get_pool()
+    rows = await pool.fetch(
+        "SELECT key, value FROM system_config WHERE key LIKE 'market_hours_%'"
+    )
+    if rows:
+        config: dict = {}
+        for row in rows:
+            exchange = row["key"].replace("market_hours_", "").upper()
+            try:
+                config[exchange] = _json.loads(row["value"])
+            except Exception:
+                pass
+        if config:
+            return config
+    return {
+        "NSE": {"open": "09:15", "close": "15:30", "days": [0, 1, 2, 3, 4]},
+        "BSE": {"open": "09:15", "close": "15:30", "days": [0, 1, 2, 3, 4]},
+        "MCX": {"open": "09:00", "close": "23:55", "days": [0, 1, 2, 3, 4]},
+    }
+
+
+@router.post("/market-config")
+async def save_market_config(request: Request):
+    """Persist market hours configuration."""
+    import json as _json
+    from app.database import get_pool as _get_pool
+    data = await request.json()
+    pool = _get_pool()
+    for exchange, cfg_val in data.items():
+        await pool.execute(
+            """
+            INSERT INTO system_config (key, value)
+            VALUES ($1, $2)
+            ON CONFLICT (key) DO UPDATE
+              SET value = EXCLUDED.value, updated_at = now()
+            """,
+            f"market_hours_{exchange.lower()}",
+            _json.dumps(cfg_val),
+        )
+    return {"success": True}
+
+
+@router.post("/reload-scrip-master")
+async def reload_scrip_master_alias(request: Request):
+    """Alias — reloads instrument master from local CSV (no CDN download)."""
+    from app.instruments.scrip_master import refresh_instruments
+    await refresh_instruments(download=False)
+    return {"success": True, "message": "Instrument master reloaded from local file."}
+
+
+@router.post("/diagnose-login")
+async def diagnose_login(request: Request):
+    """Look up a user by mobile number and return their auth status."""
+    from app.database import get_pool as _get_pool
+    data = await request.json()
+    identifier = data.get("identifier", "").strip()
+    if not identifier:
+        raise HTTPException(status_code=400, detail="identifier is required")
+    pool = _get_pool()
+    row = await pool.fetchrow(
+        "SELECT id, name, mobile, role, is_active FROM users WHERE mobile = $1",
+        identifier,
+    )
+    if not row:
+        return {"found": False, "detail": "User not found in database."}
+    return {
+        "found":    True,
+        "user_id":  str(row["id"]),
+        "name":     row["name"],
+        "mobile":   row["mobile"],
+        "role":     row["role"],
+        "is_active": row["is_active"],
+        "detail":   "User found." if row["is_active"] else "User account is inactive.",
+    }
+
+
+@router.post("/backdate-position")
+async def backdate_position(request: Request):
+    """Stub — backdated position creation not yet implemented."""
+    return {"success": False, "detail": "Backdate position not yet implemented."}
+
+
+@router.post("/force-exit")
+async def force_exit(request: Request):
+    """Stub — force-exit not yet implemented."""
+    return {"success": False, "detail": "Force exit not yet implemented."}
+
+
+@router.post("/upload-nse-files")
+async def upload_nse_files(request: Request):
+    """Stub — NSE margin file upload not yet implemented."""
+    return {"success": True, "message": "File upload acknowledged (processing not yet implemented)."}
+
+
+# ── Dhan runtime connect / disconnect / status ────────────────────────────
+
+@router.get("/dhan/status")
+async def dhan_connection_status():
+    """
+    Return real-time Dhan connection state without triggering anything.
+    Useful for the admin dashboard to poll and show connection health.
+    """
+    from app.market_data.websocket_manager import ws_manager
+    from app.market_data.tick_processor    import tick_processor
+    from app.credentials.credential_store  import get_client_id, get_access_token
+
+    has_credentials = bool(get_client_id() and get_access_token())
+    slots = ws_manager.get_status()
+    any_connected = any(s.get("connected") for s in slots)
+    tick_active   = tick_processor._task is not None and not tick_processor._task.done()
+
+    return {
+        "has_credentials": has_credentials,
+        "connected":       any_connected,
+        "tick_processor":  tick_active,
+        "slots":           slots,
+    }
+
+
+@router.post("/dhan/connect")
+async def dhan_connect():
+    """
+    Start all Dhan outbound connections at runtime.
+    Safe to call even when DISABLE_DHAN_WS=true — this is an explicit admin override.
+    Safe to call repeatedly — already-running tasks are left untouched.
+    """
+    from app.market_data.websocket_manager import ws_manager
+    from app.market_data.depth_ws_manager  import depth_ws_manager
+    from app.market_data.tick_processor    import tick_processor
+    from app.market_data.greeks_poller     import greeks_poller
+    from app.credentials.credential_store  import get_client_id, get_access_token
+    from app.credentials.token_refresher   import token_refresher
+    from app.instruments import subscription_manager as sm
+
+    if not get_client_id() or not get_access_token():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Client ID and Access Token must be saved before connecting.",
+        )
+
+    started: list[str] = []
+    # 0. Ensure Tier-B subscription map exists (idempotent)
+    try:
+        stats = sm.get_stats()
+        if (stats.get("total_tokens") or 0) == 0:
+            await sm.initialise_tier_b()
+            started.append("tier_b_init")
+    except Exception:
+        # If tier-b init fails, we can still start services; WS will simply have no tokens.
+        pass
+
+
+    # 1. Token refresher (only if TOTP is configured)
+    if token_refresher.is_enabled:
+        if token_refresher._task is None or token_refresher._task.done():
+            await token_refresher.start()
+            started.append("token_refresher")
+
+    # 2. Tick processor
+    if tick_processor._task is None or tick_processor._task.done():
+        await tick_processor.start()
+        started.append("tick_processor")
+
+    # 3. Live-feed WebSocket manager (5 slots)
+    need_ws_start = any(
+        conn._task is None or conn._task.done()
+        for conn in ws_manager._conns
+    )
+    if need_ws_start:
+        # Stop any partially-started connections first to avoid duplicate tasks
+        await ws_manager.stop_all()
+        await ws_manager.start_all()
+        started.append("ws_manager (5 slots)")
+
+    # 4. Full-depth WebSocket manager
+    if depth_ws_manager._task is None or depth_ws_manager._task.done():
+        from app.database import get_pool as _get_pool
+        from app.config   import get_settings as _get_settings
+        _cfg = _get_settings()
+        pool = _get_pool()
+        depth_rows = await pool.fetch(
+            """
+            SELECT instrument_token FROM instrument_master
+            WHERE underlying = ANY($1::text[])
+              AND instrument_type IN ('FUTIDX','OPTIDX')
+            LIMIT 10
+            """,
+            _cfg.depth_20_underlying,
+        )
+        depth_tokens = [r["instrument_token"] for r in depth_rows]
+        await depth_ws_manager.start(depth_tokens)
+        started.append("depth_ws_manager")
+
+    # 5. Greeks poller
+    if greeks_poller._task is None or greeks_poller._task.done():
+        await greeks_poller.build_skeleton()
+        await greeks_poller.start()
+        started.append("greeks_poller")
+
+    return {
+        "success": True,
+        "started": started,
+        "message": (
+            f"Started: {', '.join(started)}" if started
+            else "All services already running — no action taken."
+        ),
+    }
+
+
+@router.post("/dhan/disconnect")
+async def dhan_disconnect():
+    """Stop all Dhan outbound connections."""
+    from app.market_data.websocket_manager import ws_manager
+    from app.market_data.depth_ws_manager  import depth_ws_manager
+    from app.market_data.tick_processor    import tick_processor
+    from app.market_data.greeks_poller     import greeks_poller
+    from app.credentials.token_refresher   import token_refresher
+
+    await greeks_poller.stop()
+    await token_refresher.stop()
+    await depth_ws_manager.stop()
+    await ws_manager.stop_all()
+    await tick_processor.stop()
+
+    return {"success": True, "message": "All Dhan connections stopped."}
+
+
+# ── Positions user-wise ────────────────────────────────────────────────────
+
+@router.get("/positions/userwise")
+async def positions_userwise(
+    current_user: CurrentUser = Depends(get_admin_user),
+):
+    """
+    Returns every user with their per-user P&L summary plus their positions
+    (OPEN always shown; CLOSED only if closed_at >= today's start in IST).
+    """
+    from app.database import get_pool as _get_pool
+    pool = _get_pool()
+
+    rows = await pool.fetch(
+        """
+        WITH ist_today AS (
+            -- Start-of-day in IST (UTC+5:30) converted back to UTC for comparison
+            SELECT (date_trunc('day', NOW() AT TIME ZONE 'Asia/Kolkata')
+                    AT TIME ZONE 'Asia/Kolkata') AS day_start
+        ),
+        filtered_pos AS (
+            SELECT
+                pp.*,
+                COALESCE(md.ltp, pp.avg_price)                               AS ltp,
+                COALESCE((md.ltp - pp.avg_price) * pp.quantity, 0)           AS mtm_calc
+            FROM paper_positions pp
+            LEFT JOIN market_data md ON md.instrument_token = pp.instrument_token
+            CROSS JOIN ist_today
+            WHERE
+                pp.status = 'OPEN'
+                OR (
+                    pp.status = 'CLOSED'
+                    AND pp.closed_at IS NOT NULL
+                    AND pp.closed_at >= ist_today.day_start
+                )
+        )
+        SELECT
+            u.id::text                                                        AS user_id,
+            u.user_no,
+            COALESCE(
+                NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''),
+                u.name,
+                u.mobile
+            )                                                                 AS display_name,
+            u.mobile,
+            COALESCE(pa.balance, 0)                                           AS wallet_balance,
+            -- P&L summary
+            COALESCE(SUM(fp.realized_pnl), 0)                                AS profit,
+            COALESCE(SUM(fp.avg_price * fp.quantity)
+                FILTER (WHERE fp.status = 'OPEN'), 0)                        AS trial_by,
+            COALESCE(SUM(fp.ltp * fp.quantity)
+                FILTER (WHERE fp.status = 'OPEN'), 0)                        AS trial_after,
+            pa.balance                                                        AS fund,
+            COALESCE(pa.margin_allotted, 0)                                   AS margin_allotted,
+            COALESCE(SUM(
+                CASE
+                    WHEN (fp.exchange_segment ILIKE '%OPT%' OR fp.symbol ILIKE '%CE' OR fp.symbol ILIKE '%PE')
+                        THEN fp.ltp * ABS(fp.quantity)
+                    WHEN (fp.exchange_segment ILIKE '%FUT%' OR fp.symbol ILIKE '%FUT%')
+                        THEN fp.ltp * ABS(fp.quantity) * 0.15
+                    WHEN UPPER(COALESCE(fp.product_type,'MIS')) IN ('MIS','INTRADAY')
+                        THEN fp.ltp * ABS(fp.quantity) * 0.20
+                    ELSE fp.ltp * ABS(fp.quantity) * 1.0
+                END
+            ) FILTER (WHERE fp.status = 'OPEN' AND fp.quantity != 0), 0)     AS current_margin_usage,
+            COALESCE(SUM(fp.realized_pnl), 0)
+                + COALESCE(SUM(fp.mtm_calc) FILTER (WHERE fp.status = 'OPEN'), 0) AS pandl,
+            -- Positions JSON
+            COALESCE(
+                JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'instrument_token', fp.instrument_token,
+                        'symbol',         fp.symbol,
+                        'exchange',       fp.exchange_segment,
+                        'product_type',   fp.product_type,
+                        'quantity',       fp.quantity,
+                        'avg_price',      fp.avg_price,
+                        'ltp',            fp.ltp,
+                        'pnl',            CASE
+                                              WHEN fp.status = 'OPEN'
+                                              THEN fp.mtm_calc
+                                              ELSE fp.realized_pnl
+                                          END,
+                        'status',         fp.status,
+                        'opened_at',      fp.opened_at,
+                        'closed_at',      fp.closed_at
+                    )
+                    ORDER BY fp.opened_at DESC
+                ) FILTER (WHERE fp.instrument_token IS NOT NULL),
+                '[]'::json
+            )                                                                 AS positions
+        FROM users u
+        LEFT JOIN paper_accounts pa  ON pa.user_id  = u.id
+        LEFT JOIN filtered_pos   fp  ON fp.user_id  = u.id
+        GROUP BY u.id, u.user_no, u.name, u.first_name, u.last_name, u.mobile, pa.balance, pa.margin_allotted
+        ORDER BY u.user_no NULLS LAST
+        """
+    )
+
+    result = []
+    for r in rows:
+        pandl = float(r["pandl"] or 0)
+        fund  = float(r["fund"]  or 0)
+        pandl_pct = round(pandl / abs(fund) * 100, 2) if fund else 0.0
+        result.append({
+            "user_id":             r["user_id"],
+            "user_no":             r["user_no"],
+            "display_name":        r["display_name"],
+            "mobile":              r["mobile"],
+            "wallet_balance":      float(r["wallet_balance"] or 0),
+            "profit":              float(r["profit"] or 0),
+            "stop_loss":           0.0,
+            "trial_by":            float(r["trial_by"] or 0),
+            "trial_after":         float(r["trial_after"] or 0),
+            "fund":                float(r["fund"] or 0),
+            "margin_allotted":     float(r["margin_allotted"] or 0),
+            "current_margin_usage":float(r["current_margin_usage"] or 0),
+            "pandl":               pandl,
+            "pandl_pct":           pandl_pct,
+            "positions":           r["positions"] if isinstance(r["positions"], list) else [],
+        })
+    return {"data": result}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  BROKERAGE PLAN MANAGEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+class BrokeragePlanCreate(BaseModel):
+    plan_code: str
+    plan_name: str
+    instrument_group: str  # 'EQUITY_OPTIONS' or 'FUTURES'
+    flat_fee: float = 20.0
+    percent_fee: float = 0.0  # 0.002 = 0.2%
+
+
+class BrokeragePlanUpdate(BaseModel):
+    plan_name: Optional[str] = None
+    flat_fee: Optional[float] = None
+    percent_fee: Optional[float] = None
+    is_active: Optional[bool] = None
+
+
+class UserBrokeragePlanAssign(BaseModel):
+    equity_plan_id: Optional[int] = None
+    futures_plan_id: Optional[int] = None
+
+
+@router.get("/brokerage-plans")
+@router.get("/brokerage-plans/")
+async def list_brokerage_plans(
+    current_user: CurrentUser = Depends(get_admin_user),
+    active_only: bool = True
+):
+    """List all brokerage plans."""
+    from app.database import get_pool
+    pool = get_pool()
+    
+    query = "SELECT * FROM brokerage_plans"
+    if active_only:
+        query += " WHERE is_active = TRUE"
+    query += " ORDER BY instrument_group, plan_code"
+    
+    rows = await pool.fetch(query)
+    
+    return {
+        "data": [
+            {
+                "plan_id": r["plan_id"],
+                "plan_code": r["plan_code"],
+                "plan_name": r["plan_name"],
+                "instrument_group": r["instrument_group"],
+                "flat_fee": float(r["flat_fee"]),
+                "percent_fee": float(r["percent_fee"]),
+                "is_active": r["is_active"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.post("/brokerage-plans")
+@router.post("/brokerage-plans/")
+async def create_brokerage_plan(
+    plan: BrokeragePlanCreate,
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    """Create a new brokerage plan (SUPER_ADMIN only)."""
+    from app.database import get_pool
+    pool = get_pool()
+    
+    # Validate instrument_group
+    if plan.instrument_group not in ('EQUITY_OPTIONS', 'FUTURES'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="instrument_group must be 'EQUITY_OPTIONS' or 'FUTURES'"
+        )
+    
+    # Check if plan_code already exists
+    existing = await pool.fetchrow(
+        "SELECT plan_id FROM brokerage_plans WHERE plan_code = $1",
+        plan.plan_code
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Plan code '{plan.plan_code}' already exists"
+        )
+    
+    # Insert new plan
+    row = await pool.fetchrow(
+        """
+        INSERT INTO brokerage_plans (plan_code, plan_name, instrument_group, flat_fee, percent_fee)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING plan_id, plan_code, plan_name, instrument_group, flat_fee, percent_fee, is_active, created_at
+        """,
+        plan.plan_code,
+        plan.plan_name,
+        plan.instrument_group,
+        plan.flat_fee,
+        plan.percent_fee
+    )
+    
+    return {
+        "success": True,
+        "data": {
+            "plan_id": row["plan_id"],
+            "plan_code": row["plan_code"],
+            "plan_name": row["plan_name"],
+            "instrument_group": row["instrument_group"],
+            "flat_fee": float(row["flat_fee"]),
+            "percent_fee": float(row["percent_fee"]),
+            "is_active": row["is_active"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        }
+    }
+
+
+@router.put("/brokerage-plans/{plan_id}")
+async def update_brokerage_plan(
+    plan_id: int,
+    plan: BrokeragePlanUpdate,
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    """Update an existing brokerage plan (SUPER_ADMIN only)."""
+    from app.database import get_pool
+    pool = get_pool()
+    
+    # Check if plan exists
+    existing = await pool.fetchrow(
+        "SELECT * FROM brokerage_plans WHERE plan_id = $1",
+        plan_id
+    )
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Brokerage plan {plan_id} not found"
+        )
+    
+    # Build update query
+    updates = []
+    params = []
+    param_num = 1
+    
+    if plan.plan_name is not None:
+        updates.append(f"plan_name = ${param_num}")
+        params.append(plan.plan_name)
+        param_num += 1
+    
+    if plan.flat_fee is not None:
+        updates.append(f"flat_fee = ${param_num}")
+        params.append(plan.flat_fee)
+        param_num += 1
+    
+    if plan.percent_fee is not None:
+        updates.append(f"percent_fee = ${param_num}")
+        params.append(plan.percent_fee)
+        param_num += 1
+    
+    if plan.is_active is not None:
+        updates.append(f"is_active = ${param_num}")
+        params.append(plan.is_active)
+        param_num += 1
+    
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields to update"
+        )
+    
+    updates.append(f"updated_at = NOW()")
+    params.append(plan_id)
+    
+    query = f"""
+        UPDATE brokerage_plans
+        SET {', '.join(updates)}
+        WHERE plan_id = ${param_num}
+        RETURNING plan_id, plan_code, plan_name, instrument_group, flat_fee, percent_fee, is_active, updated_at
+    """
+    
+    row = await pool.fetchrow(query, *params)
+    
+    return {
+        "success": True,
+        "data": {
+            "plan_id": row["plan_id"],
+            "plan_code": row["plan_code"],
+            "plan_name": row["plan_name"],
+            "instrument_group": row["instrument_group"],
+            "flat_fee": float(row["flat_fee"]),
+            "percent_fee": float(row["percent_fee"]),
+            "is_active": row["is_active"],
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+        }
+    }
+
+
+@router.delete("/brokerage-plans/{plan_id}")
+async def delete_brokerage_plan(
+    plan_id: int,
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    """
+    Delete (deactivate) a brokerage plan (SUPER_ADMIN only).
+    Doesn't actually delete, just marks as inactive.
+    """
+    from app.database import get_pool
+    pool = get_pool()
+    
+    # Check how many users are using this plan
+    user_count = await pool.fetchval(
+        """
+        SELECT COUNT(*) FROM users 
+        WHERE brokerage_plan_equity_id = $1 OR brokerage_plan_futures_id = $1
+        """,
+        plan_id
+    )
+    
+    if user_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot delete plan: {user_count} user(s) are using it. Reassign users first."
+        )
+    
+    # Mark as inactive instead of deleting
+    await pool.execute(
+        "UPDATE brokerage_plans SET is_active = FALSE, updated_at = NOW() WHERE plan_id = $1",
+        plan_id
+    )
+    
+    return {"success": True, "message": f"Brokerage plan {plan_id} deactivated"}
+
+
+@router.post("/users/{user_id}/brokerage-plans")
+async def assign_user_brokerage_plans(
+    user_id: str,
+    plans: UserBrokeragePlanAssign,
+    current_user: CurrentUser = Depends(get_admin_user),
+):
+    """Assign brokerage plans to a user."""
+    from app.database import get_pool
+    pool = get_pool()
+    
+    # Verify user exists
+    user = await pool.fetchrow("SELECT id FROM users WHERE id = $1::uuid", user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User {user_id} not found"
+        )
+    
+    # Verify plans exist
+    if plans.equity_plan_id:
+        equity_plan = await pool.fetchrow(
+            "SELECT plan_code FROM brokerage_plans WHERE plan_id = $1 AND instrument_group = 'EQUITY_OPTIONS'",
+            plans.equity_plan_id
+        )
+        if not equity_plan:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Equity/Options plan {plans.equity_plan_id} not found"
+            )
+    
+    if plans.futures_plan_id:
+        futures_plan = await pool.fetchrow(
+            "SELECT plan_code FROM brokerage_plans WHERE plan_id = $1 AND instrument_group = 'FUTURES'",
+            plans.futures_plan_id
+        )
+        if not futures_plan:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Futures plan {plans.futures_plan_id} not found"
+            )
+    
+    # Update user
+    updates = []
+    params = []
+    param_num = 1
+    
+    if plans.equity_plan_id is not None:
+        updates.append(f"brokerage_plan_equity_id = ${param_num}")
+        params.append(plans.equity_plan_id)
+        param_num += 1
+    
+    if plans.futures_plan_id is not None:
+        updates.append(f"brokerage_plan_futures_id = ${param_num}")
+        params.append(plans.futures_plan_id)
+        param_num += 1
+    
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No plans specified"
+        )
+    
+    params.append(user_id)
+    query = f"UPDATE users SET {', '.join(updates)} WHERE id = ${param_num}::uuid"
+    
+    await pool.execute(query, *params)
+    
+    return {"success": True, "message": f"Brokerage plans assigned to user {user_id}"}
+
+
+@router.get("/charge-calculation/status")
+async def charge_calculation_status(
+    current_user: CurrentUser = Depends(get_admin_user),
+):
+    """Get charge calculation scheduler status."""
+    from app.schedulers.charge_calculation_scheduler import charge_calculation_scheduler
+    return {"data": charge_calculation_scheduler.get_stats()}
+
+
+@router.post("/charge-calculation/run")
+async def run_charge_calculation(
+    current_user: CurrentUser = Depends(get_admin_user),
+    exchanges: Optional[str] = None  # Comma-separated: "NSE,BSE" or "MCX"
+):
+    """Manually trigger charge calculation."""
+    from app.schedulers.charge_calculation_scheduler import charge_calculation_scheduler
+    
+    exchange_list = exchanges.split(',') if exchanges else None
+    result = await charge_calculation_scheduler.run_once(exchanges=exchange_list)
+    
+    return {"success": True, "data": result}

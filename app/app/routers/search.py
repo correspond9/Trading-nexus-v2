@@ -1,0 +1,273 @@
+"""
+app/routers/search.py
+GET /subscriptions/search?tier=TIER_A&q=X
+GET /instruments/search?q=X
+GET /instruments/futures/search?q=X
+GET /options/strikes/search?q=X
+"""
+import logging
+import re
+from typing import Optional
+
+from fastapi import APIRouter, Query
+
+from app.database import get_pool
+from app.instruments.atm_calculator import get_atm
+from app.market_hours import is_market_open
+
+log    = logging.getLogger(__name__)
+router = APIRouter(tags=["Search"])
+
+
+def _fmt_instrument(r) -> dict:
+    d = dict(r)
+    d["instrument_token"] = int(d.get("instrument_token") or 0)
+    # For cash equities, the master CSV's SYMBOL_NAME is a long company name.
+    # The UI expects the short symbol (UNDERLYING_SYMBOL), which we store as `underlying`.
+    if (d.get("instrument_type") or "").upper() == "EQUITY" and d.get("underlying"):
+        d["symbol"] = d["underlying"]
+    # Frontend compatibility: many components expect token/security_id fields.
+    d["token"] = d["instrument_token"]
+    d["security_id"] = str(d["instrument_token"]) if d["instrument_token"] else ""
+    # Optional price fields (when joined).
+    if "ltp" in d:
+        d["ltp"] = float(d["ltp"]) if d.get("ltp") is not None else None
+    if "close" in d:
+        d["close"] = float(d["close"]) if d.get("close") is not None else None
+    if d.get("ltp") is not None and d.get("close") not in (None, 0):
+        try:
+            d["change_pct"] = round((float(d["ltp"]) - float(d["close"])) / float(d["close"]) * 100, 2)
+        except Exception:
+            d["change_pct"] = None
+    if d.get("expiry_date"):
+        d["expiry_date"] = str(d["expiry_date"])
+    return d
+
+
+async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
+    pool = get_pool()
+    sql  = f"""
+     SELECT instrument_token, symbol, exchange_segment,
+         underlying, instrument_type, expiry_date, strike_price, option_type,
+         md.ltp, md.close
+        FROM instrument_master im
+        LEFT JOIN market_data md ON md.instrument_token = im.instrument_token
+     WHERE (symbol ILIKE $1 OR underlying ILIKE $1)
+        {extra_filter}
+        ORDER BY
+            CASE
+                WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
+                WHEN upper(symbol) LIKE ($2 || '%') THEN 1
+                WHEN upper(COALESCE(underlying, '')) LIKE ($2 || '%') THEN 2
+                WHEN upper(symbol) LIKE ('%' || $2 || '%') THEN 3
+                WHEN upper(COALESCE(underlying, '')) LIKE ('%' || $2 || '%') THEN 4
+                ELSE 5
+            END,
+            symbol
+        LIMIT {limit}
+    """
+    q_exact = (q or "").strip().upper()
+    rows = await pool.fetch(sql, f"%{q}%", q_exact)
+    return [_fmt_instrument(r) for r in rows]
+
+
+# ── Subscriptions / tiers ─────────────────────────────────────────────────
+
+@router.get("/subscriptions/search")
+async def subscriptions_search(
+    q:    Optional[str] = Query(default="", alias="q"),
+    tier: Optional[str] = Query(default=None),
+):
+    """
+    Search instruments filtered by subscription tier.
+    tier values: TIER_A, TIER_B, TIER_C, or None for all.
+    """
+    pool = get_pool()
+
+    # Normalise tier → 'A', 'B', 'C'
+    tier_letter: Optional[str] = None
+    if tier:
+        tier_letter = tier.replace("TIER_", "").strip().upper()
+
+    if tier_letter:
+        sql = """
+             SELECT im.instrument_token, im.symbol, im.exchange_segment,
+                 im.underlying, im.instrument_type, im.expiry_date, im.strike_price, im.option_type,
+                 md.ltp, md.close
+            FROM instrument_master im
+            LEFT JOIN market_data md ON md.instrument_token = im.instrument_token
+             WHERE (im.symbol ILIKE $1 OR im.underlying ILIKE $1)
+              AND im.tier = $2
+            ORDER BY
+                CASE
+                    WHEN upper(im.symbol) = $3 OR upper(COALESCE(im.underlying, '')) = $3 THEN 0
+                    WHEN upper(im.symbol) LIKE ($3 || '%') THEN 1
+                    WHEN upper(COALESCE(im.underlying, '')) LIKE ($3 || '%') THEN 2
+                    WHEN upper(im.symbol) LIKE ('%' || $3 || '%') THEN 3
+                    WHEN upper(COALESCE(im.underlying, '')) LIKE ('%' || $3 || '%') THEN 4
+                    ELSE 5
+                END,
+                im.symbol
+            LIMIT 100
+        """
+        rows = await pool.fetch(sql, f"%{q}%", tier_letter, (q or "").strip().upper())
+    else:
+        rows = await pool.fetch(
+            """
+             SELECT im.instrument_token, im.symbol, im.exchange_segment,
+                 im.underlying, im.instrument_type, im.expiry_date, im.strike_price, im.option_type,
+                 md.ltp, md.close
+            FROM instrument_master im
+            LEFT JOIN market_data md ON md.instrument_token = im.instrument_token
+             WHERE (im.symbol ILIKE $1 OR im.underlying ILIKE $1)
+            ORDER BY
+                CASE
+                    WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
+                    WHEN upper(symbol) LIKE ($2 || '%') THEN 1
+                    WHEN upper(COALESCE(underlying, '')) LIKE ($2 || '%') THEN 2
+                    WHEN upper(symbol) LIKE ('%' || $2 || '%') THEN 3
+                    WHEN upper(COALESCE(underlying, '')) LIKE ('%' || $2 || '%') THEN 4
+                    ELSE 5
+                END,
+                symbol
+            LIMIT 100
+            """,
+            f"%{q}%",
+            (q or "").strip().upper(),
+        )
+
+    return {"data": [_fmt_instrument(r) for r in rows]}
+
+
+# ── General instrument search ──────────────────────────────────────────────
+
+@router.get("/instruments/search")
+async def instruments_search(q: str = Query(default="")):
+    return {"data": await _search(q)}
+
+
+@router.get("/instruments/futures/search")
+async def futures_search(q: str = Query(default="")):
+    return {
+        "data": await _search(
+            q,
+            extra_filter="AND instrument_type IN ('FUTIDX','FUTSTK','FUTFUT')",
+        )
+    }
+
+
+@router.get("/options/strikes/search")
+async def option_strikes_search(
+    q:          str           = Query(default=""),
+    underlying: Optional[str] = Query(default=None),
+    expiry:     Optional[str] = Query(default=None),
+):
+    pool = get_pool()
+
+    q_raw = (q or "").strip()
+    q_up = q_raw.upper()
+
+    # Tokenize query so "NIFTY 25550" matches symbols like "NIFTY-Feb2026-25550-CE".
+    tokens = re.findall(r"[A-Z]+|\d+(?:\.\d+)?", q_up)
+    like_pattern = f"%{'%'.join(tokens)}%" if tokens else f"%{q_raw}%"
+
+    strike: Optional[float] = None
+    opt_type: Optional[str] = None
+    for t in tokens:
+        if t in ("CE", "PE"):
+            opt_type = t
+        elif strike is None and re.fullmatch(r"\d+(?:\.\d+)?", t) and len(t.split(".")[0]) >= 3:
+            try:
+                strike = float(t)
+            except Exception:
+                strike = None
+
+    # If user typed an underlying as an alpha token and didn't pass underlying=,
+    # constrain to that exact underlying when it exists.
+    if not underlying:
+        alpha = next((t for t in tokens if re.fullmatch(r"[A-Z]+", t) and t not in ("CE", "PE")), "")
+        if alpha:
+            exists = await pool.fetchval(
+                """
+                SELECT 1
+                FROM instrument_master
+                WHERE underlying = $1
+                  AND instrument_type IN ('OPTIDX','OPTSTK','OPTFUT')
+                LIMIT 1
+                """,
+                alpha,
+            )
+            if exists:
+                underlying = alpha
+
+    parts = ["AND instrument_type IN ('OPTIDX','OPTSTK','OPTFUT')"]
+    args: list = [like_pattern]
+
+    if underlying:
+        parts.append(f"AND underlying = ${len(args)+1}")
+        args.append(underlying.upper())
+    if expiry:
+        parts.append(f"AND expiry_date = ${len(args)+1}::date")
+        args.append(expiry)
+    if strike is not None:
+        parts.append(f"AND strike_price = ${len(args)+1}::numeric")
+        args.append(strike)
+    if opt_type:
+        parts.append(f"AND option_type = ${len(args)+1}")
+        args.append(opt_type)
+
+    filter_str = " ".join(parts)
+
+    atm: Optional[float] = None
+    if underlying:
+        try:
+            atm_raw = get_atm(underlying.upper())
+            atm = float(atm_raw) if atm_raw is not None else None
+        except Exception:
+            atm = None
+
+    # If cached ATM is missing (common when INDEX ticks aren't present),
+    # derive a sensible centre from the nearest futures (close when market is closed).
+    if underlying and atm is None:
+        row = await pool.fetchrow(
+            """
+            SELECT md.ltp, md.close
+            FROM instrument_master im
+            JOIN market_data md ON md.instrument_token = im.instrument_token
+            WHERE im.underlying = $1
+              AND im.instrument_type IN ('FUTIDX','FUTSTK','FUTCOM')
+              AND (md.ltp IS NOT NULL OR md.close IS NOT NULL)
+            ORDER BY
+              (im.expiry_date >= CURRENT_DATE) DESC,
+              im.expiry_date NULLS LAST,
+              md.updated_at DESC
+            LIMIT 1
+            """,
+            underlying.upper(),
+        )
+        if row:
+            market_active = is_market_open("NSE_FNO")
+            val = row["ltp"] if market_active else (row["close"] or row["ltp"])
+            if val is not None:
+                try:
+                    atm = float(val)
+                except Exception:
+                    atm = None
+
+    if atm is not None:
+        order_by = f"ORDER BY ABS(strike_price - ${len(args)+1}::numeric), expiry_date, option_type"
+        args.append(atm)
+    else:
+        order_by = "ORDER BY expiry_date, strike_price, option_type"
+
+    sql = f"""
+         SELECT instrument_token, symbol, exchange_segment,
+             underlying, instrument_type, expiry_date, strike_price, option_type
+        FROM instrument_master
+         WHERE (symbol ILIKE $1 OR underlying ILIKE $1)
+        {filter_str}
+        {order_by}
+        LIMIT 200
+    """
+    rows = await pool.fetch(sql, *args)
+    return {"data": [_fmt_instrument(r) for r in rows]}

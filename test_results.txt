@@ -1,0 +1,64 @@
+
+    ========================================================================
+    COMPREHENSIVE END-TO-END TEST SUITE
+    All Roles | All Pages | All Workflows | State Verify
+    ========================================================================
+    
+
+================================================================================
+TEST SUMMARY
+================================================================================
+
+No tests were run.
+
+
+================================================================================
+Traceback (most recent call last):
+  File "D:\4.PROJECTS\FRESH\trading-nexus\comprehensive_full_e2e_test.py", line 82, in setup
+    print("\u2713 Database pool created")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2713' in position 0: character maps to <undefined>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\4.PROJECTS\FRESH\trading-nexus\comprehensive_full_e2e_test.py", line 547, in run_all_tests
+    await self.setup()
+  File "D:\4.PROJECTS\FRESH\trading-nexus\comprehensive_full_e2e_test.py", line 84, in setup
+    print(f"\u2717 Failed to create database pool: {e}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2717' in position 0: character maps to <undefined>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\4.PROJECTS\FRESH\trading-nexus\comprehensive_full_e2e_test.py", line 604, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "D:\4.PROJECTS\FRESH\trading-nexus\comprehensive_full_e2e_test.py", line 601, in main
+    await suite.run_all_tests()
+  File "D:\4.PROJECTS\FRESH\trading-nexus\comprehensive_full_e2e_test.py", line 562, in run_all_tests
+    self.print_summary()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "D:\4.PROJECTS\FRESH\trading-nexus\comprehensive_full_e2e_test.py", line 586, in print_summary
+    print("\u2705 ALL TESTS PASSED")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>

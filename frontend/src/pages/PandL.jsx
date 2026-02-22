@@ -1,0 +1,275 @@
+import React, { useState, useEffect, useCallback } from "react";
+import { apiService } from '../services/apiService';
+import { useAuth } from '../contexts/AuthContext';
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+const today = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
+
+const INR = (n) => {
+  const v = Number(n);
+  return (v < 0 ? "-₹" : "₹") +
+    Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const numColor = (n) =>
+  Number(n) > 0 ? "#22c55e" : Number(n) < 0 ? "#ef4444" : "#a1a1aa";
+
+const fmtDt = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) +
+    " " + d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+};
+
+// ── Reusable styles ───────────────────────────────────────────────────────
+const S = {
+  input:  { padding: "7px 10px", background: "#09090b", border: "1px solid #3f3f46", borderRadius: "6px", color: "#f4f4f5", fontSize: "13px" },
+  select: { padding: "7px 10px", background: "#09090b", border: "1px solid #3f3f46", borderRadius: "6px", color: "#f4f4f5", fontSize: "13px", cursor: "pointer" },
+  th:     { padding: "9px 12px", background: "#1c1c1f", borderBottom: "1px solid #3f3f46", fontWeight: 700, fontSize: "10px", color: "#a1a1aa", textTransform: "uppercase", whiteSpace: "nowrap", textAlign: "left" },
+  td:     { padding: "9px 12px", borderBottom: "1px solid #27272a", fontSize: "12px", color: "#f4f4f5", whiteSpace: "nowrap" },
+};
+
+// ── Summary card ──────────────────────────────────────────────────────────
+function SummaryCard({ label, value, colored = true, sub = null }) {
+  const v = Number(value);
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "10px", padding: "18px 20px", minWidth: "160px" }}>
+      <div style={{ fontSize: "11px", color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", marginBottom: "8px" }}>{label}</div>
+      <div style={{ fontSize: "22px", fontWeight: 800, color: colored ? numColor(v) : "var(--text)" }}>
+        {typeof value === "number" ? INR(v) : value}
+      </div>
+      {sub && <div style={{ fontSize: "11px", color: "#52525b", marginTop: "4px" }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────
+const PandLPage = ({ hideUserSelect = false }) => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || user?.role === "SUPER_USER";
+
+  const [fromDate,  setFromDate]  = useState(today());
+  const [toDate,    setToDate]    = useState(today());
+  const [targetUid, setTargetUid] = useState("");  // "" = self
+  const [userList,  setUserList]  = useState([]);
+  const [data,      setData]      = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState("");
+
+  // Load user list for admin dropdown
+  useEffect(() => {
+    if (!isAdmin || hideUserSelect) return;
+    apiService.get("/admin/users").then(res => {
+      setUserList(res?.data?.data || res?.data || []);
+    }).catch(() => {});
+  }, [isAdmin, hideUserSelect]);
+
+  // Auto-fetch on mount with today's range
+  const fetchPnl = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const params = { from_date: fromDate, to_date: toDate };
+      if (isAdmin && targetUid) params.user_id = targetUid;
+      const res = await apiService.get("/portfolio/positions/pnl/historic", params);
+      setData(res?.data?.data || res?.data || null);
+    } catch (err) {
+      setError(err?.response?.data?.detail || err?.data?.detail || err?.message || "Failed to load P&L data.");
+      setData(null);
+    } finally { setLoading(false); }
+  }, [fromDate, toDate, targetUid, isAdmin]);
+
+  useEffect(() => { fetchPnl(); }, []); // eslint-disable-line
+
+  // ── Render ────────────────────────────────────────────────────────────
+  return (
+    <div style={{ padding: "24px", fontFamily: "system-ui,sans-serif", color: "#f4f4f5", minHeight: "100vh" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
+        <h1 style={{ fontSize: "20px", fontWeight: 700, margin: 0 }}>P&amp;L</h1>
+
+        {/* Filter bar */}
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+          {isAdmin && !hideUserSelect && (
+            <select
+              value={targetUid}
+              onChange={e => setTargetUid(e.target.value)}
+              style={{ ...S.select, minWidth: "180px" }}
+            >
+              <option value="">— My Account —</option>
+              {userList.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.first_name || u.name || u.mobile} {u.last_name || ""} ({u.mobile})
+                </option>
+              ))}
+            </select>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: "#a1a1aa" }}>From</span>
+            <input
+              type="date" value={fromDate}
+              onChange={e => setFromDate(e.target.value)}
+              style={S.input}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", color: "#a1a1aa" }}>To</span>
+            <input
+              type="date" value={toDate}
+              onChange={e => setToDate(e.target.value)}
+              style={S.input}
+            />
+          </div>
+          <button
+            onClick={fetchPnl}
+            disabled={loading}
+            style={{ padding: "8px 20px", borderRadius: "6px", border: "none", background: "#2563eb", color: "#fff", fontWeight: 700, fontSize: "13px", cursor: "pointer", opacity: loading ? 0.6 : 1 }}
+          >
+            {loading ? "Loading…" : "Apply"}
+          </button>
+        </div>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div style={{ marginBottom: "16px", padding: "10px 14px", background: "#7f1d1d33", border: "1px solid #ef4444", borderRadius: "8px", color: "#fca5a5", fontSize: "13px" }}>
+          {error}
+        </div>
+      )}
+
+      {/* Summary cards */}
+      {data && (
+        <>
+          <div style={{ display: "flex", gap: "14px", flexWrap: "wrap", marginBottom: "24px" }}>
+            <SummaryCard label="Realized P&L"   value={data.realized_pnl}   sub={`${data.closed_count} closed position${data.closed_count !== 1 ? "s" : ""}`} />
+            <SummaryCard label="Unrealized MTM"  value={data.unrealized_pnl} sub={`${data.open_count} open position${data.open_count !== 1 ? "s" : ""}`} />
+            <SummaryCard label="Net P&L"         value={data.net_pnl} />
+            <SummaryCard
+              label="Period"
+              value={data.from_date === data.to_date ? data.from_date : `${data.from_date} → ${data.to_date}`}
+              colored={false}
+            />
+          </div>
+
+          {/* Closed positions table */}
+          <Section title={`Closed Positions (${data.closed_count})`} defaultOpen={true}>
+            {data.closed.length === 0 ? (
+              <Empty msg="No closed positions in this date range." />
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      {["Symbol","Exchange","Product","Entry Price","Closed Qty","Realized P&L","Opened","Closed"].map(h => (
+                        <th key={h} style={S.th}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.closed.map((p, i) => {
+                      const pl = Number(p.realized_pnl || 0);
+                      return (
+                        <tr key={i}>
+                          <td style={{ ...S.td, fontWeight: 700 }}>{p.symbol || "—"}</td>
+                          <td style={{ ...S.td, color: "#a1a1aa" }}>{p.exchange_segment || "—"}</td>
+                          <td style={S.td}>
+                            <span style={{
+                              padding: "2px 7px", borderRadius: "999px", fontSize: "10px", fontWeight: 700,
+                              color: "#fff", background: p.product_type === "NORMAL" ? "#1d4ed8" : "#7c3aed",
+                            }}>{p.product_type || "MIS"}</span>
+                          </td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{INR(p.entry_price)}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{p.closed_qty}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: numColor(pl) }}>
+                            {INR(pl)}
+                          </td>
+                          <td style={{ ...S.td, color: "#a1a1aa" }}>{fmtDt(p.opened_at)}</td>
+                          <td style={{ ...S.td, color: "#a1a1aa" }}>{fmtDt(p.closed_at)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+
+          {/* Open positions table (MTM) */}
+          <Section title={`Open Positions — Unrealized MTM (${data.open_count})`} defaultOpen={true}>
+            {data.open.length === 0 ? (
+              <Empty msg="No open positions." />
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      {["Symbol","Exchange","Product","Qty","Avg Entry","LTP","Unrealized MTM","Opened"].map(h => (
+                        <th key={h} style={S.th}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.open.map((p, i) => {
+                      const mtm = Number(p.mtm || 0);
+                      return (
+                        <tr key={i}>
+                          <td style={{ ...S.td, fontWeight: 700 }}>{p.symbol || "—"}</td>
+                          <td style={{ ...S.td, color: "#a1a1aa" }}>{p.exchange_segment || "—"}</td>
+                          <td style={S.td}>
+                            <span style={{
+                              padding: "2px 7px", borderRadius: "999px", fontSize: "10px", fontWeight: 700,
+                              color: "#fff", background: p.product_type === "NORMAL" ? "#1d4ed8" : "#7c3aed",
+                            }}>{p.product_type || "MIS"}</span>
+                          </td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{p.quantity}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{INR(p.avg_price)}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{INR(p.ltp)}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: numColor(mtm) }}>
+                            {INR(mtm)}
+                          </td>
+                          <td style={{ ...S.td, color: "#a1a1aa" }}>{fmtDt(p.opened_at)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+        </>
+      )}
+
+      {!data && !loading && !error && (
+        <div style={{ color: "#52525b", textAlign: "center", marginTop: "60px", fontSize: "14px" }}>
+          Select a date range and press Apply.
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Collapsible section ───────────────────────────────────────────────────
+function Section({ title, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "10px", marginBottom: "16px", overflow: "hidden" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", background: "none", border: "none", borderBottom: open ? "1px solid var(--border)" : "none", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", color: "var(--text)" }}
+      >
+        <span style={{ fontSize: "14px", fontWeight: 700 }}>{title}</span>
+        <span style={{ fontSize: "14px", color: "var(--muted)", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
+      </button>
+      {open && <div>{children}</div>}
+    </div>
+  );
+}
+
+function Empty({ msg }) {
+  return (
+    <div style={{ padding: "28px", textAlign: "center", color: "#52525b", fontSize: "13px" }}>{msg}</div>
+  );
+}
+
+export default PandLPage;

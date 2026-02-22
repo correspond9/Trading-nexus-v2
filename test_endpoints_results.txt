@@ -1,0 +1,38 @@
+
+================================================================================
+TRADING NEXUS ENDPOINT VERIFICATION
+================================================================================
+
+Authenticating users...
+  [FAIL] SUPER_ADMIN          FAILED...
+  [FAIL] ADMIN                FAILED...
+  [FAIL] SUPER_USER           FAILED...
+  [OK] USER                 19e8147c-fadf-4f...
+
+--------------------------------------------------------------------------------
+AUTHENTICATION ENDPOINTS
+--------------------------------------------------------------------------------
+[FAIL] /auth/me                                           Status: 401  User: N/A
+
+--------------------------------------------------------------------------------
+ADMIN MANAGEMENT ENDPOINTS
+--------------------------------------------------------------------------------
+[FAIL] /admin/users                                       Status: 401  Users: ?
+[PASS] /admin/dhan/status                                 Status: 200  
+[PASS] /admin/notifications                               Status: 200  
+
+--------------------------------------------------------------------------------
+TRADING - ORDERS
+--------------------------------------------------------------------------------
+[PASS] /trading/orders/                                   Status: 200  Orders: 0
+[PASS] /trading/orders/?current_session_only=true         Status: 200  
+[PASS] /trading/orders/?limit=100                         Status: 200  
+
+--------------------------------------------------------------------------------
+TRADING - POSITIONS
+--------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\4.PROJECTS\FRESH\trading-nexus\test_all_endpoints.py", line 123, in <module>
+    pos_count = len(resp.get("data", [])) if isinstance(resp.get("data"), list) else "?"
+                                                        ^^^^^^^^
+AttributeError: 'str' object has no attribute 'get'

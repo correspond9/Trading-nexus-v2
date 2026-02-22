@@ -1,0 +1,166 @@
+/**
+ * apiService — thin adapter for Trading Nexus backend at /api/v2
+ * Preserves the same interface the original UI components expect.
+ *
+ * VITE_API_URL is baked in at Docker build time for production:
+ *   e.g.  https://api.tradingnexus.pro/api/v2
+ * For dev/prod, default is same-origin '/api/v2' (Vite dev proxy / Nginx reverse proxy)
+ */
+
+const rawEnvBase = (import.meta.env.VITE_API_URL || '').trim();
+const BASE_URL = rawEnvBase ? rawEnvBase.replace(/\/+$/, '') : '/api/v2';
+
+class ApiService {
+  constructor() {
+    this.baseURL = BASE_URL;
+    this._token = localStorage.getItem('authToken') || null;
+    this._cache = new Map();
+  }
+
+  setAuthToken(token) {
+    this._token = token;
+    if (token) {
+      localStorage.setItem('authToken', token);
+    } else {
+      localStorage.removeItem('authToken');
+    }
+  }
+
+  _getHeaders(extra = {}) {
+    const headers = { 'Content-Type': 'application/json', ...extra };
+    if (this._token) {
+      headers['Authorization'] = `Bearer ${this._token}`;
+    }
+    const user = (() => {
+      try { return JSON.parse(localStorage.getItem('authUser') || '{}'); } catch { return {}; }
+    })();
+    if (user?.id) headers['X-USER'] = String(user.id);
+    return headers;
+  }
+
+  _buildUrl(endpoint, params) {
+    const base = this.baseURL + (endpoint.startsWith('/') ? endpoint : '/' + endpoint);
+    if (!params || Object.keys(params).length === 0) return base;
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
+    ).toString();
+    return qs ? `${base}?${qs}` : base;
+  }
+
+  _cacheKey(endpoint, params) {
+    return JSON.stringify({ endpoint, params: params || {} });
+  }
+
+  clearCacheEntry(endpoint, params) {
+    this._cache.delete(this._cacheKey(endpoint, params));
+  }
+
+  clearCache() {
+    this._cache.clear();
+  }
+
+  async get(endpoint, params = {}) {
+    const url = this._buildUrl(endpoint, params);
+    const res = await fetch(url, { headers: this._getHeaders() });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+    }
+    return res.json();
+  }
+
+  async post(endpoint, data = {}) {
+    const url = this._buildUrl(endpoint, {});
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: this._getHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+    }
+    return res.json();
+  }
+
+  async put(endpoint, data = {}) {
+    const url = this._buildUrl(endpoint, {});
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: this._getHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+    }
+    return res.json();
+  }
+
+  async patch(endpoint, data = {}) {
+    const url = this._buildUrl(endpoint, {});
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: this._getHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+    }
+    return res.json();
+  }
+
+  async delete(endpoint, data = null) {
+    const url = this._buildUrl(endpoint, {});
+    const opts = { method: 'DELETE', headers: this._getHeaders() };
+    if (data) opts.body = JSON.stringify(data);
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+    }
+    // Some DELETE responses have no body
+    const text = await res.text();
+    if (!text) return null;
+    try { return JSON.parse(text); } catch { return text; }
+  }
+
+  async request(endpoint, options = {}) {
+    const { method = 'GET', body, params, ...rest } = options;
+    const url = this._buildUrl(endpoint, params || {});
+    const fetchOpts = {
+      method,
+      headers: this._getHeaders(),
+    };
+    if (body !== undefined) {
+      fetchOpts.body = typeof body === 'string' ? body : JSON.stringify(body);
+    }
+    const res = await fetch(url, fetchOpts);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+    }
+    const text = await res.text();
+    if (!text) return null;
+    try { return JSON.parse(text); } catch { return text; }
+  }
+
+  async upload(endpoint, formData) {
+    const headers = {};
+    if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
+    const res = await fetch(this.baseURL + endpoint, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw Object.assign(new Error(err.detail || 'Upload failed'), { status: res.status });
+    }
+    return res.json();
+  }
+}
+
+export const apiService = new ApiService();
+export default apiService;

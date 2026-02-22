@@ -1,13 +1,17 @@
-# Environment
+# Environment variables (but allow examples)
 .env
 .env.local
 .env.*.local
+!.env.example
+
+# Python
 .venv/
 .venv312/
 venv/
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
 
 # IDE
 .vscode/
@@ -16,15 +20,14 @@ __pycache__/
 .continue/
 
 # Dependencies
-node_modules/
 frontend/node_modules/
 *.log
-.npm
 
-# Test outputs
-*.txt
+# Test outputs & temporary files
 test_*/
 results/
+tmp_*
+temp_*
 
 # Playwright
 .playwright-mcp/
@@ -36,23 +39,24 @@ Thumbs.db
 # Build outputs
 dist/
 build/
-*.egg-info/
 
-# Docker
-.docker/
-
-# Media (keep only original reference files)
+# Media files
 *.png
 *.jpg
 *.jpeg
 *.gif
 
-# Temporary files
-tmp_*
-temp_*
+# Docker - KEEP THESE
+# Dockerfile - TRACKED
+# docker-compose.prod.yml - TRACKED
+# .dockerignore - TRACKED
 
-# Reference (optional - remove if not needed)
+# Files to track
+!Dockerfile
+!docker-compose.prod.yml
+!.dockerignore
+!requirements.txt
+!.env.example
+
+# Reference folder
 __reference_trade_nexuss/
-
-# Workspace settings
-*.code-workspace

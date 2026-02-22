@@ -1,0 +1,58 @@
+# Environment
+.env
+.env.local
+.env.*.local
+.venv/
+.venv312/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+.config/
+.continue/
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+*.log
+.npm
+
+# Test outputs
+*.txt
+test_*/
+results/
+
+# Playwright
+.playwright-mcp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Docker
+.docker/
+
+# Media (keep only original reference files)
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Temporary files
+tmp_*
+temp_*
+
+# Reference (optional - remove if not needed)
+__reference_trade_nexuss/
+
+# Workspace settings
+*.code-workspace

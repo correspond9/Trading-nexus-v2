@@ -10,13 +10,13 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY fastapi_backend/requirements.prod.txt ./requirements.txt
+COPY requirements.txt ./requirements.txt
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --disable-pip-version-check --progress-bar off -r requirements.txt
 
 # Copy application code
-COPY fastapi_backend/ .
+COPY app/ .
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app \

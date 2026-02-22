@@ -1,8 +1,6 @@
 services:
   backend:
     build: .
-    ports:
-      - "8010:8000"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)\" || exit 1"]
       interval: 30s
@@ -74,8 +72,6 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: https://api.tradingnexus.pro/api/v2
-    ports:
-      - "3000:80"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.tradingfrontend.rule=Host(`tradingnexus.pro`) || Host(`www.tradingnexus.pro`) || Host(`app.tradingnexus.pro`)"

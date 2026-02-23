@@ -1,0 +1,40 @@
+# 🎯 COPY-PASTE THIS ONE COMMAND INTO COOLIFY TERMINAL
+# =====================================================
+# This auto-detects container names and resets the database
+
+# One-liner (copy everything from BACKEND to end):
+BACKEND=$(docker ps --format '{{.Names}}' | grep -iE 'j0sk408|backend' | grep -v frontend | head -1) && DB=$(docker ps --format '{{.Names}}' | grep -iE 'j0sk408.*db|postgres' | head -1) && echo "Backend: $BACKEND" && echo "Database: $DB" && docker stop $BACKEND && docker exec $DB psql -U postgres -c "DROP DATABASE IF EXISTS trading_terminal; CREATE DATABASE trading_terminal;" && docker start $BACKEND && echo "Waiting 30 seconds..." && sleep 30 && docker logs $BACKEND --tail 50
+
+# =====================================================
+# What this does:
+# 1. Auto-finds backend container name
+# 2. Auto-finds database container name 
+# 3. Stops backend
+# 4. Resets database (drops and recreates)
+# 5. Starts backend (migrations run automatically)
+# 6. Waits 30 seconds
+# 7. Shows logs to verify
+#
+# After running:
+#   - Test at https://tradingnexus.pro
+#   - Login: 9999999999 / admin123
+# =====================================================
+
+# Alternative: If one-liner doesn't work, copy these line by line:
+
+# Find containers:
+docker ps --format '{{.Names}}'
+
+# Then manually set the names you see:
+BACKEND=<your-backend-container-name>
+DB=<your-db-container-name>
+
+# Run the reset:
+docker stop $BACKEND
+docker exec $DB psql -U postgres -c "DROP DATABASE IF EXISTS trading_terminal; CREATE DATABASE trading_terminal;"
+docker start $BACKEND
+sleep 30
+docker logs $BACKEND --tail 50
+
+# Check users:
+docker exec $DB psql -U postgres -d trading_terminal -c "SELECT user_no, mobile, role FROM users;"

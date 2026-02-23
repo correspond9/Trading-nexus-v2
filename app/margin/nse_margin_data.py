@@ -69,6 +69,8 @@ except ImportError:
     get_pool = None
     log.warning("Database not available for SPAN margin persistence")
 
+from app.runtime.notifications import add_notification
+
 # Import holiday management for multi-exchange support
 try:
     from app.margin.exchange_holidays import (
@@ -345,21 +347,18 @@ async def _create_system_notification(
     if not get_pool:
         log.warning(f"Cannot create notification (no DB): {title}")
         return
-    
+
     try:
-        pool = get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO system_notifications (category, severity, title, message, details)
-                VALUES ($1, $2, $3, $4, $5)
-                """,
-                category,
-                severity,
-                title,
-                message,
-                details,
-            )
+        inserted = await add_notification(
+            category=category,
+            severity=severity,
+            title=title,
+            message=message,
+            details=details,
+            dedupe_key=f"{category}:{title}",
+            dedupe_ttl_seconds=180,
+        )
+        if inserted:
             log.info(f"Created {severity} notification: {title}")
     except Exception as exc:
         log.error(f"Failed to create notification: {exc}")
@@ -453,29 +452,47 @@ def calculate_margin(
     elif is_option:
         elm_pct = get_elm_options(sym)
         if elm_pct is None:
-            log.error(f"ELM%OTM data unavailable for option {sym}; cannot calculate margin")
-            return {
-                "span_margin":     None,
-                "exposure_margin": None,
-                "premium":         None,
-                "total_margin":    None,
-                "elm_pct":         None,
-                "error":           f"ELM data not available for option {sym}",
-                "data_as_of":      _store.as_of.isoformat() if _store.as_of else None,
-            }
+            # NSE AEL (Exposure Limit) data is often not published for index
+            # derivatives (e.g., NIFTY/BANKNIFTY). In that case, treat exposure
+            # margin as 0% and still return SPAN so the UI can display a usable
+            # required margin.
+            if sym.upper() in {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"}:
+                log.warning(
+                    "ELM%%OTM data unavailable for index option %s; using 0%% exposure",
+                    sym,
+                )
+                elm_pct = 0.0
+            else:
+                log.error(f"ELM%OTM data unavailable for option {sym}; cannot calculate margin")
+                return {
+                    "span_margin":     None,
+                    "exposure_margin": None,
+                    "premium":         None,
+                    "total_margin":    None,
+                    "elm_pct":         None,
+                    "error":           f"ELM data not available for option {sym}",
+                    "data_as_of":      _store.as_of.isoformat() if _store.as_of else None,
+                }
     else:
         elm_pct = get_elm_futures(sym)
         if elm_pct is None:
-            log.error(f"ELM%OTH data unavailable for futures {sym}; cannot calculate margin")
-            return {
-                "span_margin":     None,
-                "exposure_margin": None,
-                "premium":         None,
-                "total_margin":    None,
-                "elm_pct":         None,
-                "error":           f"ELM data not available for futures {sym}",
-                "data_as_of":      _store.as_of.isoformat() if _store.as_of else None,
-            }
+            if sym.upper() in {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"}:
+                log.warning(
+                    "ELM%%OTH data unavailable for index futures %s; using 0%% exposure",
+                    sym,
+                )
+                elm_pct = 0.0
+            else:
+                log.error(f"ELM%OTH data unavailable for futures {sym}; cannot calculate margin")
+                return {
+                    "span_margin":     None,
+                    "exposure_margin": None,
+                    "premium":         None,
+                    "total_margin":    None,
+                    "elm_pct":         None,
+                    "error":           f"ELM data not available for futures {sym}",
+                    "data_as_of":      _store.as_of.isoformat() if _store.as_of else None,
+                }
 
     exposure_margin = ref_price * qty * (elm_pct / 100.0)
 
@@ -1063,9 +1080,10 @@ class NseMarginScheduler:
         self._task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
-        self._task = asyncio.create_task(
-            self._loop(), name="nse_margin_scheduler"
-        )
+        if self._task and not self._task.done():
+            log.warning("NseMarginScheduler already running")
+            return
+        self._task = asyncio.create_task(self._loop(), name="nse_margin_scheduler")
         log.info(
             f"NseMarginScheduler started — refreshes at "
             f"{self.REFRESH_HOUR:02d}:{self.REFRESH_MINUTE:02d} IST daily."

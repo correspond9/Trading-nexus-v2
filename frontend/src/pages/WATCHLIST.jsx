@@ -369,7 +369,13 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     const token = String(instrument.token);
     const p = prices ? (prices[token] ?? prices[instrument.symbol]) : null;
     if (p !== null && p !== undefined) return p;
-    const marketActive = (pulse?.marketActive ?? pulse?.market_active);
+
+    const ex = String(instrument?.exchange || '').toUpperCase();
+    const isCommodity = ex.includes('MCX') || ex.includes('COM');
+    const marketActive = isCommodity
+      ? (pulse?.marketActiveCommodity ?? pulse?.marketActive ?? pulse?.market_active_commodity ?? pulse?.market_active)
+      : (pulse?.marketActiveEquity ?? pulse?.marketActive ?? pulse?.market_active_equity ?? pulse?.market_active);
+
     if (marketActive === false) return instrument.close ?? instrument.ltp ?? null;
     return instrument.ltp ?? null;
   };
@@ -518,7 +524,11 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
             ) : (
               activeTab.instruments.map(inst => {
                 const ltp = getDisplayedPrice(inst);
-                const marketActive = (pulse?.marketActive ?? pulse?.market_active) !== false;
+                const ex = String(inst?.exchange || '').toUpperCase();
+                const isCommodity = ex.includes('MCX') || ex.includes('COM');
+                const marketActive = isCommodity
+                  ? (pulse?.marketActiveCommodity ?? pulse?.marketActive ?? pulse?.market_active_commodity ?? pulse?.market_active) !== false
+                  : (pulse?.marketActiveEquity ?? pulse?.marketActive ?? pulse?.market_active_equity ?? pulse?.market_active) !== false;
                 const tick = tickByToken[String(inst.token)];
                 const bid = tick?.bid_depth?.[0]?.price ?? null;
                 const ask = tick?.ask_depth?.[0]?.price ?? null;

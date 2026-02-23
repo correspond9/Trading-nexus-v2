@@ -119,6 +119,7 @@ class PlaceOrderRequest(BaseModel):
     trailing_jump:    Optional[float] = None
 
 
+@router.post("", status_code=status.HTTP_201_CREATED)
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def place_paper_order(
     body: PlaceOrderRequest,
@@ -157,6 +158,23 @@ async def place_paper_order(
             body.symbol,
         )
         token = row["instrument_token"] if row else 0
+
+    # ── Normalize/repair exchange_segment from instrument_master (robustness) ──
+    # Some frontend flows historically omitted exchange_segment; default is NSE_FNO.
+    # If we can resolve the instrument's true segment, prefer that for validations.
+    seg_in = (body.exchange_segment or "").strip().upper()
+    if token:
+        im_seg_row = await pool.fetchrow(
+            "SELECT exchange_segment FROM instrument_master WHERE instrument_token=$1",
+            int(token),
+        )
+        im_seg = (im_seg_row["exchange_segment"] if im_seg_row else None) or None
+        im_seg_u = str(im_seg).strip().upper() if im_seg else ""
+
+        # Repair when caller sent a generic/blank segment or the default NSE_FNO.
+        if (not seg_in) or seg_in in {"NSE", "BSE", "MCX", "NSE_FNO"}:
+            if im_seg_u:
+                body.exchange_segment = im_seg_u
 
     # Get LTP for fill simulation
     ltp_row = await pool.fetchrow(

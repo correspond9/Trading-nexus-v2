@@ -275,7 +275,7 @@ const UsersPage = () => {
       setShowModal(false);
       await loadUsers();
     } catch (err) {
-      setFormError(err?.response?.data?.detail || err?.message || "Save failed.");
+      setFormError(err?.data?.detail || err?.response?.data?.detail || err?.message || "Save failed.");
     } finally { setSaving(false); }
   };
 
@@ -296,7 +296,7 @@ const UsersPage = () => {
       setFundsModal(false);
       await loadUsers();
     } catch (err) {
-      alert(err?.response?.data?.detail || "Failed to adjust funds.");
+      alert(err?.data?.detail || err?.response?.data?.detail || "Failed to adjust funds.");
     } finally { setFundsBusy(false); }
   };
 

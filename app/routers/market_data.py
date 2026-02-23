@@ -15,6 +15,65 @@ from app.market_data.rate_limiter  import market_quote_limiter
 router = APIRouter(prefix="/market", tags=["Market Data"])
 
 
+@router.get("/underlying-ltp/{symbol}")
+async def get_underlying_ltp(symbol: str):
+    """Return cached underlying LTP for an index/underlying symbol.
+
+    Frontend uses this for centre-strike selection (STRADDLE tab).
+    This endpoint is a pure DB read (no Dhan REST call).
+    """
+    u = (symbol or "").upper().strip()
+    if not u:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    pool = get_pool()
+
+    # Primary: index token (instrument_type='INDEX' with symbol exactly matching underlying)
+    row = await pool.fetchrow(
+        """
+        SELECT md.ltp, md.close, md.updated_at
+        FROM market_data md
+        JOIN instrument_master im ON im.instrument_token = md.instrument_token
+        WHERE im.symbol = $1 AND im.instrument_type = 'INDEX'
+        LIMIT 1
+        """,
+        u,
+    )
+    if row and row["ltp"] is not None:
+        return {
+            "symbol": u,
+            "ltp": float(row["ltp"]),
+            "close": float(row["close"]) if row.get("close") is not None else None,
+            "updated_at": row.get("updated_at"),
+            "source": "INDEX",
+        }
+
+    # Fallback: nearest futures for this underlying
+    fut = await pool.fetchrow(
+        """
+        SELECT md.ltp, md.close, md.updated_at, im.symbol AS fut_symbol
+        FROM instrument_master im
+        LEFT JOIN market_data md ON md.instrument_token = im.instrument_token
+        WHERE im.underlying = $1
+          AND im.instrument_type IN ('FUTIDX','FUTSTK','FUTCOM')
+        ORDER BY im.expiry_date ASC NULLS LAST
+        LIMIT 1
+        """,
+        u,
+    )
+    if fut and fut["ltp"] is not None:
+        return {
+            "symbol": u,
+            "ltp": float(fut["ltp"]),
+            "close": float(fut["close"]) if fut.get("close") is not None else None,
+            "updated_at": fut.get("updated_at"),
+            "source": "FUTURES",
+            "ref": fut.get("fut_symbol"),
+        }
+
+    raise HTTPException(status_code=404, detail=f"No cached LTP found for {u}")
+
+
 @router.get("/quote")
 async def get_quotes(tokens: str = Query(..., description="Comma-separated instrument tokens")):
     """

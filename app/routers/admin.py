@@ -12,6 +12,8 @@ import bcrypt as _bcrypt
 from datetime import datetime, timezone
 from typing import Optional
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
@@ -85,6 +87,7 @@ class CreateUserRequest(BaseModel):
     pan_number:               str           = ""
     upi:                      str           = ""
     bank_account:             str           = ""
+    brokerage_plan:           str           = ""
     brokerage_plan_equity_id: Optional[int] = None  # Brokerage plan for equity/options
     brokerage_plan_futures_id:Optional[int] = None  # Brokerage plan for futures
     initial_balance:          float         = 0.0
@@ -98,6 +101,7 @@ class UpdateUserRequest(BaseModel):
     first_name:               Optional[str]   = None
     last_name:                Optional[str]   = None
     email:                    Optional[str]   = None
+    mobile:                   Optional[str]   = None
     password:                 Optional[str]   = None
     role:                     Optional[str]   = None
     status:                   Optional[str]   = None
@@ -109,8 +113,10 @@ class UpdateUserRequest(BaseModel):
     pan_number:               Optional[str]   = None
     upi:                      Optional[str]   = None
     bank_account:             Optional[str]   = None
+    brokerage_plan:           Optional[str]   = None
     brokerage_plan_equity_id: Optional[int]   = None  # Brokerage plan for equity/options
     brokerage_plan_futures_id:Optional[int]   = None  # Brokerage plan for futures
+    margin_allotted:          Optional[float] = None
     aadhar_doc:               Optional[str]   = None
     cancelled_cheque_doc:     Optional[str]   = None
     pan_card_doc:             Optional[str]   = None
@@ -336,6 +342,7 @@ async def list_users(
     base_q = """
         SELECT u.user_no, u.id, u.first_name, u.last_name, u.email,
                u.mobile, u.role, u.status, u.is_active, u.created_at,
+               u.brokerage_plan,
                u.address, u.country, u.state, u.city,
                u.aadhar_number, u.pan_number, u.upi, u.bank_account,
                (u.aadhar_doc IS NOT NULL)           AS has_aadhar_doc,
@@ -463,9 +470,96 @@ async def create_user(
     full_name = f"{req.first_name} {req.last_name}".strip()
     is_active = req.status == "ACTIVE"
 
-    # Set default brokerage plans if not provided
+    async def _ensure_brokerage_plan(
+        plan_code: str,
+        plan_name: str,
+        instrument_group: str,
+        flat_fee: float,
+        percent_fee: float,
+    ) -> int:
+        row = await pool.fetchrow(
+            """
+            INSERT INTO brokerage_plans (plan_code, plan_name, instrument_group, flat_fee, percent_fee)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (plan_code) DO UPDATE
+              SET plan_name = EXCLUDED.plan_name
+            RETURNING plan_id
+            """,
+            plan_code,
+            plan_name,
+            instrument_group,
+            float(flat_fee),
+            float(percent_fee),
+        )
+        if row and row.get("plan_id") is not None:
+            return int(row["plan_id"])
+        # Fallback: plan existed already
+        pid = await pool.fetchval("SELECT plan_id FROM brokerage_plans WHERE plan_code=$1", plan_code)
+        if not pid:
+            raise HTTPException(status_code=500, detail=f"Could not resolve brokerage plan '{plan_code}'.")
+        return int(pid)
+
+    def _map_brokerage_label_to_codes(label: str) -> tuple[str, str]:
+        raw = (label or "").strip()
+        if not raw:
+            return ("PLAN_A", "PLAN_A_FUTURES")
+        upper = raw.upper()
+        if "NIL" in upper:
+            return ("PLAN_NIL", "PLAN_NIL_FUTURES")
+
+        # Try to extract a decimal like 0.005, 0.003
+        m = re.search(r"0\.(\d{3,6})", raw)
+        if m:
+            pct = float(f"0.{m.group(1)}")
+            if abs(pct - 0.005) < 1e-9:
+                return ("PLAN_E", "PLAN_E_FUTURES")
+            if abs(pct - 0.003) < 1e-9:
+                return ("PLAN_C", "PLAN_C_FUTURES")
+
+        # Fallback to Plan1/Plan2/Plan3 naming
+        if upper.startswith("PLAN1"):
+            return ("PLAN_E", "PLAN_E_FUTURES")
+        if upper.startswith("PLAN2"):
+            return ("PLAN_C", "PLAN_C_FUTURES")
+        if upper.startswith("PLAN3"):
+            return ("PLAN_NIL", "PLAN_NIL_FUTURES")
+
+        return ("PLAN_A", "PLAN_A_FUTURES")
+
+    # Set brokerage plans (UI sends brokerage_plan string; DB uses plan IDs)
     equity_plan_id = req.brokerage_plan_equity_id
     futures_plan_id = req.brokerage_plan_futures_id
+
+    if (not equity_plan_id or not futures_plan_id) and (req.brokerage_plan or "").strip():
+        eq_code, fut_code = _map_brokerage_label_to_codes(req.brokerage_plan)
+        if not equity_plan_id:
+            if eq_code == "PLAN_NIL":
+                equity_plan_id = await _ensure_brokerage_plan(
+                    "PLAN_NIL",
+                    "Plan NIL - Equity/Options - ₹0 (no brokerage)",
+                    "EQUITY_OPTIONS",
+                    0.0,
+                    0.0,
+                )
+            else:
+                equity_plan_id = await pool.fetchval(
+                    "SELECT plan_id FROM brokerage_plans WHERE plan_code=$1 AND instrument_group='EQUITY_OPTIONS' LIMIT 1",
+                    eq_code,
+                )
+        if not futures_plan_id:
+            if fut_code == "PLAN_NIL_FUTURES":
+                futures_plan_id = await _ensure_brokerage_plan(
+                    "PLAN_NIL_FUTURES",
+                    "Plan NIL - Futures - ₹0 (no brokerage)",
+                    "FUTURES",
+                    0.0,
+                    0.0,
+                )
+            else:
+                futures_plan_id = await pool.fetchval(
+                    "SELECT plan_id FROM brokerage_plans WHERE plan_code=$1 AND instrument_group='FUTURES' LIMIT 1",
+                    fut_code,
+                )
     
     if equity_plan_id is None:
         default_equity = await pool.fetchval(
@@ -484,16 +578,18 @@ async def create_user(
         INSERT INTO users
             (name, first_name, last_name, email, mobile, password_hash,
              role, status, is_active,
+             brokerage_plan,
              address, country, state, city,
              aadhar_number, pan_number, upi, bank_account,
              brokerage_plan_equity_id, brokerage_plan_futures_id,
              aadhar_doc, cancelled_cheque_doc, pan_card_doc)
         VALUES
-            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
         RETURNING id, user_no
         """,
         full_name, req.first_name, req.last_name, req.email, req.mobile, pw_hash,
         req.role, req.status, is_active,
+        (req.brokerage_plan or "").strip(),
         req.address, req.country, req.state, req.city,
         req.aadhar_number, req.pan_number, req.upi, req.bank_account,
         equity_plan_id, futures_plan_id,
@@ -546,7 +642,12 @@ async def update_user(
     pool = _get_pool()
 
     existing = await pool.fetchrow(
-        "SELECT role, status FROM users WHERE id=$1::uuid", user_id
+        """
+        SELECT id, role, status, first_name, last_name, mobile
+        FROM users
+        WHERE id=$1::uuid
+        """,
+        user_id,
     )
     if not existing:
         raise HTTPException(status_code=404, detail="User not found.")
@@ -570,7 +671,20 @@ async def update_user(
     if req.first_name           is not None: fields["first_name"]           = req.first_name
     if req.last_name            is not None: fields["last_name"]            = req.last_name
     if req.email                is not None: fields["email"]                = req.email
-    if req.mobile               is not None: fields["mobile"]               = req.mobile
+    if req.mobile               is not None:
+        existing_mobile = str(existing["mobile"] or "")
+        next_mobile = (req.mobile or "").strip()
+        if not next_mobile:
+            raise HTTPException(status_code=400, detail="Mobile cannot be empty.")
+        if next_mobile != existing_mobile:
+            exists = await pool.fetchval(
+                "SELECT 1 FROM users WHERE mobile = $1 AND id <> $2::uuid",
+                next_mobile,
+                user_id,
+            )
+            if exists:
+                raise HTTPException(status_code=409, detail="Mobile number already registered.")
+        fields["mobile"] = next_mobile
     if req.role                 is not None: fields["role"]                 = req.role
     if req.status               is not None:
         fields["status"]    = req.status
@@ -583,6 +697,7 @@ async def update_user(
     if req.pan_number           is not None: fields["pan_number"]           = req.pan_number
     if req.upi                  is not None: fields["upi"]                  = req.upi
     if req.bank_account         is not None: fields["bank_account"]         = req.bank_account
+    if req.brokerage_plan       is not None: fields["brokerage_plan"]       = (req.brokerage_plan or "").strip()
     if req.brokerage_plan_equity_id  is not None: fields["brokerage_plan_equity_id"]  = req.brokerage_plan_equity_id
     if req.brokerage_plan_futures_id is not None: fields["brokerage_plan_futures_id"] = req.brokerage_plan_futures_id
     if req.aadhar_doc           is not None: fields["aadhar_doc"]           = req.aadhar_doc
@@ -604,15 +719,75 @@ async def update_user(
         )
         margin_updated = True
 
+    # If UI provided only brokerage_plan label (not explicit IDs), map it to plan IDs.
+    if req.brokerage_plan is not None and (req.brokerage_plan_equity_id is None and req.brokerage_plan_futures_id is None):
+        label = (req.brokerage_plan or "").strip()
+        if label:
+            upper = label.upper()
+            if "NIL" in upper:
+                eq_code, fut_code = "PLAN_NIL", "PLAN_NIL_FUTURES"
+            else:
+                m = re.search(r"0\.(\d{3,6})", label)
+                eq_code, fut_code = "PLAN_A", "PLAN_A_FUTURES"
+                if m:
+                    pct = float(f"0.{m.group(1)}")
+                    if abs(pct - 0.005) < 1e-9:
+                        eq_code, fut_code = "PLAN_E", "PLAN_E_FUTURES"
+                    elif abs(pct - 0.003) < 1e-9:
+                        eq_code, fut_code = "PLAN_C", "PLAN_C_FUTURES"
+
+            if eq_code == "PLAN_NIL":
+                eq_id = await pool.fetchval("SELECT plan_id FROM brokerage_plans WHERE plan_code='PLAN_NIL' LIMIT 1")
+                if not eq_id:
+                    eq_id = await pool.fetchval(
+                        """
+                        INSERT INTO brokerage_plans (plan_code, plan_name, instrument_group, flat_fee, percent_fee)
+                        VALUES ('PLAN_NIL', 'Plan NIL - Equity/Options - ₹0 (no brokerage)', 'EQUITY_OPTIONS', 0.0, 0.0)
+                        ON CONFLICT (plan_code) DO NOTHING
+                        RETURNING plan_id
+                        """
+                    )
+                fields["brokerage_plan_equity_id"] = int(eq_id)
+            else:
+                eq_id = await pool.fetchval(
+                    "SELECT plan_id FROM brokerage_plans WHERE plan_code=$1 AND instrument_group='EQUITY_OPTIONS' LIMIT 1",
+                    eq_code,
+                )
+                if eq_id:
+                    fields["brokerage_plan_equity_id"] = int(eq_id)
+
+            if fut_code == "PLAN_NIL_FUTURES":
+                fut_id = await pool.fetchval("SELECT plan_id FROM brokerage_plans WHERE plan_code='PLAN_NIL_FUTURES' LIMIT 1")
+                if not fut_id:
+                    fut_id = await pool.fetchval(
+                        """
+                        INSERT INTO brokerage_plans (plan_code, plan_name, instrument_group, flat_fee, percent_fee)
+                        VALUES ('PLAN_NIL_FUTURES', 'Plan NIL - Futures - ₹0 (no brokerage)', 'FUTURES', 0.0, 0.0)
+                        ON CONFLICT (plan_code) DO NOTHING
+                        RETURNING plan_id
+                        """
+                    )
+                fields["brokerage_plan_futures_id"] = int(fut_id)
+            else:
+                fut_id = await pool.fetchval(
+                    "SELECT plan_id FROM brokerage_plans WHERE plan_code=$1 AND instrument_group='FUTURES' LIMIT 1",
+                    fut_code,
+                )
+                if fut_id:
+                    fields["brokerage_plan_futures_id"] = int(fut_id)
+
     if req.password:
         fields["password_hash"] = _bcrypt.hashpw(
             req.password.encode(), _bcrypt.gensalt()
         ).decode()
 
-    # Update name from first+last if either changed
-    first = req.first_name or existing.get("first_name", "")
-    last  = req.last_name  or existing.get("last_name", "")
+    # Update name from first+last if either changed.
+    # Important: allow explicitly setting empty strings (""), so only fall back when value is None.
+    existing_first = existing["first_name"] or ""
+    existing_last = existing["last_name"] or ""
     if req.first_name is not None or req.last_name is not None:
+        first = req.first_name if req.first_name is not None else existing_first
+        last = req.last_name if req.last_name is not None else existing_last
         fields["name"] = f"{first} {last}".strip()
 
     if not fields:
@@ -1273,15 +1448,25 @@ async def dhan_connect():
         )
 
     started: list[str] = []
+    errors: list[str] = []
+    
     # 0. Ensure Tier-B subscription map exists (idempotent)
     try:
         stats = sm.get_stats()
+        log.info(f"Subscription stats before init: {stats}")
         if (stats.get("total_tokens") or 0) == 0:
+            log.info("Tier-B subscription map is empty — initializing...")
             await sm.initialise_tier_b()
-            started.append("tier_b_init")
-    except Exception:
-        # If tier-b init fails, we can still start services; WS will simply have no tokens.
-        pass
+            stats_after = sm.get_stats()
+            log.info(f"Tier-B initialized — stats: {stats_after}")
+            started.append(f"tier_b_init ({stats_after.get('total_tokens', 0)} tokens)")
+        else:
+            log.info(f"Tier-B already initialized with {stats.get('total_tokens', 0)} tokens")
+    except Exception as exc:
+        error_msg = f"Tier-B initialization failed: {exc}"
+        log.error(error_msg, exc_info=True)
+        errors.append(error_msg)
+        # Continue — WS will connect but have no instruments subscribed
 
 
     # 1. Token refresher (only if TOTP is configured)
@@ -1331,13 +1516,21 @@ async def dhan_connect():
         await greeks_poller.start()
         started.append("greeks_poller")
 
+    # Build response
+    success = len(errors) == 0 or len(started) > 0
+    message_parts = []
+    if started:
+        message_parts.append(f"Started: {', '.join(started)}")
+    else:
+        message_parts.append("All services already running — no action taken.")
+    if errors:
+        message_parts.append(f"Errors: {'; '.join(errors)}")
+    
     return {
-        "success": True,
+        "success": success,
         "started": started,
-        "message": (
-            f"Started: {', '.join(started)}" if started
-            else "All services already running — no action taken."
-        ),
+        "errors": errors,
+        "message": " | ".join(message_parts),
     }
 
 
@@ -1357,6 +1550,55 @@ async def dhan_disconnect():
     await tick_processor.stop()
 
     return {"success": True, "message": "All Dhan connections stopped."}
+
+
+@router.get("/dhan/subscriptions")
+async def dhan_subscription_diagnostics():
+    """
+    Diagnostic endpoint — shows subscription map state.
+    Returns detailed breakdown of Tier-A/B subscriptions per WS slot.
+    """
+    from app.instruments import subscription_manager as sm
+    from app.database import get_pool
+    
+    # Get current subscription stats
+    stats = sm.get_stats()
+    all_active = sm.get_all_active_tokens()
+    
+    # Count Tier-B instruments in database
+    pool = get_pool()
+    db_counts = await pool.fetch(
+        """
+        SELECT tier, COUNT(*) as count, 
+               COUNT(*) FILTER (WHERE ws_slot IS NOT NULL) as with_ws_slot
+        FROM instrument_master 
+        GROUP BY tier
+        """
+    )
+    
+    tier_db = {r["tier"]: {"total": r["count"], "with_slot": r["with_ws_slot"]} for r in db_counts}
+    
+    # Detailed slot breakdown
+    slot_details = []
+    for slot in range(5):
+        tokens = all_active.get(slot, set())
+        slot_details.append({
+            "slot": slot,
+            "subscribed": len(tokens),
+            "capacity": 5000,
+            "utilization_pct": round(len(tokens) / 50, 1),  # 5000 = 100%
+        })
+    
+    return {
+        "subscription_stats": stats,
+        "database_tiers": tier_db,
+        "slot_details": slot_details,
+        "discrepancy": {
+            "tier_b_in_db": tier_db.get("B", {}).get("with_slot", 0),
+            "tier_b_subscribed": stats.get("total_tokens", 0),
+            "missing": max(0, tier_db.get("B", {}).get("with_slot", 0) - stats.get("total_tokens", 0)),
+        },
+    }
 
 
 # ── Positions user-wise ────────────────────────────────────────────────────

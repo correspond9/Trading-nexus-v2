@@ -15,6 +15,7 @@ from collections import defaultdict
 from datetime import date
 
 from app.database import get_pool
+from app.runtime.notifications import add_notification
 
 log = logging.getLogger(__name__)
 
@@ -29,28 +30,78 @@ _lock = asyncio.Lock()
 
 # ── Tier-B startup ──────────────────────────────────────────────────────────
 
-async def initialise_tier_b() -> None:
+async def initialise_tier_b() -> dict:
     """
     Load all Tier-B tokens from DB into the subscription map.
     Called once at startup — ws_manager.subscribe_all() reads _active.
+    Returns stats dict with counts.
     """
     pool = get_pool()
-    rows = await pool.fetch(
-        "SELECT instrument_token, ws_slot FROM instrument_master "
-        "WHERE tier = 'B' AND ws_slot IS NOT NULL"
-    )
+    
+    # Validate database connection
+    try:
+        rows = await pool.fetch(
+            "SELECT instrument_token, ws_slot FROM instrument_master "
+            "WHERE tier = 'B' AND ws_slot IS NOT NULL"
+        )
+    except Exception as exc:
+        log.error(f"Database query failed during Tier-B init: {exc}")
+        raise
+    
+    if not rows:
+        log.warning("No Tier-B instruments found in database — subscription map will be empty")
+        await add_notification(
+            category="live_feed",
+            severity="warning",
+            title="Tier-B subscription map empty",
+            message="No Tier-B instruments found in database; live feed will have no baseline subscriptions.",
+            dedupe_key="tierb-empty",
+            dedupe_ttl_seconds=1800,
+        )
+        return {"total": 0, "slots": {i: 0 for i in range(5)}}
+    
+    # Validate ws_slot values
+    invalid_slots = [r for r in rows if r["ws_slot"] not in range(5)]
+    if invalid_slots:
+        log.warning(
+            f"Found {len(invalid_slots)} instruments with invalid ws_slot values "
+            f"(must be 0-4). These will be skipped."
+        )
+        await add_notification(
+            category="live_feed",
+            severity="warning",
+            title="Invalid WS slots in instrument master",
+            message=f"{len(invalid_slots)} instruments have invalid ws_slot values and were skipped during Tier-B load.",
+            dedupe_key="tierb-invalid-slots",
+            dedupe_ttl_seconds=1800,
+        )
+    
+    # Build subscription map
     async with _lock:
+        loaded_count = 0
         for row in rows:
             token = row["instrument_token"]
             slot  = row["ws_slot"]
+            
+            if slot not in range(5):
+                continue  # Skip invalid slots
+                
             _active[slot].add(token)
             _token_to_slot[token] = slot
+            loaded_count += 1
 
     total = sum(len(s) for s in _active.values())
+    slot_breakdown = ", ".join(f"WS-{i}: {len(_active[i])}" for i in range(5))
+    
+    if total == 0:
+        log.error("Tier-B initialization completed but NO tokens were loaded!")
+        raise RuntimeError("Tier-B subscription map is empty after initialization")
+    
     log.info(
-        f"Tier-B subscription map ready — {total} tokens across 5 WS slots: "
-        + ", ".join(f"WS-{i}: {len(_active[i])}" for i in range(5))
+        f"Tier-B subscription map ready — {total} tokens across 5 WS slots: {slot_breakdown}"
     )
+    
+    return {"total": total, "slots": {i: len(_active[i]) for i in range(5)}}
 
 
 # ── Tier-A on-demand ────────────────────────────────────────────────────────
@@ -71,6 +122,14 @@ async def subscribe_tier_a(instrument_token: int) -> int | None:
             log.error(
                 "All 5 WebSocket slots are at capacity (5,000 each). "
                 "Cannot subscribe Tier-A token."
+            )
+            await add_notification(
+                category="live_feed",
+                severity="error",
+                title="Live feed capacity reached",
+                message="All 5 WS slots at capacity (5,000 tokens each). Tier-A token not subscribed.",
+                dedupe_key="ws-capacity-reached",
+                dedupe_ttl_seconds=600,
             )
             return None
 

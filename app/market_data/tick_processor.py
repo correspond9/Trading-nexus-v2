@@ -15,6 +15,7 @@ from collections import defaultdict
 
 from app.database import get_pool
 from app.config   import get_settings
+from app.runtime.notifications import add_notification
 
 log = logging.getLogger(__name__)
 cfg = get_settings()
@@ -96,6 +97,17 @@ class _TickProcessor:
             await self._push_to_frontend(batch)
         except Exception as exc:
             log.error(f"Tick processor flush error: {exc}")
+            try:
+                await add_notification(
+                    category="tick_processor",
+                    severity="error",
+                    title="Tick processor flush error",
+                    message=str(exc),
+                    dedupe_key="tick-flush-error",
+                    dedupe_ttl_seconds=120,
+                )
+            except Exception:
+                pass
 
     async def _upsert(self, batch: list[dict]) -> None:
         pool = get_pool()

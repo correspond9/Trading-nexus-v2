@@ -12,6 +12,8 @@ export function useMarketPulse() {
     status:       'unknown',
     prices:       {},
     marketActive: false,
+    marketActiveEquity: false,
+    marketActiveCommodity: false,
   });
 
   // Build WS URL from apiService.baseURL — handles dev proxy and production
@@ -42,13 +44,18 @@ export function useMarketPulse() {
     //  2) { type: 'prices', data: { prices: {...} } }
     const prices = data?.prices || data?.data?.prices || data?.ltp || {};
     const ts = data?.timestamp || new Date().toISOString();
+
     const marketActive = data?.market_active !== false;
+    const marketActiveEquity = data?.market_active_equity !== false;
+    const marketActiveCommodity = data?.market_active_commodity !== false;
 
     setPulse({
       timestamp: ts,
       status: data?.status || 'active',
       prices,
       marketActive,
+      marketActiveEquity,
+      marketActiveCommodity,
     });
   }, [lastMessage]);
 

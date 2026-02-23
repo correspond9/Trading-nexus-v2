@@ -4,7 +4,6 @@ import { apiService } from '../services/apiService';
 import { useAuth } from '../contexts/AuthContext';
 import { getLotSize as getConfiguredLotSize } from '../config/tradingConfig';
 import OrdersTab from './Orders';
-import HistoricOrdersPage from './HistoricOrders';
 import BasketsTab from './BASKETS';
 import WatchlistComponent from './WATCHLIST';
 import OptionMatrixComponent from './OPTIONS';
@@ -130,7 +129,6 @@ const Trade = () => {
     { id: 'orders', name: 'Orders' },
     { id: 'positions', name: 'Positions' },
     { id: 'baskets', name: 'Baskets' },
-    ...(isAdmin ? [{ id: 'trade-history', name: 'Trade History' }] : [])
   ];
   const indices = ['NIFTY 50', 'NIFTY BANK', 'SENSEX'];
   const sortOptions = ['A-Z', '%', 'LTP'];
@@ -142,6 +140,17 @@ const Trade = () => {
       const underlyingFromLeg = String(firstLeg?.underlying || '').trim() || normalizeUnderlying(selectedIndex);
       const fallbackLot = getConfiguredLotSize(underlyingFromLeg);
       const resolvedLot = Number(firstLeg?.lotSize || fallbackLot || 1);
+
+      const resolvedSecurityId = firstLeg?.security_id || firstLeg?.securityId || firstLeg?.instrument_token || firstLeg?.instrumentToken || firstLeg?.token || null;
+      const resolvedExchangeSegment = firstLeg?.exchange_segment || firstLeg?.exchangeSegment || firstLeg?.exchange || '';
+
+      const normalizedLegs = legs.map((leg) => ({
+        ...leg,
+        security_id: leg?.security_id || leg?.securityId || leg?.instrument_token || leg?.instrumentToken || leg?.token || null,
+        exchange_segment: leg?.exchange_segment || leg?.exchangeSegment || leg?.exchange || '',
+        lotSize: leg?.lotSize || resolvedLot,
+      }));
+
       setModalOrderData({
         symbol: firstLeg.symbol,
         action: firstLeg.action,
@@ -151,7 +160,10 @@ const Trade = () => {
         underlying: underlyingFromLeg,
         expiry: expiryIso,
         expiry_display: expiry,
-        legs: legs.length > 1 ? legs.map((leg) => ({ ...leg, lotSize: leg.lotSize || resolvedLot })) : null
+        security_id: resolvedSecurityId,
+        exchange_segment: resolvedExchangeSegment,
+        exchange: resolvedExchangeSegment,
+        legs: normalizedLegs
       });
       setModalOrderType(firstLeg.action || 'BUY');
       setModalOpen(true);
@@ -166,6 +178,7 @@ const Trade = () => {
       {
         symbol: instrument.symbol,
         token: instrument.token,
+        exchange_segment: instrument.exchange,
         exchange: instrument.exchange,
         underlying: resolvedUnderlying,
         lotSize: instrument.lotSize || fallbackLot || 1,
@@ -283,7 +296,6 @@ const Trade = () => {
               {rightTab === 'positions' && <PositionsTab />}
               {rightTab === 'orders' && <OrdersTab />}
               {rightTab === 'baskets' && <BasketsTab />}
-              {rightTab === 'trade-history' && isAdmin && <HistoricOrdersPage />}
             </div>
           </div>
         </div>

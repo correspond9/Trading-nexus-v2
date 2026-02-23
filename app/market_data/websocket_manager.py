@@ -19,6 +19,7 @@ from websockets.exceptions import ConnectionClosed
 from app.config import get_settings
 from app.credentials.credential_store import get_ws_url_candidates
 from app.market_hours import IST, record_exchange_tick_time
+from app.runtime.notifications import add_notification
 
 log = logging.getLogger(__name__)
 
@@ -205,6 +206,17 @@ class _SingleWSConnection:
 
             except ConnectionClosed as exc:
                 log.warning(f"WS-{self.slot}: Connection closed — {exc}.")
+                try:
+                    await add_notification(
+                        category="live_feed",
+                        severity="warning",
+                        title="Live feed connection closed",
+                        message=f"WS-{self.slot}: {exc}",
+                        dedupe_key=f"ws-{self.slot}-closed-{type(exc).__name__}",
+                        dedupe_ttl_seconds=300,
+                    )
+                except Exception:
+                    pass
             except asyncio.CancelledError:
                 log.info(f"WS-{self.slot}: Cancelled.")
                 return
@@ -215,6 +227,17 @@ class _SingleWSConnection:
                 if "HTTP 429" in msg:
                     rate_limited = True
                 log.error(f"WS-{self.slot}: Error — {exc}")
+                try:
+                    await add_notification(
+                        category="live_feed",
+                        severity="error",
+                        title="Dhan WebSocket data loop error",
+                        message=f"WS-{self.slot}: {exc}",
+                        dedupe_key=f"ws-{self.slot}-err-{type(exc).__name__}",
+                        dedupe_ttl_seconds=240,
+                    )
+                except Exception:
+                    pass
             finally:
                 self._connected = False
                 self._ws = None

@@ -10,12 +10,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from app.database import get_pool
 from app.credentials.credential_store import (
     get_active_auth_mode,
     set_auth_mode,
     is_static_configured,
 )
+from app.runtime.notifications import add_notification
 
 log = logging.getLogger(__name__)
 
@@ -165,19 +165,17 @@ async def log_auth_failure_event(
     Log auth incident to system_notifications table.
     Called when a critical failure is triggered.
     """
-    pool = get_pool()
     try:
-        await pool.execute(
-            """
-            INSERT INTO system_notifications
-                (category, severity, title, message)
-            VALUES ($1, $2, $3, $4)
-            """,
-            "authentication",
-            "critical",
-            "Static IP Auth Fallback Triggered",
-            f"Static IP authentication failed (HTTP {status_code}): {reason}. "
-            f"Switched to auto_totp mode.",
+        await add_notification(
+            category="authentication",
+            severity="critical",
+            title="Static IP Auth Fallback Triggered",
+            message=(
+                f"Static IP authentication failed (HTTP {status_code}): {reason}. "
+                "Switched to auto_totp mode."
+            ),
+            dedupe_key="static-auth-fallback",
+            dedupe_ttl_seconds=600,
         )
     except Exception as exc:
         log.warning("[StaticAuthMonitor] Could not log notification: %s", exc)

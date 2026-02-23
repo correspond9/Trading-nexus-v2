@@ -112,23 +112,25 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
 
     # ── Resolve LTP if price not supplied ────────────────────────────────────
     if price == 0.0 and (body.security_id or sym):
-        im = None
-        if body.security_id and str(body.security_id).isdigit():
-            im = await pool.fetchrow(
-                "SELECT instrument_token FROM instrument_master "
-                "WHERE security_id=$1 LIMIT 1",
-                str(body.security_id),
-            )
-        if not im and sym:
-            im = await pool.fetchrow(
-                "SELECT instrument_token FROM instrument_master "
-                "WHERE symbol=$1 LIMIT 1",
+        # IMPORTANT:
+        # - The frontend sends `security_id` but it is actually the instrument_token.
+        # - instrument_master does NOT have a `security_id` column.
+        instrument_token: Optional[int] = None
+        if body.security_id is not None:
+            sid = str(body.security_id).strip()
+            if sid.isdigit():
+                instrument_token = int(sid)
+
+        if instrument_token is None and sym:
+            instrument_token = await pool.fetchval(
+                "SELECT instrument_token FROM instrument_master WHERE symbol=$1 LIMIT 1",
                 sym,
             )
-        if im:
+
+        if instrument_token:
             ltp_row = await pool.fetchrow(
                 "SELECT ltp FROM market_data WHERE instrument_token=$1",
-                im["instrument_token"],
+                instrument_token,
             )
             if ltp_row and ltp_row["ltp"]:
                 price = float(ltp_row["ltp"])
@@ -155,18 +157,26 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
         is_commodity=is_commodity,
     )
 
+    # calculate_margin() can return an error dict (missing keys like span_source)
+    # when SPAN/ELM data is unavailable. Never 500 here — the UI treats failures
+    # as 0 and should not break the modal.
+    required_margin = breakdown.get("total_margin")
+    if required_margin is None:
+        required_margin = 0.0
+
     return {
         "data": {
-            "required_margin": breakdown["total_margin"],
-            "span_margin":     breakdown["span_margin"],
-            "exposure_margin": breakdown["exposure_margin"],
-            "premium":         breakdown["premium"],
-            "elm_pct":         breakdown["elm_pct"],
+            "required_margin": required_margin,
+            "span_margin":     breakdown.get("span_margin"),
+            "exposure_margin": breakdown.get("exposure_margin"),
+            "premium":         breakdown.get("premium"),
+            "elm_pct":         breakdown.get("elm_pct"),
             "price_used":      round(price, 2),
             "quantity":        qty,
             "underlying":      underlying,
-            "span_source":     breakdown["span_source"],
-            "data_as_of":      breakdown["data_as_of"],
+            "span_source":     breakdown.get("span_source"),
+            "data_as_of":      breakdown.get("data_as_of"),
+            "error":           breakdown.get("error"),
         }
     }
 
@@ -220,15 +230,19 @@ async def margin_account(
     wallet_balance  = float(row["wallet_balance"]  or 0)
     margin_allotted = float(row["margin_allotted"] or 0)
     used_margin     = float(row["used_margin"]     or 0)
-    available       = margin_allotted - used_margin
+
+    # If no explicit margin is allotted, default margin to wallet balance.
+    # This matches how most users expect to trade in paper mode.
+    effective_allotted = margin_allotted if margin_allotted > 0 else wallet_balance
+    available = effective_allotted - used_margin
 
     return {
         "data": {
             "available_margin": round(available, 2),
             "used_margin":      round(used_margin, 2),
             # Backward compatibility: older UI called this total_balance
-            "total_balance":    round(margin_allotted, 2),
-            "allotted_margin":  round(margin_allotted, 2),
+            "total_balance":    round(effective_allotted, 2),
+            "allotted_margin":  round(effective_allotted, 2),
             "wallet_balance":   round(wallet_balance, 2),
         }
     }

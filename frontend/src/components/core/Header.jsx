@@ -12,12 +12,13 @@ import {
 
 const NAV_ITEMS = [
   { label: 'Trade',       path: '/trade',                          roles: null },
-  { label: 'P.MIS',       path: '/trade/all-positions',            roles: null },
-  { label: 'P.Normal',    path: '/all-positions-normal',           roles: null },
+  { label: 'P.MIS',       path: '/trade/all-positions',            roles: ['ADMIN', 'SUPER_ADMIN'] },
+  { label: 'P.Normal',    path: '/all-positions-normal',           roles: ['ADMIN', 'SUPER_ADMIN'] },
   { label: 'P.Userwise',  path: '/all-positions-userwise',         roles: ['ADMIN', 'SUPER_ADMIN'] },
   { label: 'Users',       path: '/users',                          roles: ['ADMIN', 'SUPER_ADMIN'] },
   { label: 'Payouts',     path: '/payouts',                        roles: ['ADMIN', 'SUPER_ADMIN'] },
   { label: 'Ledger',      path: '/ledger',                         roles: ['ADMIN', 'SUPER_ADMIN'] },
+  { label: 'Trade History', path: '/trade-history',                roles: ['ADMIN', 'SUPER_ADMIN'] },
   { label: 'P&L',         path: '/pandl',                          roles: ['ADMIN', 'SUPER_ADMIN'] },
   { label: 'Dashboard',   path: '/dashboard',                      roles: ['SUPER_ADMIN'] },
 ];
@@ -29,7 +30,7 @@ const Header = () => {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const displayFirstName = user?.first_name || (user?.name ? String(user.name).trim().split(/\s+/)[0] : '') || user?.mobile || '';
   const [themeMode, setThemeMode] = React.useState(getStoredThemeMode());
-  const showThemeToggle = location.pathname.startsWith('/trade');
+  const showThemeToggle = location.pathname.startsWith('/trade') || location.pathname === '/trade-history';
 
   React.useEffect(() => {
     const handler = (e) => {

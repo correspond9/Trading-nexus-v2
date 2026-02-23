@@ -15,6 +15,7 @@ const PandL = lazy(() => import('./pages/PandL'));
 const Users = lazy(() => import('./pages/Users'));
 const Payouts = lazy(() => import('./pages/Payouts'));
 const Ledger = lazy(() => import('./pages/Ledger'));
+const TradeHistory = lazy(() => import('./pages/HistoricOrders'));
 const Profile = lazy(() => import('./pages/Profile'));
 const SuperAdmin = lazy(() => import('./pages/SuperAdmin'));
 
@@ -36,8 +37,12 @@ export default function App() {
                 <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                   <Route index element={<Navigate to="/trade" replace />} />
                   <Route path="/trade" element={<Trade />} />
-                  <Route path="/trade/all-positions" element={<PositionsMIS />} />
-                  <Route path="/all-positions-normal" element={<PositionsNormal />} />
+                  <Route path="/trade/all-positions" element={
+                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PositionsMIS /></ProtectedRoute>
+                  } />
+                  <Route path="/all-positions-normal" element={
+                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PositionsNormal /></ProtectedRoute>
+                  } />
                   <Route path="/all-positions-userwise" element={
                     <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PositionsUserwise /></ProtectedRoute>
                   } />
@@ -52,6 +57,9 @@ export default function App() {
                   } />
                   <Route path="/ledger" element={
                     <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><Ledger /></ProtectedRoute>
+                  } />
+                  <Route path="/trade-history" element={
+                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><TradeHistory /></ProtectedRoute>
                   } />
                   <Route path="/profile" element={<Profile />} />
                   <Route path="/dashboard" element={

@@ -1,6 +1,0 @@
-===== RAW API RESPONSES =====
-
-[1] Login Response (RAW):
-{"detail":[{"type":"json_invalid","loc":["body",1],"msg":"JSON decode error","input":{},"ctx":{"error":"Expecting property name enclosed in double quotes"}}]}
-
-  Parse FAILED: You cannot call a method on a null-valued expression.

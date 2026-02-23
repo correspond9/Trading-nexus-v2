@@ -1,35 +1,51 @@
-# Use Python 3.11 slim image
-FROM python:3.11-slim
+# ── Trading Nexus — Backend Dockerfile ──────────────────────────────────────
+# Multi-stage: builder installs deps, final image is lean at runtime.
+
+# ── Stage 1: dependency builder ──────────────────────────────────────────────
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+# Install build tools needed by some Python packages (e.g. asyncpg)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --upgrade pip \
+ && pip install --prefix=/install --no-cache-dir -r requirements.txt
+
+
+# ── Stage 2: runtime ─────────────────────────────────────────────────────────
+FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
-# Install system dependencies (gcc for any pip packages that need compiling)
-RUN apt-get update && apt-get install -y \
-  gcc \
-  curl \
-  && rm -rf /var/lib/apt/lists/*
+# Only runtime libs needed
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+ && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt ./requirements.txt
+# Copy installed packages from builder
+COPY --from=builder /install /usr/local
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --disable-pip-version-check --progress-bar off -r requirements.txt
+# Copy application source
+COPY app/       ./app/
+COPY migrations/ ./migrations/
+COPY instrument_master/ ./instrument_master/
 
-# Copy application code
-COPY app/ .
+# Non-root user for security
+RUN useradd -m appuser && chown -R appuser /app
+USER appuser
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash app \
-  && chown -R app:app /app
-USER app
-
-# Expose port
 EXPOSE 8000
 
-# Health check (NO curl needed) - runs inside the container
-# Extended start-period from 40s to 180s to allow Tier B preload to complete
-HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)" || exit 1
-
-# Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# uvicorn with 1 worker: this app starts background tasks (WS managers, pollers)
+# in the lifespan, so multiple workers would duplicate outbound connections.
+CMD ["uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+    "--workers", "1", \
+     "--proxy-headers", \
+     "--forwarded-allow-ips", "*"]

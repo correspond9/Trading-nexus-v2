@@ -37,6 +37,31 @@ const StatusCard = ({ title, status, detail, icon: Icon }) => (
   </div>
 );
 
+const SeverityPill = ({ level }) => {
+  const lvl = (level || "info").toLowerCase();
+  const style = {
+    error: "bg-red-500/15 text-red-200 border border-red-500/30",
+    critical: "bg-red-500/20 text-red-100 border border-red-500/40",
+    warning: "bg-yellow-500/15 text-yellow-200 border border-yellow-500/30",
+    warn: "bg-yellow-500/15 text-yellow-200 border border-yellow-500/30",
+    info: "bg-blue-500/10 text-blue-200 border border-blue-500/25",
+  }[lvl] || "bg-zinc-700/30 text-zinc-100 border border-zinc-600/40";
+  return (
+    <span className={`text-[11px] font-semibold px-2 py-1 rounded-md uppercase tracking-wide ${style}`}>
+      {lvl.toUpperCase()}
+    </span>
+  );
+};
+
+const formatWhen = (ts) => {
+  if (!ts) return "";
+  try {
+    return new Date(ts).toLocaleString();
+  } catch (err) {
+    return ts;
+  }
+};
+
 const SystemMonitoring = () => {
   const [health, setHealth] = useState(null);
   const [streamStatus, setStreamStatus] = useState(null);
@@ -53,7 +78,7 @@ const SystemMonitoring = () => {
         fetch(`${API_BASE}/health`),
         fetch(`${API_BASE}/market/stream-status`),
         fetch(`${API_BASE}/market/etf-tierb-status`),
-        fetch(`${API_BASE}/admin/notifications`),
+        fetch(`${API_BASE}/admin/notifications?limit=20`),
       ]);
 
       if (healthRes.status === 'fulfilled' && healthRes.value.ok)
@@ -174,37 +199,48 @@ const SystemMonitoring = () => {
       )}
 
       {/* Admin Alerts */}
-      {notifications.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+      <div className="rounded-xl p-4 border border-zinc-700 bg-zinc-800">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
             <AlertCircle size={14} />
-            Admin Alerts ({notifications.length})
+            Admin Alerts
           </h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {notifications.map((notif, idx) => (
-              <div
-                key={notif.id || idx}
-                className={`flex items-start gap-2 rounded-lg p-3 text-xs border ${
-                  notif.level === 'error' ? 'bg-red-900/30 border-red-700/50 text-red-300' :
-                  notif.level === 'warning' ? 'bg-yellow-900/30 border-yellow-700/50 text-yellow-300' :
-                  'bg-blue-900/30 border-blue-700/50 text-blue-300'
-                }`}
-              >
-                <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
-                <div>
-                  <div className="font-medium">{notif.title || notif.message}</div>
-                  {notif.title && notif.message && (
-                    <div className="opacity-80 mt-0.5">{notif.message}</div>
-                  )}
+          <span className="text-[11px] text-zinc-400">
+            {notifications.length ? `Last ${notifications.length}` : "No recent alerts"}
+          </span>
+        </div>
+
+        <div className="space-y-2 max-h-72 overflow-y-auto">
+          {notifications.length === 0 && (
+            <div className="text-xs text-zinc-500">No alerts yet. Background tasks look clean.</div>
+          )}
+
+          {notifications.map((notif, idx) => (
+            <div
+              key={notif.id || idx}
+              className="flex items-start gap-3 rounded-lg p-3 text-xs bg-zinc-900/60 border border-zinc-700"
+            >
+              <SeverityPill level={notif.severity || notif.level} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-semibold text-zinc-100 truncate">{notif.title || notif.message}</div>
                   {notif.created_at && (
-                    <div className="opacity-50 mt-1">{new Date(notif.created_at).toLocaleString()}</div>
+                    <span className="text-[11px] text-zinc-500 whitespace-nowrap">{formatWhen(notif.created_at)}</span>
                   )}
                 </div>
+                {notif.title && notif.message && (
+                  <div className="text-[12px] text-zinc-200 mt-1 leading-relaxed">
+                    {notif.message}
+                  </div>
+                )}
+                {notif.category && (
+                  <div className="text-[10px] text-zinc-500 mt-1 uppercase tracking-wide">{notif.category}</div>
+                )}
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 };

@@ -26,10 +26,28 @@ class ApiService {
     }
   }
 
+  _handleUnauthorized() {
+    try {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('authUser');
+    } catch {
+      // ignore
+    }
+    this._token = null;
+    try {
+      window.dispatchEvent(new CustomEvent('tn-auth-expired'));
+    } catch {
+      // ignore
+    }
+  }
+
   _getHeaders(extra = {}) {
     const headers = { 'Content-Type': 'application/json', ...extra };
     if (this._token) {
       headers['Authorization'] = `Bearer ${this._token}`;
+      // Backend auth supports X-AUTH as a first-class token header.
+      // Some reverse proxies / hosting setups may drop Authorization unless explicitly forwarded.
+      headers['X-AUTH'] = String(this._token);
     }
     const user = (() => {
       try { return JSON.parse(localStorage.getItem('authUser') || '{}'); } catch { return {}; }
@@ -64,6 +82,7 @@ class ApiService {
     const res = await fetch(url, { headers: this._getHeaders() });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
+      if (res.status === 401) this._handleUnauthorized();
       throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
     }
     return res.json();
@@ -78,6 +97,7 @@ class ApiService {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
+      if (res.status === 401) this._handleUnauthorized();
       throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
     }
     return res.json();
@@ -92,6 +112,7 @@ class ApiService {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
+      if (res.status === 401) this._handleUnauthorized();
       throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
     }
     return res.json();
@@ -106,6 +127,7 @@ class ApiService {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
+      if (res.status === 401) this._handleUnauthorized();
       throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
     }
     return res.json();
@@ -118,6 +140,7 @@ class ApiService {
     const res = await fetch(url, opts);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
+      if (res.status === 401) this._handleUnauthorized();
       throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
     }
     // Some DELETE responses have no body
@@ -139,6 +162,7 @@ class ApiService {
     const res = await fetch(url, fetchOpts);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
+      if (res.status === 401) this._handleUnauthorized();
       throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
     }
     const text = await res.text();
@@ -148,7 +172,10 @@ class ApiService {
 
   async upload(endpoint, formData) {
     const headers = {};
-    if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
+    if (this._token) {
+      headers['Authorization'] = `Bearer ${this._token}`;
+      headers['X-AUTH'] = String(this._token);
+    }
     const res = await fetch(this.baseURL + endpoint, {
       method: 'POST',
       headers,
@@ -156,6 +183,7 @@ class ApiService {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
+      if (res.status === 401) this._handleUnauthorized();
       throw Object.assign(new Error(err.detail || 'Upload failed'), { status: res.status });
     }
     return res.json();

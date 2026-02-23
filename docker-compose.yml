@@ -1,0 +1,116 @@
+# ── Trading Nexus — Docker Compose ──────────────────────────────────────────
+# Usage:
+#   cp .env.example .env      # fill in your real values
+#   docker compose up -d
+#
+# Services:
+#   db       — PostgreSQL 16 (data persisted in Docker volume)
+#   backend  — FastAPI (DhanHQ data + paper trading APIs)
+#   frontend — React/Vite SPA served by Nginx
+#              Nginx also reverse-proxies /api → backend so both run on port 80
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: trading_nexus_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       trading_nexus
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      # Initial schema runs automatically on first container creation
+      - ./migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
+      - ./migrations/002_users_baskets.sql:/docker-entrypoint-initdb.d/002_users_baskets.sql:ro
+      - ./migrations/003_subscription_lists.sql:/docker-entrypoint-initdb.d/003_subscription_lists.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d trading_nexus"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Expose only on localhost for security; remove port mapping on production
+    # if you don't need direct DB access from the host machine.
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  # ── FastAPI Backend ─────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading_nexus_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    environment:
+      # Database — points to the 'db' service by container name
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD}@db:5432/trading_nexus
+
+      # DhanHQ Auth — TOTP auto-refresh (recommended)
+      DHAN_CLIENT_ID:   ${DHAN_CLIENT_ID}
+      DHAN_PIN:         ${DHAN_PIN}
+      DHAN_TOTP_SECRET: ${DHAN_TOTP_SECRET}
+
+      # DhanHQ Auth — Manual fallback (used if TOTP not set, or in manual mode)
+      DHAN_ACCESS_TOKEN: ${DHAN_ACCESS_TOKEN:-}
+
+      # CORS: allow frontend origin (same VPS, port 80)
+      CORS_ORIGINS_RAW: "http://localhost,http://${VPS_IP:-localhost},https://${DOMAIN:-localhost}"
+
+      # ── Startup safety flags ─────────────────────────────────────────────
+      # Prevent any outbound DhanHQ connections on local dev.
+      # Set all three to 'false'/'true' in .env to re-enable for production.
+      # NOTE: These are pinned to explicit values because host environment
+      # variables can otherwise override compose interpolation unexpectedly.
+      DISABLE_DHAN_WS:        "false"
+      DISABLE_MARKET_STREAMS: "false"
+      STARTUP_START_STREAMS:  "true"
+      STARTUP_LOAD_MASTER:    "true"
+      STARTUP_LOAD_TIER_B:    "true"
+
+      # Optional overrides (these have defaults in config.py)
+      GREEKS_POLL_SECONDS: ${GREEKS_POLL_SECONDS:-15}
+      INSTRUMENTS_CSV_PATH: /app/data/api-scrip-master-detailed.csv
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      # Mount the instrument CSV directory so it's available inside the container
+      - ./instrument_master:/app/data:ro
+    # Backend only exposed internally; Nginx proxies /api → port 8000
+    expose:
+      - "8000"
+    # Uncomment the line below if you want direct backend access (e.g. for debugging)
+    ports:
+       - "8000:8000"
+
+  # ── React Frontend (Nginx) ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: trading_nexus_frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      # Uncomment for HTTPS (requires SSL cert volume, see nginx.conf)
+      # - "443:443"
+    # No extra env needed here — the Nginx config already wires /api → backend
+
+
+# ── Persistent volumes ──────────────────────────────────────────────────────
+volumes:
+  pg_data:
+    name: trading_nexus_pg_data

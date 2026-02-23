@@ -153,6 +153,11 @@ async def lifespan(app: FastAPI):
             log.info("[4] Downloading fresh instrument master from DhanHQ CDN…")
             await refresh_instruments(download=True)
 
+            # Scrip master refresh is a pure file+DB operation and does not depend on
+            # live streams being enabled/connected.
+            log.info("[11] Starting daily scrip master scheduler (06:00 IST)…")
+            await scrip_scheduler.start()
+
             # If startup streams are disabled, leave everything off and rely on
             # explicit SuperAdmin action: POST /admin/dhan/connect.
             if not cfg.startup_start_streams:
@@ -202,8 +207,7 @@ async def lifespan(app: FastAPI):
                 await greeks_poller.build_skeleton()
                 await greeks_poller.start()
 
-                log.info("[11] Starting daily scrip master scheduler (06:00 IST)…")
-                await scrip_scheduler.start()
+
 
         log.info("[12] Loading NSE margin data (SPAN® + Exposure Limit) …")
         try:

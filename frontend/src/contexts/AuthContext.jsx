@@ -11,6 +11,16 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const onExpired = () => {
+      authService.logout();
+      setUser(null);
+      setToken(null);
+    };
+    window.addEventListener('tn-auth-expired', onExpired);
+    return () => window.removeEventListener('tn-auth-expired', onExpired);
+  }, []);
+
+  useEffect(() => {
     const storedToken = localStorage.getItem('authToken');
     const storedUser  = (() => {
       try { return JSON.parse(localStorage.getItem('authUser') || 'null'); } catch { return null; }
@@ -19,6 +29,15 @@ export const AuthProvider = ({ children }) => {
       setToken(storedToken);
       setUser(storedUser);
       apiService.setAuthToken(storedToken);
+
+      // Validate token with backend; if DB was reset or session expired, force logout.
+      apiService.get('/auth/me').catch((err) => {
+        if (err?.status === 401) {
+          authService.logout();
+          setUser(null);
+          setToken(null);
+        }
+      });
     }
     setLoading(false);
   }, []);

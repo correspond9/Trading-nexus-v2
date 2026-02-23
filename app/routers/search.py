@@ -231,7 +231,7 @@ async def option_strikes_search(
     if underlying and atm is None:
         row = await pool.fetchrow(
             """
-            SELECT md.ltp, md.close
+                        SELECT md.ltp, md.close, im.exchange_segment
             FROM instrument_master im
             JOIN market_data md ON md.instrument_token = im.instrument_token
             WHERE im.underlying = $1
@@ -246,7 +246,8 @@ async def option_strikes_search(
             underlying.upper(),
         )
         if row:
-            market_active = is_market_open("NSE_FNO")
+            seg = (row.get("exchange_segment") or "NSE_FNO")
+            market_active = is_market_open(seg, underlying.upper())
             val = row["ltp"] if market_active else (row["close"] or row["ltp"])
             if val is not None:
                 try:

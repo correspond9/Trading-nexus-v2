@@ -554,6 +554,9 @@ class ScripMasterScheduler:
         self._task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
+        if self._task and not self._task.done():
+            log.warning("ScripMasterScheduler already running")
+            return
         self._task = asyncio.create_task(self._loop(), name="scrip_master_scheduler")
         log.info("ScripMasterScheduler started — will refresh at 06:00 IST daily.")
 

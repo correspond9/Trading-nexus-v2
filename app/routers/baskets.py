@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from app.database import get_pool
 from app.dependencies import CurrentUser, get_current_user
 from app.margin.nse_margin_data import calculate_margin as _nse_calculate_margin
+from app.market_hours import get_market_state, is_market_open
 
 log    = logging.getLogger(__name__)
 router = APIRouter(prefix="/trading/basket-orders", tags=["Baskets"])
@@ -300,7 +301,7 @@ async def execute_basket(
     for leg in legs_to_execute:
         symbol      = leg.get("symbol")      or ""
         security_id = leg.get("security_id") or leg.get("securityId") or ""
-        exchange    = leg.get("exchange")    or "NSE_FNO"
+        exchange    = leg.get("exchange")    or leg.get("exchange_segment") or leg.get("exchangeSegment") or ""
         side        = leg.get("side")       or leg.get("transaction_type") or "BUY"
         qty         = int(leg.get("qty") or leg.get("quantity") or 1)
         product     = leg.get("product_type") or leg.get("productType") or "INTRADAY"
@@ -319,26 +320,56 @@ async def execute_basket(
                 "SELECT * FROM instrument_master WHERE symbol=$1 LIMIT 1", symbol
             )
 
+        # If exchange segment wasn't supplied, fall back to instrument master.
+        if (not exchange) and im_row and im_row.get("exchange_segment"):
+            exchange = str(im_row["exchange_segment"]).strip().upper()
+        if not exchange:
+            exchange = "NSE_FNO"
+
+        # ── Market hours validation (match single-order behaviour) ─────────
+        if not is_market_open(exchange, symbol):
+            market_state = get_market_state(exchange, symbol)
+            raise HTTPException(
+                status_code=403,
+                detail=f"Market is {market_state.value}. Orders can only be placed during market hours.",
+            )
+
         token = im_row["instrument_token"] if im_row else 0
         ltp_row = await pool.fetchrow(
             "SELECT ltp FROM market_data WHERE instrument_token=$1", token
         ) if token else None
         fill_price = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else price or 100.0
 
-        order = await pool.fetchrow(
+        order_type_u = (order_type or "MARKET").upper()
+        side_u = (side or "BUY").upper()
+        limit_price = float(price) if order_type_u == "LIMIT" and float(price) > 0 else None
+        order_id = str(uuid.uuid4())
+
+        await pool.execute(
             """
             INSERT INTO paper_orders
-              (user_id, instrument_token, symbol, exchange_segment,
-               transaction_type, quantity, order_type, product_type,
-               price, filled_price, status, security_id)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'COMPLETE',$11)
-            RETURNING id, status, filled_price
+                (order_id, user_id, instrument_token, symbol, exchange_segment,
+                 side, order_type, quantity, trigger_price, limit_price,
+                 fill_price, filled_qty, status, product_type, security_id)
+            VALUES
+                ($1,$2,$3,$4,$5,$6,$7,$8,NULL,$9,$10,$11,'FILLED',$12,$13)
             """,
-            uid, token, symbol, exchange,
-            side, qty, order_type, product,
-            price, fill_price, security_id or str(token),
+            order_id,
+            uid,
+            int(token or 0),
+            symbol,
+            exchange,
+            side_u,
+            order_type_u,
+            int(qty),
+            limit_price,
+            float(fill_price),
+            int(qty),
+            str(product or "MIS").upper(),
+            int(security_id) if str(security_id).isdigit() else None,
         )
-        results.append({"symbol": symbol, "status": "COMPLETE", "order_id": str(order["id"])})
+
+        results.append({"symbol": symbol, "status": "FILLED", "order_id": order_id})
 
     return {"success": True, "results": results}
 

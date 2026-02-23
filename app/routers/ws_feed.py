@@ -22,7 +22,7 @@ from app.websocket_push import ws_push
 import app.instruments.subscription_manager as subscription_manager
 from app.database           import get_pool
 from app.serializers.market_data import serialize_tick
-from app.market_hours import is_market_open
+from app.market_hours import IST, is_equity_window_active, is_commodity_window_active
 
 router = APIRouter(prefix="/ws", tags=["WebSocket Feed"])
 log    = logging.getLogger(__name__)
@@ -40,8 +40,11 @@ async def websocket_prices(ws: WebSocket):
             await asyncio.sleep(0.5)
             pool = get_pool()
 
-            # Global market_active: treat NSE derivatives session as the primary clock.
-            market_active = is_market_open("NSE_FNO")
+            # Segment-aware market flags (IST). Frontend may trade both equity and commodity.
+            now_ist = datetime.now(tz=IST)
+            market_active_equity = is_equity_window_active(now_ist)
+            market_active_commodity = is_commodity_window_active(now_ist)
+            market_active = market_active_equity or market_active_commodity
 
             # 1) Core keys required by Admin Dashboard cards.
             # Map underlying -> LTP using nearest futures where available.
@@ -119,6 +122,8 @@ async def websocket_prices(ws: WebSocket):
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 "status": "active",
                 "market_active": market_active,
+                "market_active_equity": market_active_equity,
+                "market_active_commodity": market_active_commodity,
                 "prices": prices,
             }
             await ws.send_text(json.dumps(payload))

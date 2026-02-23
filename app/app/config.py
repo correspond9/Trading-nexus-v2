@@ -32,11 +32,17 @@ class Settings(BaseSettings):
     # ── App ─────────────────────────────────────────────────────────────────
     debug:             bool = False
     log_level:         str  = "INFO"
-    cors_origins_raw:  str  = "http://localhost:3000,http://localhost:5173"  # comma-separated
+    cors_origins_raw:  str  = "*"  # Allow all origins (secured by Coolify + authenticated endpoints)
 
     @property
     def cors_origins(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins_raw.split(",") if o.strip()]
+        """Return CORS origins list."""
+        origins_raw = self.cors_origins_raw.strip()
+        # If "*" (allow all), return ["*"]
+        if origins_raw == "*":
+            return ["*"]
+        # Otherwise parse comma-separated list
+        return [o.strip() for o in origins_raw.split(",") if o.strip()]
 
     # ── Market data ─────────────────────────────────────────────────────────
     tick_batch_ms:         int   = 100     # flush tick buffer every N ms

@@ -1,0 +1,323 @@
+"""
+app/routers/positions.py  (v2 ΓÇö /portfolio/positions prefix)
+"""
+import logging
+from datetime import date, datetime, timezone, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+
+from app.database import get_pool
+from app.dependencies import CurrentUser, get_current_user
+
+log = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/portfolio/positions", tags=["Positions"])
+
+
+def _uid(request: Request, user_id_param, current_user: Optional[CurrentUser] = None) -> str:
+    if user_id_param:
+        return str(user_id_param)
+    hdr = request.headers.get("X-USER")
+    if hdr:
+        return hdr
+    if current_user:
+        return str(current_user.id)
+    raise HTTPException(status_code=401, detail="Authentication required")
+
+
+def _fmt(r) -> dict:
+    d = dict(r)
+    d["id"]           = str(d.get("id") or d.get("instrument_token", ""))
+    d["product_type"] = d.get("product_type") or "MIS"
+    d["quantity"]     = int(d.get("quantity") or d.get("net_qty") or 0)
+    d["avg_price"]    = float(d.get("avg_price") or d.get("avg_cost") or 0)
+    d["mtm"]          = float(d.get("mtm") or d.get("unrealized_pnl") or 0)
+    d["status"]       = d.get("status") or ("OPEN" if d["quantity"] != 0 else "CLOSED")
+    d["realized_pnl"] = float(d.get("realized_pnl") or 0)
+    for k, v in list(d.items()):
+        if hasattr(v, "isoformat"):
+            d[k] = v.isoformat()
+        elif hasattr(v, "__class__") and v.__class__.__name__ == "Decimal":
+            d[k] = float(v)
+    return d
+
+
+@router.get("")
+@router.get("/")
+async def get_positions(
+    request:  Request,
+    current_user: CurrentUser = Depends(get_current_user),
+    user_id:  Optional[str] = Query(None),
+):
+    uid  = _uid(request, user_id, current_user)
+    pool = get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT pp.*,
+               COALESCE(md.ltp, pp.avg_price) AS ltp,
+               COALESCE((md.ltp - pp.avg_price) * pp.quantity, 0) AS mtm
+        FROM paper_positions pp
+        LEFT JOIN market_data md ON md.instrument_token = pp.instrument_token
+                WHERE pp.user_id = $1
+                    AND (
+                        pp.status = 'OPEN'
+                        OR (pp.status = 'CLOSED' AND pp.archived_at IS NULL)
+                    )
+        ORDER BY pp.opened_at DESC
+        """,
+        uid,
+    )
+    return {"data": [_fmt(r) for r in rows]}
+
+
+@router.post("/{position_id}/close")
+async def close_position(
+    request:     Request,
+    position_id: str = Path(...),
+    current_user: CurrentUser = Depends(get_current_user),
+    user_id:     Optional[str] = Query(None),  # admin can pass target user_id
+):
+    """Mark a specific position as closed (paper mode flat)."""
+    uid  = _uid(request, user_id, current_user)
+    pool = get_pool()
+
+    # BLOCKED users cannot exit positions
+    _status_row = await pool.fetchrow(
+        "SELECT status FROM users WHERE id=$1::uuid", uid
+    )
+    if _status_row and _status_row["status"] == "BLOCKED":
+        raise HTTPException(
+            status_code=403,
+            detail="Your account is blocked. You can only submit payout requests.",
+        )
+
+    # position_id may be instrument_token (int) or a UUID-style string
+    try:
+        token = int(position_id)
+        row = await pool.fetchrow(
+            "SELECT * FROM paper_positions WHERE user_id=$1 AND instrument_token=$2",
+            uid, token,
+        )
+    except ValueError:
+        row = await pool.fetchrow(
+            "SELECT * FROM paper_positions WHERE user_id=$1 AND id=$2::uuid",
+            uid, position_id,
+        )
+
+    if not row:
+        # Try as instrument_token from any user (admin close)
+        try:
+            token = int(position_id)
+            row = await pool.fetchrow(
+                "SELECT * FROM paper_positions WHERE instrument_token=$1 LIMIT 1", token
+            )
+        except ValueError:
+            pass
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Position not found")
+
+    # Get current LTP for realized P&L calc
+    ltp_row = await pool.fetchrow(
+        "SELECT ltp FROM market_data WHERE instrument_token=$1",
+        row["instrument_token"],
+    )
+    ltp = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else float(row["avg_price"] or 0)
+    qty = int(row.get("quantity") or row.get("net_qty") or 0)
+    avg = float(row.get("avg_price") or row.get("avg_cost") or 0)
+    realized = round((ltp - avg) * qty, 2)
+
+    await pool.execute(
+        """
+        UPDATE paper_positions
+        SET quantity = 0, status = 'CLOSED', realized_pnl = $1, closed_at = NOW()
+        WHERE instrument_token = $2 AND user_id = $3
+        """,
+        realized, row["instrument_token"], str(row["user_id"]),
+    )
+    return {"success": True, "realized_pnl": realized}
+
+
+@router.get("/pnl/summary")
+@router.get("/pnl/summary/")
+async def pnl_summary(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+    user_id: Optional[str] = Query(None),
+):
+    uid  = _uid(request, user_id, current_user)
+    pool = get_pool()
+    row  = await pool.fetchrow(
+        """
+        SELECT
+            COALESCE(SUM(CASE WHEN quantity != 0
+                         THEN (COALESCE(md.ltp, pp.avg_price) - pp.avg_price) * pp.quantity
+                         ELSE 0 END), 0)                AS unrealized_pnl,
+            COALESCE(SUM(COALESCE(realized_pnl,0)),0)   AS realized_pnl,
+            COALESCE(SUM(COALESCE(total_charges,0)),0)  AS total_charges,
+            COALESCE(SUM(COALESCE(brokerage_charge,0)),0) AS brokerage_charge,
+            COALESCE(SUM(COALESCE(stt_ctt_charge,0)),0)   AS stt_ctt_charge,
+            COALESCE(SUM(COALESCE(exchange_charge,0)),0)  AS exchange_charge,
+            COALESCE(SUM(COALESCE(sebi_charge,0)),0)      AS sebi_charge,
+            COALESCE(SUM(COALESCE(stamp_duty,0)),0)       AS stamp_duty,
+            COALESCE(SUM(COALESCE(ipft_charge,0)),0)      AS ipft_charge,
+            COALESCE(SUM(COALESCE(gst_charge,0)),0)       AS gst_charge,
+            COALESCE(SUM(COALESCE(platform_cost,0)),0)    AS platform_cost,
+            COALESCE(SUM(COALESCE(trade_expense,0)),0)    AS trade_expense
+        FROM paper_positions pp
+        LEFT JOIN market_data md ON md.instrument_token = pp.instrument_token
+        WHERE pp.user_id = $1
+        """,
+        uid,
+    )
+    unr = float(row["unrealized_pnl"])
+    rea = float(row["realized_pnl"])
+    charges = float(row["total_charges"])
+    net_realized = rea - charges
+    
+    return {
+        "unrealized_pnl": unr,
+        "realized_pnl": rea,
+        "total_charges": charges,
+        "net_realized_pnl": net_realized,
+        "total_pnl": unr + net_realized,
+        "charge_breakdown": {
+            "brokerage": float(row["brokerage_charge"]),
+            "stt_ctt": float(row["stt_ctt_charge"]),
+            "exchange": float(row["exchange_charge"]),
+            "sebi": float(row["sebi_charge"]),
+            "stamp_duty": float(row["stamp_duty"]),
+            "ipft": float(row["ipft_charge"]),
+            "gst": float(row["gst_charge"]),
+            "platform_cost": float(row["platform_cost"]),
+            "trade_expense": float(row["trade_expense"]),
+        }
+    }
+
+
+@router.get("/pnl/historic")
+@router.get("/pnl/historic/")
+async def pnl_historic(
+    request:   Request,
+    current_user: CurrentUser = Depends(get_current_user),
+    from_date: Optional[str] = Query(None, description="YYYY-MM-DD (IST), defaults to today"),
+    to_date:   Optional[str] = Query(None, description="YYYY-MM-DD (IST), defaults to today"),
+    user_id:   Optional[str] = Query(None),
+):
+    """
+    Returns realized P&L from CLOSED positions within the date range,
+    plus unrealized MTM for currently OPEN positions.
+    Date range is inclusive, anchored to IST (UTC+5:30).
+    """
+    uid  = _uid(request, user_id, current_user)
+    pool = get_pool()
+
+    IST = timezone(timedelta(hours=5, minutes=30))
+    today_ist = datetime.now(IST).date()
+
+    try:
+        fd = date.fromisoformat(from_date) if from_date else today_ist
+        td = date.fromisoformat(to_date)   if to_date   else today_ist
+    except ValueError:
+        raise HTTPException(400, "Invalid date format. Use YYYY-MM-DD.")
+
+    # Convert IST calendar dates ΓåÆ UTC timestamps for DB comparison
+    from_utc = datetime(fd.year, fd.month, fd.day, 0, 0, 0, tzinfo=IST)
+    to_utc   = datetime(td.year, td.month, td.day, 23, 59, 59, 999999, tzinfo=IST)
+
+    # ΓöÇΓöÇ Closed positions within range ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    closed_rows = await pool.fetch(
+        """
+        SELECT
+            pp.instrument_token,
+            pp.symbol,
+            pp.exchange_segment,
+            pp.product_type,
+            pp.quantity          AS closed_qty,
+            pp.avg_price         AS entry_price,
+            pp.realized_pnl,
+            pp.total_charges,
+            pp.brokerage_charge,
+            pp.stt_ctt_charge,
+            pp.exchange_charge,
+            pp.sebi_charge,
+            pp.stamp_duty,
+            pp.ipft_charge,
+            pp.gst_charge,
+            pp.platform_cost,
+            pp.trade_expense,
+            (pp.realized_pnl - COALESCE(pp.total_charges, 0)) AS net_pnl,
+            pp.opened_at,
+            pp.closed_at
+        FROM paper_positions pp
+        WHERE pp.user_id = $1::uuid
+          AND pp.status  = 'CLOSED'
+          AND pp.closed_at >= $2
+          AND pp.closed_at <= $3
+        ORDER BY pp.closed_at DESC
+        """,
+        uid, from_utc, to_utc,
+    )
+
+    # ΓöÇΓöÇ Open positions (unrealized) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    open_rows = await pool.fetch(
+        """
+        SELECT
+            pp.instrument_token,
+            pp.symbol,
+            pp.exchange_segment,
+            pp.product_type,
+            pp.quantity,
+            pp.avg_price,
+            COALESCE(md.ltp, pp.avg_price)                        AS ltp,
+            COALESCE((md.ltp - pp.avg_price) * pp.quantity, 0)   AS mtm,
+            pp.opened_at
+        FROM paper_positions pp
+        LEFT JOIN market_data md ON md.instrument_token = pp.instrument_token
+        WHERE pp.user_id = $1::uuid
+          AND pp.status  = 'OPEN'
+          AND pp.quantity != 0
+        ORDER BY pp.opened_at DESC
+        """,
+        uid,
+    )
+
+    def _to_dict(r, extra=None):
+        d = {}
+        for k in r.keys():
+            v = r[k]
+            if hasattr(v, "isoformat"):
+                d[k] = v.isoformat()
+            elif hasattr(v, "__class__") and v.__class__.__name__ == "Decimal":
+                d[k] = float(v)
+            else:
+                d[k] = v
+        if extra:
+            d.update(extra)
+        return d
+
+    closed_list = [_to_dict(r) for r in closed_rows]
+    open_list   = [_to_dict(r) for r in open_rows]
+
+    # Calculate totals including charges
+    realized_total   = sum(float(r.get("realized_pnl") or 0) for r in closed_list)
+    charges_total    = sum(float(r.get("total_charges") or 0) for r in closed_list)
+    net_realized     = realized_total - charges_total
+    unrealized_total = sum(float(r.get("mtm") or 0) for r in open_list)
+
+    return {
+        "data": {
+            "closed":           closed_list,
+            "open":             open_list,
+            "realized_pnl":     round(realized_total,   2),
+            "total_charges":    round(charges_total,    2),
+            "net_realized_pnl": round(net_realized,     2),
+            "unrealized_pnl":   round(unrealized_total, 2),
+            "net_pnl":          round(net_realized + unrealized_total, 2),
+            "closed_count":     len(closed_list),
+            "open_count":       len(open_list),
+            "from_date":        fd.isoformat(),
+            "to_date":          td.isoformat(),
+        }
+    }

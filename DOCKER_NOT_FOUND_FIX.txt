@@ -1,0 +1,89 @@
+═══════════════════════════════════════════════════════════════
+  ❌ ERROR: "docker: not found" - WHY THIS HAPPENED
+═══════════════════════════════════════════════════════════════
+
+You ran the command in Coolify's APPLICATION terminal.
+
+❌ Application Terminal = INSIDE your app container (no docker)
+✅ Server Terminal      = On the VPS host (has docker)
+
+═══════════════════════════════════════════════════════════════
+  ✅ SOLUTION: 2 Ways to Access the Server Terminal
+═══════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────┐
+│ METHOD 1: SSH (RECOMMENDED - Always Works)                 │
+└─────────────────────────────────────────────────────────────┘
+
+Step 1: Open PowerShell on your local machine
+
+Step 2: SSH to your VPS:
+    ssh root@72.62.228.112
+
+Step 3: List containers to see their exact names:
+    docker ps --format '{{.Names}}'
+
+Step 4: SEND ME THE OUTPUT! I'll give you exact commands.
+
+┌─────────────────────────────────────────────────────────────┐
+│ METHOD 2: Coolify Server Terminal                          │
+└─────────────────────────────────────────────────────────────┘
+
+Step 1: In Coolify, click "Servers" (left sidebar)
+        NOT "Applications"!
+
+Step 2: Click on your server name
+
+Step 3: Look for "Terminal" or "Execute Command" button
+
+Step 4: That terminal runs on the host = has docker access
+
+═══════════════════════════════════════════════════════════════
+  📋 ONCE YOU GET CONTAINER NAMES
+═══════════════════════════════════════════════════════════════
+
+You'll see something like:
+
+  j0sk408owsssswkwwk0kwwws
+  j0sk408owsssswkwwk0kwwws-db-1
+  j0sk408owsssswkwwk0kwwws-redis-1
+  j0sk408owsssswkwwk0kwwws-frontend
+
+OR:
+
+  tradingnexus-backend
+  tradingnexus-db
+  tradingnexus-redis
+  tradingnexus-frontend
+
+SEND ME THESE NAMES and I'll create exact commands for you!
+
+═══════════════════════════════════════════════════════════════
+  ⚡ QUICK COMMANDS (Once you have SSH access)
+═══════════════════════════════════════════════════════════════
+
+# List containers
+docker ps --format '{{.Names}}'
+
+# Then tell me the names, and I'll give you:
+# docker stop <backend-name>
+# docker exec <db-name> psql -U postgres -c "DROP DATABASE..."
+# docker start <backend-name>
+# etc...
+
+═══════════════════════════════════════════════════════════════
+  🔐 No SSH Access? No Problem!
+═══════════════════════════════════════════════════════════════
+
+Option A: Ask your hosting provider for SSH access
+Option B: Use Coolify's Server-level terminal (see METHOD 2)
+Option C: Contact me with Coolify dashboard screenshots
+
+═══════════════════════════════════════════════════════════════
+
+⏭️  NEXT STEP: 
+
+Choose METHOD 1 or METHOD 2 above, get container names,
+and send them to me!
+
+═══════════════════════════════════════════════════════════════

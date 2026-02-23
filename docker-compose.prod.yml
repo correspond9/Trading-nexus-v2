@@ -31,8 +31,6 @@ services:
         condition: service_started
     volumes:
       - ./logs:/app/logs
-    ports:
-      - "8000:8000"
     restart: always
 
   db:
@@ -79,8 +77,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    ports:
-      - "80:80"
     restart: always
 
 volumes:

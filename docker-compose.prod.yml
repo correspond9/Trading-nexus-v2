@@ -2,7 +2,7 @@ services:
   backend:
     build: .
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v2/health', timeout=5)\" || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -15,13 +15,13 @@ services:
       - "traefik.http.services.tradingbackend.loadbalancer.server.port=8000"
     environment:
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/trading_terminal
-      - LOG_LEVEL=${LOG_LEVEL:-WARNING}
+      - LOG_LEVEL=WARNING
       - ENVIRONMENT=production
-      - DEBUG=false
       - CORS_ORIGINS_RAW=${CORS_ORIGINS_RAW:-https://app.tradingnexus.pro,http://localhost:3000,http://localhost:5173}
-      - STARTUP_LOAD_MASTER=${LOAD_MASTER:-true}
-      - STARTUP_LOAD_TIER_B=${LOAD_TIER_B:-true}
-      - STARTUP_START_STREAMS=${START_STREAMS:-true}
+      - DEBUG=false
+      - STARTUP_LOAD_MASTER=true
+      - STARTUP_LOAD_TIER_B=true
+      - STARTUP_START_STREAMS=true
     env_file:
       - .env
     depends_on:
@@ -32,7 +32,7 @@ services:
     volumes:
       - ./logs:/app/logs
     restart: always
-    
+
   db:
     image: postgres:15-alpine
     environment:
@@ -72,6 +72,8 @@ services:
       - "traefik.http.routers.tradingfrontend.entrypoints=http,https"
       - "traefik.http.routers.tradingfrontend.tls=true"
       - "traefik.http.services.tradingfrontend.loadbalancer.server.port=80"
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-https://api.tradingnexus.pro/api/v2}
     depends_on:
       backend:
         condition: service_healthy

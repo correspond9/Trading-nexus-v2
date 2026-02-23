@@ -6,6 +6,27 @@
 /* Theme variables (defaults to dark)                                        */
 
 :root {
+  /* Defaults are light-first so unauthenticated pages render legibly */
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface2: #f1f5f9;
+  --border: #e5e7eb;
+  --text: #0f172a;
+  --muted: #475569;
+  --accent: #2563eb;
+  --accent-contrast: #0b1220;
+  --row-highlight: #e2e8f0;
+  --control-bg: #ffffff;
+  --control-text: #0f172a;
+  --tab-active-bg: #2563eb;
+  --tab-active-text: #0b1220;
+  --nm-shadow: #cbd5e1;
+  --nm-highlight: #ffffff;
+  --nm-shadow-rgb: 203 213 225;
+  --nm-highlight-rgb: 255 255 255;
+}
+
+[data-theme='dark'] {
   --bg: #0d1117;
   --surface: #161b22;
   --surface2: #21262d;
@@ -13,10 +34,36 @@
   --text: #e6edf3;
   --muted: #7d8590;
   --accent: #3b82f6;
+  --accent-contrast: #e6edf3;
+  --row-highlight: #1f2937;
+  --control-bg: #111827;
+  --control-text: #e5e7eb;
+  --tab-active-bg: #2563eb;
+  --tab-active-text: #e6edf3;
   --nm-shadow: #0b0f14;
   --nm-highlight: #1f2937;
   --nm-shadow-rgb: 11 15 20;
   --nm-highlight-rgb: 31 41 55;
+}
+
+[data-theme='light'] {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface2: #f1f5f9;
+  --border: #e5e7eb;
+  --text: #0f172a;
+  --muted: #475569;
+  --accent: #2563eb;
+  --accent-contrast: #0b1220;
+  --row-highlight: #e2e8f0;
+  --control-bg: #ffffff;
+  --control-text: #0f172a;
+  --tab-active-bg: #2563eb;
+  --tab-active-text: #0b1220;
+  --nm-shadow: #cbd5e1;
+  --nm-highlight: #ffffff;
+  --nm-shadow-rgb: 203 213 225;
+  --nm-highlight-rgb: 255 255 255;
 }
 
 /* Theme-aware overrides for common Tailwind utility classes */
@@ -43,6 +90,31 @@ body {
   color: var(--text);
   font-size: 14px;
   line-height: 1.5;
+}
+
+/* Form controls stay legible in both modes */
+[data-theme] input[type="text"],
+[data-theme] input[type="password"],
+[data-theme] input[type="email"],
+[data-theme] input[type="number"],
+[data-theme] input[type="tel"],
+[data-theme] input[type="search"],
+[data-theme] input[type="url"],
+[data-theme] input[type="date"],
+[data-theme] input[type="datetime-local"],
+[data-theme] input[type="month"],
+[data-theme] input[type="time"],
+[data-theme] select,
+[data-theme] textarea {
+  background: var(--control-bg) !important;
+  color: var(--control-text) !important;
+  border-color: var(--border) !important;
+  caret-color: var(--control-text) !important;
+}
+
+[data-theme] input::placeholder,
+[data-theme] textarea::placeholder {
+  color: var(--muted) !important;
 }
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
@@ -292,7 +364,7 @@ textarea { resize: vertical; min-height: 72px; }
 
 /* ── Table ──────────────────────────────────────────────────────────────── */
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { text-align: left; color: #a1a1aa; font-weight: 600; padding: 8px 12px; border-bottom: 1px solid #3f3f46; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
-td { padding: 8px 12px; border-bottom: 1px solid #3f3f46; color: #f4f4f5; }
+th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text); }
 tr:last-child td { border-bottom: none; }
-tr:hover td { background: #27272a; }
+tr:hover td { background: var(--row-highlight); color: var(--text); }

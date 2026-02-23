@@ -202,16 +202,29 @@ const Trade = () => {
           {/* Left Panel */}
           <div className="lg:w-1/3 w-full">
             <div className="flex gap-1 rounded-t-lg p-1" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-              {leftTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setLeftTab(tab.id)}
-                  className={`flex-1 px-[1em] py-[0.6em] min-h-[2.4em] leading-tight font-semibold rounded-md transition-colors ${leftTab === tab.id ? 'bg-blue-600 !text-white' : ''}`}
-                  style={leftTab !== tab.id ? { background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' } : {}}
-                >
-                  {tab.name}
-                </button>
-              ))}
+              {leftTabs.map((tab) => {
+                const isActive = leftTab === tab.id;
+                const baseStyle = {
+                  background: 'var(--surface2)',
+                  color: 'var(--text)',
+                  border: '1px solid var(--border)'
+                };
+                const activeStyle = {
+                  background: 'var(--tab-active-bg)',
+                  color: 'var(--tab-active-text)',
+                  border: '1px solid var(--tab-active-bg)'
+                };
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setLeftTab(tab.id)}
+                    className="flex-1 px-[1em] py-[0.6em] min-h-[2.4em] leading-tight font-semibold rounded-md transition-colors"
+                    style={isActive ? activeStyle : baseStyle}
+                  >
+                    {tab.name}
+                  </button>
+                );
+              })}
             </div>
 
             {leftTab !== 'watchlist' && (
@@ -223,8 +236,10 @@ const Trade = () => {
                         <button
                           key={exp}
                           onClick={() => handleExpiryChange(exp)}
-                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${expiry === exp ? 'bg-blue-600 !text-white' : ''}`}
-                          style={expiry !== exp ? { background: 'var(--surface2)', color: 'var(--text)' } : {}}
+                          className="px-2 py-1 text-xs font-medium rounded transition-colors"
+                          style={expiry === exp
+                            ? { background: 'var(--tab-active-bg)', color: 'var(--tab-active-text)', border: '1px solid var(--tab-active-bg)' }
+                            : { background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' }}
                         >
                           {exp}
                         </button>
@@ -240,8 +255,10 @@ const Trade = () => {
                         <button
                           key={option}
                           onClick={() => setSortBy(option)}
-                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${sortBy === option ? 'bg-blue-600 !text-white' : ''}`}
-                          style={sortBy !== option ? { background: 'var(--surface2)', color: 'var(--text)' } : {}}
+                          className="px-2 py-1 text-xs font-medium rounded transition-colors"
+                          style={sortBy === option
+                            ? { background: 'var(--tab-active-bg)', color: 'var(--tab-active-text)', border: '1px solid var(--tab-active-bg)' }
+                            : { background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' }}
                         >
                           {option}
                         </button>

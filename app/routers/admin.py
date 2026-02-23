@@ -1415,12 +1415,14 @@ async def dhan_connection_status():
 
     has_credentials = bool(get_client_id() and get_access_token())
     slots = ws_manager.get_status()
-    any_connected = any(s.get("connected") for s in slots)
+    connected_slots = sum(1 for s in slots if s.get("connected"))
+    all_connected = connected_slots == len(slots)
     tick_active   = tick_processor._task is not None and not tick_processor._task.done()
 
     return {
         "has_credentials": has_credentials,
-        "connected":       any_connected,
+        "connected":       all_connected,
+        "connected_slots": connected_slots,
         "tick_processor":  tick_active,
         "slots":           slots,
     }

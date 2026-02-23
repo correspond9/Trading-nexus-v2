@@ -11,6 +11,12 @@ from typing import Optional
 from app.database                  import get_pool
 from app.serializers.market_data   import serialize_tick
 from app.market_data.rate_limiter  import market_quote_limiter
+from app.market_hours              import (
+    get_market_state,
+    MarketState,
+    is_equity_window_active,
+    is_commodity_window_active,
+)
 
 router = APIRouter(prefix="/market", tags=["Market Data"])
 
@@ -139,6 +145,21 @@ async def stream_status():
 
     slots = ws_manager.get_status()
     equity_connected = any(s.get("connected") for s in slots)
+    equity_state = get_market_state("NSE_FNO").value
+    commodity_state = get_market_state("MCX_FO").value
+    session_label = "closed"
+    if equity_state == MarketState.OPEN.value and commodity_state == MarketState.OPEN.value:
+        session_label = "both_open"
+    elif equity_state == MarketState.OPEN.value:
+        session_label = "equity_open"
+    elif commodity_state == MarketState.OPEN.value:
+        session_label = "commodity_open"
+    elif equity_state == MarketState.PRE_OPEN.value:
+        session_label = "equity_pre_open"
+    elif commodity_state == MarketState.PRE_OPEN.value:
+        session_label = "commodity_pre_open"
+    elif equity_state == MarketState.POST_CLOSE.value:
+        session_label = "equity_post_close"
     return {
         "equity": {
             "status":        "connected" if equity_connected else "disconnected",
@@ -147,7 +168,15 @@ async def stream_status():
         "mcx": {
             "status": "connected" if equity_connected else "disconnected",
         },
-        "market_session": "unknown",
+        "market_session": session_label,
+        "exchange_sessions": {
+            "equity": equity_state,
+            "commodity": commodity_state,
+        },
+        "windows": {
+            "equity_active": is_equity_window_active(),
+            "commodity_active": is_commodity_window_active(),
+        },
         "slots": slots,
     }
 

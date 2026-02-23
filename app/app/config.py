@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # ── PostgreSQL ──────────────────────────────────────────────────────────
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/trading_nexus"
+    database_url: str = "postgresql://postgres:postgres@localhost:5432/trading_terminal"
 
     # ── DhanHQ (initial values — can be overridden at runtime via Admin API) ─
     dhan_client_id:    str = ""

@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import normalizeUnderlying from '../utils/underlying';
 import { apiService } from '../services/apiService';
+import { useAuth } from '../contexts/AuthContext';
 import { getLotSize as getConfiguredLotSize } from '../config/tradingConfig';
 import OrdersTab from './Orders';
+import HistoricOrdersPage from './HistoricOrders';
 import BasketsTab from './BASKETS';
 import WatchlistComponent from './WATCHLIST';
 import OptionMatrixComponent from './OPTIONS';
@@ -82,6 +84,8 @@ const fetchExpiryDates = async (selectedIndex = 'NIFTY 50') => {
 };
 
 const Trade = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
   const [leftTab, setLeftTab] = useState('straddle');
   const [rightTab, setRightTab] = useState('orders');
   const [selectedIndex, setSelectedIndex] = useState('NIFTY 50');
@@ -122,7 +126,12 @@ const Trade = () => {
   }, [selectedIndex]);
 
   const leftTabs = [{ id: 'straddle', name: 'Straddle' }, { id: 'options', name: 'Options' }, { id: 'watchlist', name: 'Watchlist' }];
-  const rightTabs = [{ id: 'orders', name: 'Orders' }, { id: 'positions', name: 'Positions' }, { id: 'baskets', name: 'Baskets' }];
+  const rightTabs = [
+    { id: 'orders', name: 'Orders' },
+    { id: 'positions', name: 'Positions' },
+    { id: 'baskets', name: 'Baskets' },
+    ...(isAdmin ? [{ id: 'trade-history', name: 'Trade History' }] : [])
+  ];
   const indices = ['NIFTY 50', 'NIFTY BANK', 'SENSEX'];
   const sortOptions = ['A-Z', '%', 'LTP'];
 
@@ -274,6 +283,7 @@ const Trade = () => {
               {rightTab === 'positions' && <PositionsTab />}
               {rightTab === 'orders' && <OrdersTab />}
               {rightTab === 'baskets' && <BasketsTab />}
+              {rightTab === 'trade-history' && isAdmin && <HistoricOrdersPage />}
             </div>
           </div>
         </div>

@@ -351,16 +351,44 @@ async def list_orders(
     user_id:              Optional[str]  = Query(None),
     current_session_only: bool           = Query(False),
     status_filter:        Optional[str]  = Query(None),
+    from_date:            Optional[str]  = Query(None),
+    to_date:              Optional[str]  = Query(None),
 ):
+    """
+    List all orders placed during the day.
+    Shows pending, executed, rejected, and cancelled orders.
+    Admin/Super Admin can see all users' orders; regular users see their own.
+    """
+    from datetime import datetime
+    
     uid   = user_id or current_user.id
     pool  = get_pool()
+    
+    # Non-admin users can only see their own orders
+    if current_user.role not in ("ADMIN", "SUPER_ADMIN") and user_id and str(user_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="You can only view your own orders")
+    
     q     = "SELECT * FROM paper_orders WHERE user_id=$1"
     args  = [uid]
+    
+    # Filter by status if provided
     if status_filter:
         q += f" AND status=${len(args)+1}"
         args.append(status_filter.upper())
+    
+    # Filter by date range if provided
+    if from_date:
+        q += f" AND DATE(placed_at AT TIME ZONE 'Asia/Kolkata') >= ${len(args)+1}"
+        args.append(datetime.strptime(from_date, '%Y-%m-%d').date())
+    
+    if to_date:
+        q += f" AND DATE(placed_at AT TIME ZONE 'Asia/Kolkata') <= ${len(args)+1}"
+        args.append(datetime.strptime(to_date, '%Y-%m-%d').date())
+    
+    # Filter to only current session if requested
     if current_session_only:
         q += " AND placed_at >= CURRENT_DATE"
+    
     q += " ORDER BY placed_at DESC LIMIT 500"
     rows = await pool.fetch(q, *args)
     return {"data": [_fmt(r) for r in rows]}

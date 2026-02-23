@@ -331,54 +331,74 @@ async def list_users(
     SUPER_ADMIN sees everyone; ADMIN sees USER + ADMIN only.
     """
     import logging
+    import traceback
     log = logging.getLogger(__name__)
     
-    from app.database import get_pool as _get_pool
-    pool = _get_pool()
-
-    base_q = """
-        SELECT u.user_no, u.id, u.first_name, u.last_name, u.email,
-               u.mobile, u.role, u.status, u.is_active, u.created_at,
-               u.address, u.country, u.state, u.city,
-               u.aadhar_number, u.pan_number, u.upi, u.bank_account,
-               u.brokerage_plan,
-               (u.aadhar_doc IS NOT NULL)           AS has_aadhar_doc,
-               (u.cancelled_cheque_doc IS NOT NULL) AS has_cheque_doc,
-               (u.pan_card_doc IS NOT NULL)         AS has_pan_doc,
-               COALESCE(pa.balance, 0)              AS wallet_balance,
-               COALESCE(pa.margin_allotted, 0)      AS margin_allotted
-        FROM users u
-        LEFT JOIN paper_accounts pa ON pa.user_id = u.id
-    """
     try:
-        if caller.role == "SUPER_ADMIN":
-            rows = await pool.fetch(base_q + "ORDER BY u.user_no")
-        else:
-            rows = await pool.fetch(
-                base_q + "WHERE u.role IN ('USER', 'ADMIN') ORDER BY u.user_no"
-            )
+        from app.database import get_pool as _get_pool
+        pool = _get_pool()
+        log.info(f"Got database pool: {pool}")
 
+        base_q = """
+            SELECT u.user_no, u.id, u.first_name, u.last_name, u.email,
+                   u.mobile, u.role, u.status, u.is_active, u.created_at,
+                   u.address, u.country, u.state, u.city,
+                   u.aadhar_number, u.pan_number, u.upi, u.bank_account,
+                   u.brokerage_plan,
+                   (u.aadhar_doc IS NOT NULL)           AS has_aadhar_doc,
+                   (u.cancelled_cheque_doc IS NOT NULL) AS has_cheque_doc,
+                   (u.pan_card_doc IS NOT NULL)         AS has_pan_doc,
+                   COALESCE(pa.balance, 0)              AS wallet_balance,
+                   COALESCE(pa.margin_allotted, 0)      AS margin_allotted
+            FROM users u
+            LEFT JOIN paper_accounts pa ON pa.user_id = u.id
+        """
+        
+        log.info(f"Caller role: {caller.role}")
+        
+        if caller.role == "SUPER_ADMIN":
+            query = base_q + "ORDER BY u.user_no"
+        else:
+            query = base_q + "WHERE u.role IN ('USER', 'ADMIN') ORDER BY u.user_no"
+        
+        log.info(f"Executing query...")
+        rows = await pool.fetch(query)
         log.info(f"Fetched {len(rows)} user rows")
         
         result = []
-        for r in rows:
+        for idx, r in enumerate(rows):
             try:
                 d = dict(r)
+                log.info(f"Processing row {idx}: mobile={d.get('mobile')}")
                 d["id"] = str(d["id"])
-                d["wallet_balance"] = float(d.get("wallet_balance") or 0)
-                d["margin_allotted"] = float(d.get("margin_allotted") or 0)
+                
+                # Safe conversion with better error handling
+                wallet_bal = d.get("wallet_balance")
+                margin_all = d.get("margin_allotted")
+                log.info(f"  wallet_balance type: {type(wallet_bal)}, value: {wallet_bal}")
+                log.info(f"  margin_allotted type: {type(margin_all)}, value: {margin_all}")
+                
+                d["wallet_balance"] = float(wallet_bal if wallet_bal is not None else 0)
+                d["margin_allotted"] = float(margin_all if margin_all is not None else 0)
+                
                 if d.get("created_at"):
                     d["created_at"] = d["created_at"].isoformat()
                 result.append(d)
+                log.info(f"  Successfully processed row {idx}")
             except Exception as e:
-                log.error(f"Error processing user row {r.get('mobile')}: {e}")
+                log.error(f"Error processing user row {idx} (mobile={r.get('mobile')}): {e}")
                 log.error(f"Row data: {dict(r)}")
-                raise
+                log.error(f"Traceback: {traceback.format_exc()}")
+                raise HTTPException(status_code=500, detail=f"Error processing user {r.get('mobile')}: {str(e)}")
         
         log.info(f"Returning {len(result)} users")
         return {"data": result}
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        log.error(f"Error in list_users endpoint: {e}", exc_info=True)
+        log.error(f"Unexpected error in list_users endpoint: {e}")
+        log.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 

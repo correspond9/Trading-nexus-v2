@@ -349,15 +349,14 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
               <div
                 key={straddle.strike}
                 data-atm={straddle.isATM ? 'true' : 'false'}
-                className={`flex items-center p-2 text-xs h-10 sm:h-10 ${!isValidStraddle ? 'opacity-50' : ''}`}
-                style={{ borderBottom: '1px solid var(--border)', background: straddle.isATM ? 'rgba(99,102,241,0.15)' : 'var(--surface)', color: 'var(--text)', fontWeight: straddle.isATM ? 700 : 400 }}
+                className={`flex items-center p-2 text-xs h-10 sm:h-10 ${!isValidStraddle ? 'opacity-50' : ''} ${straddle.isATM ? 'font-bold' : ''}`}
+                style={{ borderBottom: '1px solid var(--border)', background: straddle.isATM ? 'oklch(90% 0.002 286)' : 'var(--surface)', color: straddle.isATM ? '#000' : 'var(--text)' }}
               >
                 <div className="flex-1 text-left text-xs sm:text-xs pr-2">
                   <div className="font-semibold">
                     {straddle.strike} {straddle.isATM ? ' (ATM)' : ''}
                   </div>
                   <div style={{ color: '#a1a1aa' }} className="text-[10px]">
-                    {isValidStraddle ? '🟢' : '🔴'}
                     {' CE: ' + (straddle.ce_ltp > 0 ? straddle.ce_ltp.toFixed(2) : '0.00') +
                       ' | PE: ' + (straddle.pe_ltp > 0 ? straddle.pe_ltp.toFixed(2) : '0.00')}
                   </div>
@@ -395,8 +394,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
                       ]);
                     }}
                     disabled={!isTradeReady}
-                    className="disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ padding: '3px 12px', borderRadius: '6px', border: 'none', background: 'linear-gradient(90deg,#3b82f6,#2563eb)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer', margin: '0 4px' }}
+                    className="trade-btn buy"
                   >
                     BUY
                   </button>
@@ -431,14 +429,13 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
                       ]);
                     }}
                     disabled={!isTradeReady}
-                    className="disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ padding: '3px 12px', borderRadius: '6px', border: 'none', background: 'linear-gradient(90deg,#fb923c,#f97316)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer', margin: '0 4px' }}
+                    className="trade-btn sell"
                   >
                     SELL
                   </button>
                 </div>
 
-                <div className="flex-1 text-right font-bold text-xs sm:text-xs pl-2" style={{ color: 'var(--text)' }}>
+                <div className="flex-1 text-right font-bold text-xs sm:text-xs pl-2">
                   <div>{displayValue}</div>
                   {!isValidStraddle && (
                     <div className="text-[10px] text-red-500">No data</div>

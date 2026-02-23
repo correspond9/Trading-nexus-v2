@@ -11,10 +11,12 @@ Admin Dashboard endpoints:
 import bcrypt as _bcrypt
 from datetime import datetime, timezone
 from typing import Optional
-
+import os
 import re
+import base64
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.dependencies                        import CurrentUser, get_admin_user, get_super_admin_user
@@ -2048,3 +2050,79 @@ async def run_charge_calculation(
     result = await charge_calculation_scheduler.run_once(exchanges=exchange_list)
     
     return {"success": True, "data": result}
+
+
+# ── Logo Management ─────────────────────────────────────────────────────────
+
+@router.post("/logo/upload")
+async def upload_logo(
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    """Upload a logo image (SUPER_ADMIN only). Stores as base64 in system_config."""
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith('image/'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only image files are allowed (jpg, png, svg, etc.)"
+        )
+    
+    # Read file content
+    content = await file.read()
+    
+    # Validate file size (max 2MB)
+    if len(content) > 2 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Logo file must be smaller than 2MB"
+        )
+    
+    # Convert to base64
+    base64_data = base64.b64encode(content).decode('utf-8')
+    data_uri = f"data:{file.content_type};base64,{base64_data}"
+    
+    # Store in database
+    from app.database import get_pool
+    pool = get_pool()
+    await pool.execute(
+        """
+        INSERT INTO system_config (key, value, updated_at)
+        VALUES ('logo_data_uri', $1, now())
+        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = now()
+        """,
+        data_uri
+    )
+    
+    return {
+        "success": True,
+        "message": "Logo uploaded successfully",
+        "filename": file.filename,
+        "size": len(content),
+    }
+
+
+@router.get("/logo")
+async def get_logo():
+    """Retrieve the current logo data URI (public endpoint)."""
+    from app.database import get_pool
+    pool = get_pool()
+    row = await pool.fetchrow(
+        "SELECT value FROM system_config WHERE key = 'logo_data_uri'"
+    )
+    
+    if not row or not row['value']:
+        return {"logo": None}
+    
+    return {"logo": row['value']}
+
+
+@router.delete("/logo")
+async def delete_logo(current_user: CurrentUser = Depends(get_super_admin_user)):
+    """Delete the current logo (SUPER_ADMIN only)."""
+    from app.database import get_pool
+    pool = get_pool()
+    await pool.execute(
+        "DELETE FROM system_config WHERE key = 'logo_data_uri'"
+    )
+    
+    return {"success": True, "message": "Logo deleted successfully"}

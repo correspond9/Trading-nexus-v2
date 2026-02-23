@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiService } from '../services/apiService';
 import { useAuthSettings } from '../hooks/useAuthSettings';
 import SystemMonitoring from '../components/SystemMonitoring';
-import ThemeManager from '../components/ThemeManager';
 import HistoricOrdersPage from './HistoricOrders';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -25,7 +24,6 @@ const TABS = [
   { id: 'historic',  label: 'Historic Position' },
   { id: 'orders', label: 'Historic Orders' },
   { id: 'schedulers', label: 'Schedulers' },
-  { id: 'themes', label: '🎨 Theme Manager' },
 ];
 
 // ── Row components ────────────────────────────────────────────────────────────
@@ -95,6 +93,13 @@ const SuperAdminDashboard = () => {
   const [schedLoading, setSchedLoading]   = useState(false);
   const [schedError, setSchedError]       = useState('');
   const [schedWorking, setSchedWorking]   = useState(null);
+
+  // ── Logo upload ──
+  const [logoFile, setLogoFile]         = useState(null);
+  const [logoPreview, setLogoPreview]   = useState(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoMsg, setLogoMsg]           = useState('');
+  const [currentLogo, setCurrentLogo]   = useState(null);
 
   // ── Save error ──
   const [saveError, setSaveError] = useState('');
@@ -271,6 +276,66 @@ const SuperAdminDashboard = () => {
     } catch { setInstrumentSuggestions([]); }
   };
 
+  // ── Logo handlers ──
+  const fetchCurrentLogo = useCallback(async () => {
+    try {
+      const res = await req('/admin/logo');
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentLogo(data.logo);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { fetchCurrentLogo(); }, [fetchCurrentLogo]);
+
+  const handleLogoFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setLogoPreview(ev.target?.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleLogoUpload = async () => {
+    if (!logoFile) { setLogoMsg('Select a file first.'); return; }
+    setLogoUploading(true); setLogoMsg('');
+    const form = new FormData();
+    form.append('file', logoFile);
+    try {
+      const res = await fetch(`${API}/admin/logo/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiService._token}` },
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setLogoMsg('Logo uploaded successfully!');
+        await fetchCurrentLogo();
+        setLogoFile(null);
+        setLogoPreview(null);
+      } else {
+        setLogoMsg(data.detail || 'Upload failed');
+      }
+    } catch (e) { setLogoMsg(e?.message || 'Error'); } finally { setLogoUploading(false); }
+  };
+
+  const handleLogoDelete = async () => {
+    if (!confirm('Delete the current logo?')) return;
+    setLogoUploading(true); setLogoMsg('');
+    try {
+      const res = await req('/admin/logo', { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setLogoMsg('Logo deleted successfully.');
+        await fetchCurrentLogo();
+      } else {
+        setLogoMsg(data.detail || 'Delete failed');
+      }
+    } catch (e) { setLogoMsg(e?.message || 'Error'); } finally { setLogoUploading(false); }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header with Mode Badge */}
@@ -435,6 +500,45 @@ const SuperAdminDashboard = () => {
               {masterMsg && <p className="text-xs text-blue-300">{masterMsg}</p>}
               <button onClick={handleLoadInstrumentMaster} disabled={masterLoading} className={btnCls('purple')}>
                 {masterLoading ? 'Reloading…' : 'Reload Instrument Master'}
+              </button>
+            </div>
+
+            {/* Logo Upload */}
+            <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+              <h2 className="text-base font-semibold">Brand Logo</h2>
+              <p className="text-xs text-gray-400">Upload a custom logo to replace the "TN" text in the header.</p>
+              
+              {currentLogo && (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-gray-400">Current Logo</label>
+                  <div className="flex items-center gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-700">
+                    <img src={currentLogo} alt="Current logo" className="h-8 max-w-[120px] object-contain" />
+                    <button onClick={handleLogoDelete} disabled={logoUploading} className="ml-auto px-3 py-1 text-xs bg-red-600 hover:bg-red-500 text-white rounded transition-colors">
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <FormField label="Upload New Logo (PNG, JPG, SVG - Max 2MB)">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoFileChange}
+                  className="text-xs text-gray-300"
+                />
+              </FormField>
+
+              {logoPreview && (
+                <div className="p-3 bg-zinc-900 rounded-lg border border-zinc-700">
+                  <img src={logoPreview} alt="Preview" className="h-8 max-w-[120px] object-contain" />
+                </div>
+              )}
+
+              {logoMsg && <p className="text-xs text-blue-300">{logoMsg}</p>}
+
+              <button onClick={handleLogoUpload} disabled={logoUploading || !logoFile} className={btnCls('indigo')}>
+                {logoUploading ? 'Uploading…' : 'Upload Logo'}
               </button>
             </div>
           </div>
@@ -636,11 +740,6 @@ const SuperAdminDashboard = () => {
       {/* ── Historic Orders ── */}
       {activeTab === 'orders' && (
         <HistoricOrdersPage />
-      )}
-
-      {/* ── Themes ── */}
-      {activeTab === 'themes' && (
-        <ThemeManager />
       )}
 
     </div>

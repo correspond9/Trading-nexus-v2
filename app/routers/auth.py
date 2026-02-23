@@ -72,7 +72,6 @@ async def login(body: LoginRequest):
             "name":   user["name"],
             "mobile": user["mobile"],
             "role":   user["role"],
-            "theme_mode": user.get("theme_mode"),
         },
     }
 
@@ -96,5 +95,4 @@ async def me(user: CurrentUser = Depends(get_current_user)):
         "name":   user.name,
         "mobile": user.mobile,
         "role":   user.role,
-        "theme_mode": user.theme_mode,
     }

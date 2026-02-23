@@ -1,14 +1,7 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Sun, Moon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { apiService } from '../../services/apiService';
-import {
-  applyThemeConfig,
-  getStoredThemeDefinitions,
-  getStoredThemeMode,
-  storeThemeMode,
-} from '../../utils/themeManager';
+import { THEMES, getInitialTheme, setTheme } from '../../utils/theme';
 
 const NAV_ITEMS = [
   { label: 'Trade',       path: '/trade',                          roles: null },
@@ -27,18 +20,26 @@ const Header = () => {
   const { isAuthenticated, user, logout, hasRole } = useAuth();
   const location = useLocation();
   const navigate  = useNavigate();
-  const [menuOpen, setMenuOpen] = React.useState(false);
   const displayFirstName = user?.first_name || (user?.name ? String(user.name).trim().split(/\s+/)[0] : '') || user?.mobile || '';
-  const [themeMode, setThemeMode] = React.useState(getStoredThemeMode());
-  const showThemeToggle = location.pathname.startsWith('/trade') || location.pathname === '/trade-history';
+  const [themeMode, setThemeMode] = React.useState(getInitialTheme());
+  const [logo, setLogo] = React.useState('TN');
 
+  // Fetch logo from backend
   React.useEffect(() => {
-    const handler = (e) => {
-      const mode = e?.detail?.mode || getStoredThemeMode();
-      setThemeMode(mode === 'light' ? 'light' : 'dark');
+    const fetchLogo = async () => {
+      try {
+        const res = await fetch('/api/v2/admin/logo');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.logo) {
+            setLogo(data.logo);
+          }
+        }
+      } catch {
+        // Keep default "TN"
+      }
     };
-    window.addEventListener('tn-theme-change', handler);
-    return () => window.removeEventListener('tn-theme-change', handler);
+    fetchLogo();
   }, []);
 
   const handleLogout = () => {
@@ -46,25 +47,9 @@ const Header = () => {
     navigate('/login');
   };
 
-  const handleThemeToggle = async () => {
-    const next = themeMode === 'dark' ? 'light' : 'dark';
+  const handleThemeChange = (mode) => {
+    const next = setTheme(mode);
     setThemeMode(next);
-    storeThemeMode(next);
-    const defs = getStoredThemeDefinitions();
-    applyThemeConfig(defs[next], next);
-    window.dispatchEvent(new CustomEvent('tn-theme-change', { detail: { mode: next } }));
-
-    try {
-      await apiService.put('/theme/me', { theme_mode: next });
-      const userRaw = localStorage.getItem('authUser');
-      if (userRaw) {
-        const nextUser = JSON.parse(userRaw);
-        nextUser.theme_mode = next;
-        localStorage.setItem('authUser', JSON.stringify(nextUser));
-      }
-    } catch (err) {
-      console.warn('Could not persist theme preference:', err?.message || err);
-    }
   };
 
   const visibleItems = NAV_ITEMS.filter(item => {
@@ -91,8 +76,11 @@ const Header = () => {
         overflowX:      'auto',
       }}>
         {/* Logo */}
-        <Link to="/trade" style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--accent)', textDecoration: 'none', marginRight: '12px', whiteSpace: 'nowrap' }}>
-          TN
+        <Link to="/trade" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '1.1rem', color: 'var(--header-text)', textDecoration: 'none', marginRight: '12px', whiteSpace: 'nowrap' }}>
+          {typeof logo === 'string' && logo.startsWith('data:image')
+            ? <img src={logo} alt="Logo" style={{ height: '32px', maxWidth: '120px', objectFit: 'contain' }} />
+            : logo
+          }
         </Link>
 
         {/* Nav links */}
@@ -106,10 +94,10 @@ const Header = () => {
                 borderRadius:  '5px',
                 fontSize:      '0.8rem',
                 fontWeight:    location.pathname === item.path ? 600 : 400,
-                color:         location.pathname === item.path ? 'var(--accent)' : 'var(--muted)',
+                color:         location.pathname === item.path ? 'var(--header-active-text)' : 'var(--header-muted)',
                 textDecoration:'none',
                 whiteSpace:    'nowrap',
-                background:    location.pathname === item.path ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'transparent',
+                background:    location.pathname === item.path ? 'var(--header-active-bg, color-mix(in srgb, var(--accent) 12%, transparent))' : 'transparent',
                 transition:    'all 0.15s',
               }}
             >
@@ -120,20 +108,21 @@ const Header = () => {
 
         {/* User + logout */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
-          <span style={{ fontSize: '0.75rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+          <div className="theme-switch" role="group" aria-label="Theme selector">
+            {THEMES.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={`theme-btn${themeMode === mode ? ' active' : ''}`}
+                onClick={() => handleThemeChange(mode)}
+              >
+                {mode === 'grey' ? 'Grey' : mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </button>
+            ))}
+          </div>
+          <span style={{ fontSize: '0.75rem', color: 'var(--header-muted)', whiteSpace: 'nowrap' }}>
             {displayFirstName}
           </span>
-          {showThemeToggle && (
-            <button
-              onClick={handleThemeToggle}
-              className="nm-protrude nm-shadow-nmshadow/25 nm-highlight-nmhighlight/70 rounded-full p-2"
-              style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}
-              aria-label="Toggle theme"
-              title={themeMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {themeMode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
-          )}
           <button
             onClick={() => navigate('/profile')}
             title="Profile"
@@ -142,7 +131,7 @@ const Header = () => {
               background:   'transparent',
               border:       '1px solid var(--border)',
               borderRadius: '5px',
-              color:        'var(--muted)',
+              color:        'var(--header-muted)',
               fontSize:     '0.9rem',
               cursor:       'pointer',
               display:      'flex',
@@ -161,7 +150,7 @@ const Header = () => {
               background:   'transparent',
               border:       '1px solid var(--border)',
               borderRadius: '5px',
-              color:        'var(--muted)',
+              color:        'var(--header-muted)',
               fontSize:     '0.75rem',
               cursor:       'pointer',
             }}

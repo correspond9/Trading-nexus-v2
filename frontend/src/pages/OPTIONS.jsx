@@ -140,6 +140,7 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
       const payload = { user_id: user.id, token: String(token), symbol: optionSymbol, exchange };
       await apiService.post('/watchlist/add', payload);
       setMessage({ type: 'success', text: `${optionSymbol} added to watchlist` });
+      window.dispatchEvent(new CustomEvent('tn-watchlist-refresh'));
     } catch (error) {
       setMessage({ type: 'error', text: error?.message || 'Failed to add to watchlist' });
     }
@@ -156,13 +157,55 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
   const LegActionMenu = ({ strikeData, optionType }) => {
     const key = legMenuKey(strikeData.strike, optionType);
     const isOpen = openActionMenuKey === key;
+    const btnRef = useRef(null);
+    const [align, setAlign] = useState('right');
+
+    useEffect(() => {
+      if (!isOpen) return;
+      const rect = btnRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const menuWidth = 160;
+      if (rect.left < menuWidth) {
+        setAlign('left');
+        return;
+      }
+      if (rect.right + menuWidth > window.innerWidth) {
+        setAlign('right');
+        return;
+      }
+      setAlign(optionType === 'CE' ? 'left' : 'right');
+    }, [isOpen, optionType]);
+
     return (
       <div className="relative leg-action-root">
-        <button type="button" onClick={() => setOpenActionMenuKey(isOpen ? null : key)} className="w-6 h-6 rounded hover:bg-gray-200 text-gray-600 text-sm font-bold" title="More actions">⋮</button>
+        <button
+          type="button"
+          ref={btnRef}
+          onClick={() => setOpenActionMenuKey(isOpen ? null : key)}
+          className="leg-action-btn"
+          title="More actions"
+        >
+          ⋮
+        </button>
         {isOpen && (
-          <div className="absolute z-30 mt-1 right-0 bg-white border border-gray-200 rounded-md shadow-lg w-36">
-            <button type="button" className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50" onClick={async () => { setOpenActionMenuKey(null); await addLegToWatchlist({ optionType, strikeData }); }}>Add to watchlist</button>
-            <button type="button" className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50" onClick={() => { setOpenActionMenuKey(null); openBidAsk({ optionType, strikeData }); }}>Show bid-ask</button>
+          <div
+            className="leg-action-menu"
+            style={align === 'left' ? { left: 0 } : { right: 0 }}
+          >
+            <button
+              type="button"
+              className="leg-action-item"
+              onClick={async () => { setOpenActionMenuKey(null); await addLegToWatchlist({ optionType, strikeData }); }}
+            >
+              Add to watchlist
+            </button>
+            <button
+              type="button"
+              className="leg-action-item"
+              onClick={() => { setOpenActionMenuKey(null); openBidAsk({ optionType, strikeData }); }}
+            >
+              Show bid-ask
+            </button>
           </div>
         )}
       </div>
@@ -214,31 +257,31 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
           </div>
         )}
         {displayedStrikes.map((strikeData) => (
-          <div key={strikeData.strike} data-atm={strikeData.isATM ? 'true' : 'false'} className={`grid grid-cols-3 p-2 items-center text-xs h-10 ${strikeData.isATM ? 'font-bold' : ''}`} style={{ borderBottom: '1px solid var(--border)', background: strikeData.isATM ? 'var(--accent)' : 'var(--surface)', color: 'var(--text)' }}>
+          <div key={strikeData.strike} data-atm={strikeData.isATM ? 'true' : 'false'} className={`grid grid-cols-3 p-1.5 items-center h-9 ${strikeData.isATM ? 'font-bold' : ''}`} style={{ borderBottom: '1px solid var(--border)', background: strikeData.isATM ? 'oklch(90% 0.002 286)' : 'var(--surface)', color: strikeData.isATM ? '#000' : 'var(--text)', fontSize: '11px' }}>
             {/* CE Column */}
             <div className="flex items-center justify-between pr-2">
               <div className="flex items-center gap-1">
-                <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{strikeData.ltpCE > 0 ? strikeData.ltpCE.toFixed(2) : '0.00'}</span>
+                <span className="font-semibold" style={{ color: strikeData.isATM ? '#000' : 'var(--text)' }}>{strikeData.ltpCE > 0 ? strikeData.ltpCE.toFixed(2) : '0.00'}</span>
                 <LegActionMenu strikeData={strikeData} optionType="CE" />
               </div>
               <div className="flex space-x-1 ml-2">
-                <button onClick={() => { if (strikeData.ltpCE <= 0) return; handleOpenOrderModal([{ symbol: `${symbol} ${strikeData.strike} CE`, action: 'BUY', ltp: strikeData.ltpCE, lotSize: strikeData.lotSize, underlying: symbol, security_id: strikeData.ceToken, exchange_segment: resolveOptionSegment(symbol), bid: strikeData.bidCE, ask: strikeData.askCE, strike: strikeData.strike, optionType: 'CE', depth: strikeData.depthCE, expiry }]); }} disabled={strikeData.ltpCE <= 0} className="disabled:opacity-50 disabled:cursor-not-allowed" style={{ padding: '3px 10px', borderRadius: '6px', border: 'none', background: 'linear-gradient(90deg,#3b82f6,#2563eb)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }} title="Buy CE">B</button>
-                <button onClick={() => { if (strikeData.ltpCE <= 0) return; handleOpenOrderModal([{ symbol: `${symbol} ${strikeData.strike} CE`, action: 'SELL', ltp: strikeData.ltpCE, lotSize: strikeData.lotSize, underlying: symbol, security_id: strikeData.ceToken, exchange_segment: resolveOptionSegment(symbol), bid: strikeData.bidCE, ask: strikeData.askCE, strike: strikeData.strike, optionType: 'CE', depth: strikeData.depthCE, expiry }]); }} disabled={strikeData.ltpCE <= 0} className="disabled:opacity-50 disabled:cursor-not-allowed" style={{ padding: '3px 10px', borderRadius: '6px', border: 'none', background: 'linear-gradient(90deg,#fb923c,#f97316)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }} title="Sell CE">S</button>
+                <button onClick={() => { if (strikeData.ltpCE <= 0) return; handleOpenOrderModal([{ symbol: `${symbol} ${strikeData.strike} CE`, action: 'BUY', ltp: strikeData.ltpCE, lotSize: strikeData.lotSize, underlying: symbol, security_id: strikeData.ceToken, exchange_segment: resolveOptionSegment(symbol), bid: strikeData.bidCE, ask: strikeData.askCE, strike: strikeData.strike, optionType: 'CE', depth: strikeData.depthCE, expiry }]); }} disabled={strikeData.ltpCE <= 0} className="trade-btn buy" title="Buy CE">B</button>
+                <button onClick={() => { if (strikeData.ltpCE <= 0) return; handleOpenOrderModal([{ symbol: `${symbol} ${strikeData.strike} CE`, action: 'SELL', ltp: strikeData.ltpCE, lotSize: strikeData.lotSize, underlying: symbol, security_id: strikeData.ceToken, exchange_segment: resolveOptionSegment(symbol), bid: strikeData.bidCE, ask: strikeData.askCE, strike: strikeData.strike, optionType: 'CE', depth: strikeData.depthCE, expiry }]); }} disabled={strikeData.ltpCE <= 0} className="trade-btn sell" title="Sell CE">S</button>
               </div>
             </div>
             {/* Strike Column */}
             <div className="flex items-center justify-center">
-              <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>{strikeData.strike}</span>
+              <span className="font-bold" style={{ color: strikeData.isATM ? '#000' : 'var(--text)' }}>{strikeData.strike}</span>
             </div>
             {/* PE Column */}
             <div className="flex items-center justify-between pl-2">
               <div className="flex space-x-1 mr-2">
-                <button onClick={() => { if (strikeData.ltpPE <= 0) return; handleOpenOrderModal([{ symbol: `${symbol} ${strikeData.strike} PE`, action: 'BUY', ltp: strikeData.ltpPE, lotSize: strikeData.lotSize, underlying: symbol, security_id: strikeData.peToken, exchange_segment: resolveOptionSegment(symbol), bid: strikeData.bidPE, ask: strikeData.askPE, strike: strikeData.strike, optionType: 'PE', depth: strikeData.depthPE, expiry }]); }} disabled={strikeData.ltpPE <= 0} className="disabled:opacity-50 disabled:cursor-not-allowed" style={{ padding: '3px 10px', borderRadius: '6px', border: 'none', background: 'linear-gradient(90deg,#3b82f6,#2563eb)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }} title="Buy PE">B</button>
-                <button onClick={() => { if (strikeData.ltpPE <= 0) return; handleOpenOrderModal([{ symbol: `${symbol} ${strikeData.strike} PE`, action: 'SELL', ltp: strikeData.ltpPE, lotSize: strikeData.lotSize, underlying: symbol, security_id: strikeData.peToken, exchange_segment: resolveOptionSegment(symbol), bid: strikeData.bidPE, ask: strikeData.askPE, strike: strikeData.strike, optionType: 'PE', depth: strikeData.depthPE, expiry }]); }} disabled={strikeData.ltpPE <= 0} className="disabled:opacity-50 disabled:cursor-not-allowed" style={{ padding: '3px 10px', borderRadius: '6px', border: 'none', background: 'linear-gradient(90deg,#fb923c,#f97316)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }} title="Sell PE">S</button>
+                <button onClick={() => { if (strikeData.ltpPE <= 0) return; handleOpenOrderModal([{ symbol: `${symbol} ${strikeData.strike} PE`, action: 'BUY', ltp: strikeData.ltpPE, lotSize: strikeData.lotSize, underlying: symbol, security_id: strikeData.peToken, exchange_segment: resolveOptionSegment(symbol), bid: strikeData.bidPE, ask: strikeData.askPE, strike: strikeData.strike, optionType: 'PE', depth: strikeData.depthPE, expiry }]); }} disabled={strikeData.ltpPE <= 0} className="trade-btn buy" title="Buy PE">B</button>
+                <button onClick={() => { if (strikeData.ltpPE <= 0) return; handleOpenOrderModal([{ symbol: `${symbol} ${strikeData.strike} PE`, action: 'SELL', ltp: strikeData.ltpPE, lotSize: strikeData.lotSize, underlying: symbol, security_id: strikeData.peToken, exchange_segment: resolveOptionSegment(symbol), bid: strikeData.bidPE, ask: strikeData.askPE, strike: strikeData.strike, optionType: 'PE', depth: strikeData.depthPE, expiry }]); }} disabled={strikeData.ltpPE <= 0} className="trade-btn sell" title="Sell PE">S</button>
               </div>
               <div className="flex items-center gap-1">
                 <LegActionMenu strikeData={strikeData} optionType="PE" />
-                <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{strikeData.ltpPE > 0 ? strikeData.ltpPE.toFixed(2) : '0.00'}</span>
+                <span className="font-semibold" style={{ color: strikeData.isATM ? '#000' : 'var(--text)' }}>{strikeData.ltpPE > 0 ? strikeData.ltpPE.toFixed(2) : '0.00'}</span>
               </div>
             </div>
           </div>

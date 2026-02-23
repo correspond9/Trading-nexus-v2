@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/authService';
 import { apiService } from '../services/apiService';
-import { applyThemeConfig, getStoredThemeDefinitions, storeThemeMode } from '../utils/themeManager';
 
 const AuthContext = createContext(null);
 
@@ -52,11 +51,6 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('authToken', t);
         localStorage.setItem('authUser', JSON.stringify(result.user));
         apiService.setAuthToken(t);
-      }
-      if (result.user?.theme_mode) {
-        const mode = storeThemeMode(result.user.theme_mode);
-        const defs = getStoredThemeDefinitions();
-        applyThemeConfig(defs[mode], mode);
       }
     }
     return result;

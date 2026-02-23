@@ -32,7 +32,6 @@ from app.routers                              import admin, market_data, option_
 from app.routers                              import ledger
 from app.routers                              import payouts
 from app.routers                              import auth, baskets, margin, search
-from app.routers                              import theme
 from app.margin.nse_margin_data               import (
     download_and_refresh   as refresh_margin_data,
     nse_margin_scheduler,
@@ -321,7 +320,6 @@ def create_app() -> FastAPI:
     app.include_router(baskets.router,      prefix=V2)
     app.include_router(margin.router,       prefix=V2)
     app.include_router(search.router,       prefix=V2)
-    app.include_router(theme.router,        prefix=V2)
 
     @app.get("/health", tags=["Health"])
     async def health_root():

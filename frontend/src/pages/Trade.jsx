@@ -211,7 +211,7 @@ const Trade = () => {
                 };
                 const activeStyle = {
                   background: 'var(--tab-active-bg)',
-                  color: 'var(--tab-active-text)',
+                  color: 'var(--tab-active-text, var(--text))',
                   border: '1px solid var(--tab-active-bg)'
                 };
                 return (
@@ -238,7 +238,7 @@ const Trade = () => {
                           onClick={() => handleExpiryChange(exp)}
                           className="px-2 py-1 text-xs font-medium rounded transition-colors"
                           style={expiry === exp
-                            ? { background: 'var(--tab-active-bg)', color: 'var(--tab-active-text)', border: '1px solid var(--tab-active-bg)' }
+                            ? { background: 'var(--tab-active-bg)', color: 'var(--tab-active-text, var(--text))', border: '1px solid var(--tab-active-bg)' }
                             : { background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' }}
                         >
                           {exp}
@@ -257,7 +257,7 @@ const Trade = () => {
                           onClick={() => setSortBy(option)}
                           className="px-2 py-1 text-xs font-medium rounded transition-colors"
                           style={sortBy === option
-                            ? { background: 'var(--tab-active-bg)', color: 'var(--tab-active-text)', border: '1px solid var(--tab-active-bg)' }
+                            ? { background: 'var(--tab-active-bg)', color: 'var(--tab-active-text, var(--text))', border: '1px solid var(--tab-active-bg)' }
                             : { background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' }}
                         >
                           {option}
@@ -271,8 +271,10 @@ const Trade = () => {
                     <button
                       key={index}
                       onClick={() => setSelectedIndex(index)}
-                      className={`flex-1 px-2 py-1 text-xs font-medium rounded transition-colors ${selectedIndex === index ? 'bg-blue-600 !text-white' : ''}`}
-                      style={selectedIndex !== index ? { background: 'var(--surface2)', color: 'var(--text)' } : {}}
+                      className="flex-1 px-2 py-1 text-xs font-medium rounded transition-colors"
+                      style={selectedIndex === index
+                        ? { background: 'var(--tab-active-bg)', color: 'var(--tab-active-text, var(--text))', border: '1px solid var(--tab-active-bg)' }
+                        : { background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' }}
                     >
                       {index}
                     </button>
@@ -301,8 +303,10 @@ const Trade = () => {
                   <button
                     key={tab.id}
                     onClick={() => setRightTab(tab.id)}
-                    className={`flex-1 px-[1em] py-[0.6em] min-h-[2.4em] leading-tight font-semibold rounded-md transition-colors ${rightTab === tab.id ? 'bg-blue-600 !text-white' : ''}`}
-                    style={rightTab !== tab.id ? { background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' } : {}}
+                    className="flex-1 px-[1em] py-[0.6em] min-h-[2.4em] leading-tight font-semibold rounded-md transition-colors"
+                    style={rightTab === tab.id
+                      ? { background: 'var(--tab-active-bg)', color: 'var(--tab-active-text, var(--text))', border: '1px solid var(--tab-active-bg)' }
+                      : { background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' }}
                   >
                     {tab.name}
                   </button>

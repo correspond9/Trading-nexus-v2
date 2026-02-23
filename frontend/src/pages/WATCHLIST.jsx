@@ -58,6 +58,43 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
 
   const { lastMessage: feedMsg, sendMessage: sendFeed, readyState: feedState } = useWebSocket(wsFeedUrl);
 
+  const mapServerItems = (serverItems) => (serverItems || []).map(item => ({
+    id: item.id || item.token,
+    symbol: item.symbol,
+    exchange: item.exchange,
+    token: item.token,
+    instrumentType: item.instrument_type || item.instrumentType,
+    ltp: item.ltp ?? null,
+    close: item.close ?? null,
+    underlying: item.underlying || '',
+    expiryDate: item.expiry_date ?? null,
+    strikePrice: item.strike_price ?? null,
+    optionType: item.option_type ?? null,
+    change_pct: item.change_pct ?? null,
+  }));
+
+  const hydrateFromServer = useCallback(async () => {
+    if (!user?.id) return { instruments: [], tokens: new Set() };
+    const res = await apiService.get(`/watchlist/${user.id}`);
+    const serverItems = res?.data || [];
+    if (!Array.isArray(serverItems)) return { instruments: [], tokens: new Set() };
+    const instruments = mapServerItems(serverItems);
+    const tokens = new Set(instruments.map(i => String(i.token)));
+    const canonicalByToken = new Map(instruments.map(i => [String(i.token), i]));
+
+    setTabs(prev => {
+      const base = Array.isArray(prev) && prev.length ? prev : DEFAULT_TABS;
+      return base.map(t => {
+        const nextInstruments = (t.id === 1 ? instruments : (t.instruments || [])).map(it => {
+          const c = canonicalByToken.get(String(it.token));
+          return c ? { ...it, ...c } : it;
+        });
+        return { ...t, instruments: nextInstruments };
+      });
+    });
+    return { instruments, tokens };
+  }, [user?.id]);
+
   // Load from server + localStorage
   useEffect(() => {
     if (!user?.id) return;
@@ -65,44 +102,6 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     if (savedTabs && savedTabs.length > 0) {
       setTabs(savedTabs);
     }
-
-    // Always hydrate Watchlist 1 from server to get canonical symbols
-    // (e.g. equity tickers) and close/LTP values.
-    const mapServerItems = (serverItems) => (serverItems || []).map(item => ({
-      id: item.id || item.token,
-      symbol: item.symbol,
-      exchange: item.exchange,
-      token: item.token,
-      instrumentType: item.instrument_type || item.instrumentType,
-      ltp: item.ltp ?? null,
-      close: item.close ?? null,
-      underlying: item.underlying || '',
-      expiryDate: item.expiry_date ?? null,
-      strikePrice: item.strike_price ?? null,
-      optionType: item.option_type ?? null,
-      change_pct: item.change_pct ?? null,
-    }));
-
-    const hydrateFromServer = async () => {
-      const res = await apiService.get(`/watchlist/${user.id}`);
-      const serverItems = res?.data || [];
-      if (!Array.isArray(serverItems)) return { instruments: [], tokens: new Set() };
-      const instruments = mapServerItems(serverItems);
-      const tokens = new Set(instruments.map(i => String(i.token)));
-      const canonicalByToken = new Map(instruments.map(i => [String(i.token), i]));
-
-      setTabs(prev => {
-        const base = Array.isArray(prev) && prev.length ? prev : DEFAULT_TABS;
-        return base.map(t => {
-          const nextInstruments = (t.id === 1 ? instruments : (t.instruments || [])).map(it => {
-            const c = canonicalByToken.get(String(it.token));
-            return c ? { ...it, ...c } : it;
-          });
-          return { ...t, instruments: nextInstruments };
-        });
-      });
-      return { instruments, tokens };
-    };
 
     (async () => {
       try {
@@ -136,7 +135,13 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
         }
       } catch {}
     })();
-  }, [user]);
+  }, [user?.id, hydrateFromServer]);
+
+  useEffect(() => {
+    const handler = () => { hydrateFromServer(); };
+    window.addEventListener('tn-watchlist-refresh', handler);
+    return () => window.removeEventListener('tn-watchlist-refresh', handler);
+  }, [hydrateFromServer]);
 
   // Persist on change
   useEffect(() => {
@@ -414,8 +419,6 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
   const exStyle = { fontSize: '10px', color: 'var(--muted)', marginLeft: '4px' };
   const ltpStyle = (v) => ({ fontSize: '13px', fontWeight: 600, color: v === null ? 'var(--muted)' : 'var(--text)', minWidth: '60px', textAlign: 'right' });
   const removeBtn = { border: 'none', background: 'none', cursor: 'pointer', padding: '4px', color: '#dc2626', display: 'flex', alignItems: 'center' };
-  const buyBtn = { padding: '3px 10px', borderRadius: '6px', border: 'none', background: 'linear-gradient(90deg,#3b82f6,#2563eb)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' };
-  const sellBtn = { padding: '3px 10px', borderRadius: '6px', border: 'none', background: 'linear-gradient(90deg,#fb923c,#f97316)', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' };
 
   return (
     <div
@@ -563,8 +566,8 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                       <ChevronDown size={14} />
                     </button>
 
-                    <button style={buyBtn} onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, token: inst.token, exchange: inst.exchange }, 'BUY')}>B</button>
-                    <button style={sellBtn} onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, token: inst.token, exchange: inst.exchange }, 'SELL')}>S</button>
+                    <button className="trade-btn buy" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, token: inst.token, exchange: inst.exchange }, 'BUY')}>BUY</button>
+                    <button className="trade-btn sell" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, token: inst.token, exchange: inst.exchange }, 'SELL')}>SELL</button>
                     <button style={removeBtn} onClick={() => handleRemoveInstrument(inst.token)} title="Remove"><X size={14} /></button>
                     </div>
 

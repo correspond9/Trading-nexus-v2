@@ -28,7 +28,6 @@ class CurrentUser(BaseModel):
     name:   str
     mobile: str
     role:   str
-    theme_mode: Optional[str] = None
 
 
 # ── Internal: extract raw token string from request headers ──────────────────
@@ -61,7 +60,7 @@ async def get_current_user(
     pool = get_pool()
     row = await pool.fetchrow(
         """
-        SELECT u.id, u.name, u.mobile, u.role, u.theme_mode
+        SELECT u.id, u.name, u.mobile, u.role
         FROM user_sessions s
         JOIN users u ON u.id = s.user_id
         WHERE s.token = $1::uuid
@@ -80,7 +79,6 @@ async def get_current_user(
         name=row["name"],
         mobile=row["mobile"],
         role=row["role"],
-        theme_mode=row.get("theme_mode"),
     )
 
 

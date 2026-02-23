@@ -8,6 +8,6 @@ BEGIN
         WHERE table_name = 'users' AND column_name = 'brokerage_plan'
     ) THEN
         ALTER TABLE users 
-            ADD COLUMN brokerage_plan VARCHAR(60) NOT NULL DEFAULT 'Plan1 - 0.005×turnover';
+            ADD COLUMN brokerage_plan VARCHAR(60) NOT NULL DEFAULT 'Standard Plan';
     END IF;
 END $$;

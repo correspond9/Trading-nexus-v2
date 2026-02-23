@@ -16,7 +16,7 @@ services:
     environment:
       - API_HOST=0.0.0.0
       - API_PORT=8000
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/trading_terminal
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/trading_nexus
       - LOG_LEVEL=WARNING
       - ENVIRONMENT=production
       - CORS_ORIGINS_RAW=${CORS_ORIGINS_RAW:-http://localhost:3000,http://localhost:5173}
@@ -48,7 +48,7 @@ services:
   db:
     image: postgres:15-alpine
     environment:
-      - POSTGRES_DB=trading_terminal
+      - POSTGRES_DB=trading_nexus
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:

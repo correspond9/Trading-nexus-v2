@@ -344,7 +344,6 @@ async def list_users(
                    u.mobile, u.role, u.status, u.is_active, u.created_at,
                    u.address, u.country, u.state, u.city,
                    u.aadhar_number, u.pan_number, u.upi, u.bank_account,
-                   u.brokerage_plan,
                    (u.aadhar_doc IS NOT NULL)           AS has_aadhar_doc,
                    (u.cancelled_cheque_doc IS NOT NULL) AS has_cheque_doc,
                    (u.pan_card_doc IS NOT NULL)         AS has_pan_doc,

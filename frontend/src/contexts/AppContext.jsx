@@ -18,9 +18,11 @@ export const AppProvider = ({ children }) => {
     setLoadingUsers(true);
     try {
       const data = await apiService.get('/admin/users');
-      setUsers(Array.isArray(data) ? data : data.users || []);
+      setUsers(Array.isArray(data) ? data : data.data || data.users || []);
     } catch (e) {
       console.warn('Could not load users:', e.message);
+      console.error('Users load error:', e);
+      setUsers([]);
     } finally {
       setLoadingUsers(false);
     }

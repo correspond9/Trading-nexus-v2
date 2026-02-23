@@ -330,6 +330,9 @@ async def list_users(
     List all users with profile fields + wallet balance.
     SUPER_ADMIN sees everyone; ADMIN sees USER + ADMIN only.
     """
+    import logging
+    log = logging.getLogger(__name__)
+    
     from app.database import get_pool as _get_pool
     pool = _get_pool()
 
@@ -347,23 +350,36 @@ async def list_users(
         FROM users u
         LEFT JOIN paper_accounts pa ON pa.user_id = u.id
     """
-    if caller.role == "SUPER_ADMIN":
-        rows = await pool.fetch(base_q + "ORDER BY u.user_no")
-    else:
-        rows = await pool.fetch(
-            base_q + "WHERE u.role IN ('USER', 'ADMIN') ORDER BY u.user_no"
-        )
+    try:
+        if caller.role == "SUPER_ADMIN":
+            rows = await pool.fetch(base_q + "ORDER BY u.user_no")
+        else:
+            rows = await pool.fetch(
+                base_q + "WHERE u.role IN ('USER', 'ADMIN') ORDER BY u.user_no"
+            )
 
-    result = []
-    for r in rows:
-        d = dict(r)
-        d["id"] = str(d["id"])
-        d["wallet_balance"] = float(d.get("wallet_balance") or 0)
-        d["margin_allotted"] = float(d.get("margin_allotted") or 0)
-        if d.get("created_at"):
-            d["created_at"] = d["created_at"].isoformat()
-        result.append(d)
-    return {"data": result}
+        log.info(f"Fetched {len(rows)} user rows")
+        
+        result = []
+        for r in rows:
+            try:
+                d = dict(r)
+                d["id"] = str(d["id"])
+                d["wallet_balance"] = float(d.get("wallet_balance") or 0)
+                d["margin_allotted"] = float(d.get("margin_allotted") or 0)
+                if d.get("created_at"):
+                    d["created_at"] = d["created_at"].isoformat()
+                result.append(d)
+            except Exception as e:
+                log.error(f"Error processing user row {r.get('mobile')}: {e}")
+                log.error(f"Row data: {dict(r)}")
+                raise
+        
+        log.info(f"Returning {len(result)} users")
+        return {"data": result}
+    except Exception as e:
+        log.error(f"Error in list_users endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
 # ── Scheduler control (Super Admin) ─────────────────────────────────────────

@@ -31,6 +31,8 @@ services:
         condition: service_started
     volumes:
       - ./logs:/app/logs
+    ports:
+      - "8000:8000"
     restart: always
 
   db:
@@ -65,7 +67,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-https://api.tradingnexus.pro/api/v2}
+        VITE_API_URL: ${VITE_API_URL:-http://127.0.0.1:8000/api/v2}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.tradingfrontend.rule=Host(`app.tradingnexus.pro`)"
@@ -73,10 +75,12 @@ services:
       - "traefik.http.routers.tradingfrontend.tls=true"
       - "traefik.http.services.tradingfrontend.loadbalancer.server.port=80"
     environment:
-      - VITE_API_URL=${VITE_API_URL:-https://api.tradingnexus.pro/api/v2}
+      - VITE_API_URL=${VITE_API_URL:-http://127.0.0.1:8000/api/v2}
     depends_on:
       backend:
         condition: service_healthy
+    ports:
+      - "80:80"
     restart: always
 
 volumes:

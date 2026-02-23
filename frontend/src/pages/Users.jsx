@@ -177,8 +177,18 @@ const UsersPage = () => {
     setLoading(true);
     try {
       const res = await apiService.get('/admin/users');
-      setUsers(res?.data?.data || res?.data || res || []);
-    } catch { setUsers([]); }
+      console.log('Users API response:', res);
+      console.log('Response type:', typeof res);
+      console.log('Response keys:', Object.keys(res || {}));
+      const userData = res?.data || res?.users || res || [];
+      console.log('Extracted users:', userData);
+      console.log('Users count:', Array.isArray(userData) ? userData.length : 'not an array');
+      setUsers(Array.isArray(userData) ? userData : []);
+    } catch (err) {
+      console.error('Error loading users:', err);
+      console.error('Error details:', err.message, err.status, err.data);
+      setUsers([]);
+    }
     finally { setLoading(false); }
   }, []);
 

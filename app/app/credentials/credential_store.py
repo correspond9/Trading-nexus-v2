@@ -121,11 +121,60 @@ def validate_timestamp_not_replayed(
     return True
 
 
+async def _init_credentials_from_env() -> None:
+    """
+    Initialize static IP credentials from environment variables if DB is empty.
+    This allows deploying with env vars instead of manually entering credentials.
+    """
+    from app.config import get_settings
+    
+    cfg = get_settings()
+    pool = get_pool()
+    
+    # Check if database already has static credentials
+    existing = await pool.fetchrow(
+        "SELECT value FROM system_config WHERE key = 'dhan_static_client_id'"
+    )
+    
+    # Only initialize if DB is empty AND env vars are set
+    if existing and existing["value"]:
+        return  # Already configured
+    
+    if not (cfg.dhan_client_id and cfg.dhan_api_key and cfg.dhan_api_secret):
+        return  # No env vars to initialize from
+    
+    log.info("Initializing Dhan credentials from environment variables...")
+    
+    # Encrypt the secret before storing
+    encrypted_secret = _encrypt_secret(cfg.dhan_api_secret)
+    
+    # Update system_config with env var values
+    await pool.executemany(
+        "UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2",
+        [
+            (cfg.dhan_client_id, "dhan_static_client_id"),
+            (cfg.dhan_api_key, "dhan_api_key"),
+            (encrypted_secret, "dhan_api_secret"),
+        ],
+    )
+    
+    log.info(
+        f"✓ Credentials initialized from environment: "
+        f"client_id={cfg.dhan_client_id[:8]}..., "
+        f"api_key={cfg.dhan_api_key[:8]}..., "
+        f"api_secret=encrypted"
+    )
+
+
 async def load_credentials() -> None:
     """Load persisted credentials from DB into memory on startup."""
     global _client_id, _access_token, _token_expiry, _auth_mode
     global _static_client_id, _static_api_key, _static_api_secret
     pool = get_pool()
+    
+    # First, initialize from environment variables if database is empty
+    await _init_credentials_from_env()
+    
     rows = await pool.fetch(
         "SELECT key, value FROM system_config WHERE key IN ($1, $2, $3, $4, $5, $6, $7)",
         "dhan_client_id",

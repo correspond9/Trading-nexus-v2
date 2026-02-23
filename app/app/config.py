@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     dhan_feed_url:     str = "wss://api-feed.dhan.co"
     dhan_depth_20_url: str = "wss://depth-api-feed.dhan.co/twentydepth"
 
+    # ── DhanHQ Static IP credentials (Mode B) ─────────────────────────────────
+    # These are read from environment variables and saved to DB on first startup
+    dhan_api_key:      str = ""   # Static IP API key
+    dhan_api_secret:   str = ""   # Static IP API secret
+
     # ── DhanHQ TOTP auto-refresh (permanent token — no manual rotation) ──────
     # Set both to enable headless 24-hour token renewal.
     dhan_pin:          str = ""   # 6-digit Dhan login PIN

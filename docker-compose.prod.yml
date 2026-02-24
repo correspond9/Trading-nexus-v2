@@ -9,9 +9,10 @@ services:
       start_period: 300s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.tradingbackend.rule=Host(`api.tradingnexus.pro`) || Host(`72.62.228.112`)"
+      - "traefik.http.routers.tradingbackend.rule=Host(`api.tradingnexus.pro`)"
       - "traefik.http.routers.tradingbackend.service=tradingbackend"
       - "traefik.http.routers.tradingbackend.entrypoints=http,https"
+      - "traefik.http.routers.tradingbackend.tls=true"
       - "traefik.http.services.tradingbackend.loadbalancer.server.port=8000"
     environment:
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/trading_terminal
@@ -68,7 +69,7 @@ services:
         VITE_API_URL: ${VITE_API_URL:-https://api.tradingnexus.pro/api/v2}
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.tradingfrontend.rule=Host(`app.tradingnexus.pro`) || Host(`tradingnexus.pro`) || Host(`www.tradingnexus.pro`)"
+      - "traefik.http.routers.tradingfrontend.rule=Host(`tradingnexus.pro`) || Host(`www.tradingnexus.pro`)"
       - "traefik.http.routers.tradingfrontend.entrypoints=http,https"
       - "traefik.http.routers.tradingfrontend.tls=true"
       - "traefik.http.services.tradingfrontend.loadbalancer.server.port=80"

@@ -1678,8 +1678,89 @@ async def backdate_position(
 
 @router.post("/force-exit")
 async def force_exit(request: Request):
-    """Stub — force-exit not yet implemented."""
-    return {"success": False, "detail": "Force exit not yet implemented."}
+    """
+    Admin endpoint to force-close any user's open position.
+    Required fields: user_id, position_id, exit_price
+    """
+    from app.database import get_pool
+    import uuid as uuid_mod
+    
+    pool = get_pool()
+    body = await request.json()
+    
+    user_id_str = body.get('user_id', '').strip()
+    position_id_str = body.get('position_id', '').strip()
+    exit_price = body.get('exit_price')
+    
+    if not user_id_str or not position_id_str or exit_price is None:
+        return {"success": False, "detail": "Missing required fields: user_id, position_id, exit_price"}
+    
+    try:
+        exit_price = float(exit_price)
+    except (ValueError, TypeError):
+        return {"success": False, "detail": "exit_price must be a valid number"}
+    
+    # Resolve user_id (could be mobile, UUID, etc.)
+    user_row = await pool.fetchrow(
+        "SELECT id FROM users WHERE CAST(mobile AS TEXT) = $1 OR id = $2::uuid LIMIT 1",
+        user_id_str, user_id_str
+    )
+    
+    if not user_row:
+        return {"success": False, "detail": f"User '{user_id_str}' not found"}
+    
+    uid = user_row['id']
+    
+    # Find the position (could be by UUID id or by position_id as string)
+    try:
+        # Try as UUID
+        pos_row = await pool.fetchrow(
+            "SELECT * FROM paper_positions WHERE id = $1::uuid AND user_id = $2",
+            position_id_str, uid
+        )
+    except:
+        # Try as integer or other format
+        pos_row = await pool.fetchrow(
+            "SELECT * FROM paper_positions WHERE id::text = $1 AND user_id = $2",
+            position_id_str, uid
+        )
+    
+    if not pos_row:
+        return {"success": False, "detail": f"Position '{position_id_str}' not found for user"}
+    
+    if pos_row['status'] != 'OPEN':
+        return {"success": False, "detail": f"Position is already {pos_row['status']}, cannot close"}
+    
+    # Close the position
+    await pool.execute(
+        "UPDATE paper_positions SET status = 'CLOSED', closed_at = NOW(), exit_price = $1 WHERE id = $2",
+        exit_price, pos_row['id']
+    )
+    
+    # Log the exit as an order
+    order_id = str(uuid_mod.uuid4())
+    await pool.execute(
+        """
+        INSERT INTO paper_orders
+            (order_id, user_id, instrument_token, symbol, exchange_segment,
+             side, order_type, quantity, fill_price, filled_qty,
+             status, product_type, placed_at)
+        VALUES ($1, $2, $3, $4, $5, 'SELL', 'MARKET', $6, $7, $6, 'FILLED', 'MIS', NOW())
+        """,
+        order_id, uid, pos_row['instrument_token'], pos_row['symbol'], 
+        pos_row.get('exchange_segment', 'NSE_EQ'), 
+        pos_row.get('quantity', 0), exit_price
+    )
+    
+    return {
+        "success": True, 
+        "message": f"Position {position_id_str} closed at {exit_price}",
+        "position_id": str(pos_row['id']),
+        "user_id": str(uid),
+        "symbol": pos_row['symbol'],
+        "quantity": pos_row.get('quantity', 0),
+        "exit_price": exit_price
+    }
 
 
 @router.post("/upload-nse-files")

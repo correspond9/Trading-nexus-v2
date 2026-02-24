@@ -4,7 +4,7 @@ POST /auth/login                    {mobile, password}                    → {a
 POST /auth/logout                   {token}                              → {success}
 GET  /auth/me                                                            → user from X-AUTH header
 POST /auth/portal/signup            {name, email, experience_level}      → {success, message, user_id}
-GET  /auth/portal/users             (admin only)                         → {users: [...]}
+GET  /auth/portal/users             (admin only)                         → {users: [...], total: int}
 """
 import logging
 from typing import Optional

@@ -44,7 +44,7 @@ const NexusPortal = () => {
       <Background />
       <Routes>
         <Route path="/" element={<LandingPage toggleTheme={toggleTheme} theme={theme} />} />
-        <Route path="/signup" element={<SignupPage theme={theme} />} />
+        <Route path="/signup" element={<SignupPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

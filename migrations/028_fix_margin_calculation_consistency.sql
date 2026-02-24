@@ -2,13 +2,20 @@
  * MIGRATION - FIX MARGIN CALCULATION CONSISTENCY
  * 
  * Problem: Order placement uses real SPAN + Exposure margins,
- *          but used_margin calculation uses percentage approximations.
+ *          but used_margin calculation uses inconsistent methods.
  * 
- * Solution: Create a SQL function that calculates actual SPAN margins
- *           for open positions, then update all queries to use it.
+ * Solution: Create a SQL function that calculates actual margins
+ *           for all instrument types, then update all queries to use it.
+ * 
+ * Margin Calculation Logic:
+ * ─────────────────────────
+ * 1. Options (CE/PE):        Premium = Current Option Price × Quantity
+ * 2. Futures:                SPAN + Exposure from NSE SPAN cache (or 15% fallback)
+ * 3. Commodities (MCX):      SPAN + Exposure from MCX SPAN cache (or 10% fallback)
+ * 4. Equities (NSE_EQ/BSE_EQ): Full Notional = Quantity × Current Price (Margin required = qty × price)
  * 
  * Impact: Available margin will now be accurately calculated across
- *         the entire system.
+ *         the entire system and consistent with order placement checks.
  */
 
 -- Create function to calculate real margin for an open position
@@ -93,18 +100,16 @@ BEGIN
         END IF;
     END IF;
     
-    -- CASE 4: MIS/INTRADAY (Equities) - 20% margin
-    IF UPPER(COALESCE(p_product_type, 'MIS')) IN ('MIS', 'INTRADAY') THEN
-        RETURN v_ltp * ABS(p_quantity) * 0.20;
+    -- CASE 4: EQUITIES (NSE_EQ, BSE_EQ) - Full Notional Value (qty × price)
+    -- Margin required = Quantity × Current Price (for both MIS and NORMAL)
+    IF (p_exchange_segment ILIKE '%EQ%'
+        OR p_exchange_segment ILIKE 'NSE'
+        OR p_exchange_segment ILIKE 'BSE') THEN
+        RETURN ABS(p_quantity) * v_ltp;
     END IF;
     
-    -- CASE 5: NORMAL (Delivery) - 100% margin (no margin benefit)
-    IF UPPER(COALESCE(p_product_type, 'MIS')) = 'NORMAL' THEN
-        RETURN v_ltp * ABS(p_quantity) * 1.0;
-    END IF;
-    
-    -- Default fallback
-    RETURN v_ltp * ABS(p_quantity) * 0.20;
+    -- Default fallback for unclassified instruments: Full notional value
+    RETURN ABS(p_quantity) * v_ltp;
     
 END;
 $$ LANGUAGE plpgsql STABLE;
@@ -157,8 +162,10 @@ COMMENT ON FUNCTION calculate_position_margin(INTEGER, VARCHAR, VARCHAR, INTEGER
 - Options: Premium (Current Option Price × Quantity)
 - Futures: SPAN + Exposure from SPAN cache (or 15% fallback)
 - Commodities: SPAN from MCX cache (or 10% fallback)
-- MIS/Intraday: 20% of notional value
-- Normal: 100% of notional value (no margin benefit)
+- Equities (NSE_EQ, BSE_EQ): Full Notional Value (Qty × Price) for both MIS and NORMAL
+- Default: Full Notional Value if instrument type cannot be determined
 
-Previously this calculation used fixed percentages, causing inconsistency
-with order placement margin checks.';
+This ensures:
+1. Accurate margin calculation across all instrument types
+2. Consistency between order placement checks and used margin display
+3. Proper enforcement of available margin limits';

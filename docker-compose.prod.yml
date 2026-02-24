@@ -13,11 +13,6 @@ services:
       - "traefik.http.routers.tradingbackend.service=tradingbackend"
       - "traefik.http.routers.tradingbackend.entrypoints=http,https"
       - "traefik.http.routers.tradingbackend.tls=true"
-      # Also expose backend on the main site under /api to avoid cross-origin + cert issues
-      - "traefik.http.routers.tradingbackend-main.rule=Host(`tradingnexus.pro`) && PathPrefix(`/api`)"
-      - "traefik.http.routers.tradingbackend-main.entrypoints=http,https"
-      - "traefik.http.routers.tradingbackend-main.tls=true"
-      - "traefik.http.routers.tradingbackend-main.service=tradingbackend"
       - "traefik.http.services.tradingbackend.loadbalancer.server.port=8000"
     environment:
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/trading_terminal

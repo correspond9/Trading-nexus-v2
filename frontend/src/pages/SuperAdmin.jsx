@@ -77,7 +77,7 @@ const SuperAdminDashboard = () => {
   const [authCheckError, setAuthCheckError]           = useState('');
 
   // ── Backdate position ──
-  const [backdateForm, setBackdateForm]     = useState({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', instrument_type: 'EQ', exchange: 'NSE' });
+  const [backdateForm, setBackdateForm]     = useState({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', trade_time: '09:15', instrument_type: 'EQ', exchange: 'NSE', product_type: 'MIS' });
   const [backdateLoading, setBackdateLoading] = useState(false);
   const [backdateError, setBackdateError]   = useState('');
   const [backdateMsg, setBackdateMsg]       = useState('');
@@ -86,7 +86,7 @@ const SuperAdminDashboard = () => {
   const [instrumentSelectedFromDropdown, setInstrumentSelectedFromDropdown] = useState(false);
 
   // ── Force exit ──
-  const [forceExitForm, setForceExitForm]     = useState({ user_id: '', position_id: '', exit_price: '' });
+  const [forceExitForm, setForceExitForm]     = useState({ user_id: '', position_id: '', exit_price: '', exit_time: '15:30', exit_date: '' });
   const [forceExitLoading, setForceExitLoading] = useState(false);
   const [forceExitError, setForceExitError]   = useState('');
   const [forceExitMsg, setForceExitMsg]       = useState('');
@@ -292,11 +292,17 @@ const SuperAdminDashboard = () => {
         setBackdateLoading(false);
         return;
       }
+      if (!backdateForm.trade_time) {
+        setBackdateError('Trade Time is required and must be within market hours');
+        setBackdateLoading(false);
+        return;
+      }
       
       // Convert date from YYYY-MM-DD to DD-MM-YYYY for backend
       const formData = { ...backdateForm };
       formData.symbol = formData.symbol.toUpperCase().trim();
       formData.exchange = formData.exchange.toUpperCase().trim();
+      formData.product_type = formData.product_type.toUpperCase().trim();
       
       if (formData.trade_date) {
         const [year, month, day] = formData.trade_date.split('-');
@@ -312,7 +318,7 @@ const SuperAdminDashboard = () => {
         setBackdateMsg(data.message || 'Position created.'); 
         setBackdateResult(data); 
         // Clear form on success
-        setBackdateForm({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', instrument_type: 'EQ', exchange: 'NSE' });
+        setBackdateForm({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', trade_time: '09:15', instrument_type: 'EQ', exchange: 'NSE', product_type: 'MIS' });
         setInstrumentSelectedFromDropdown(false); // Reset selection flag
       }
       else setBackdateError(data.detail || 'Failed');
@@ -321,14 +327,31 @@ const SuperAdminDashboard = () => {
   };
 
   const handleForceExit = async () => {
+    if (!forceExitForm.user_id.trim()) { setForceExitError('User ID required.'); return; }
     if (!forceExitForm.position_id) { setForceExitError('Position ID required.'); return; }
+    if (!forceExitForm.exit_price) { setForceExitError('Exit Price required.'); return; }
+    if (!forceExitForm.exit_date) { setForceExitError('Exit Date required.'); return; }
+    if (!forceExitForm.exit_time) { setForceExitError('Exit Time required and must be within market hours.'); return; }
+    
     setForceExitLoading(true); setForceExitError(''); setForceExitMsg(''); setForceExitResult(null);
     try {
-      const res = await req('/admin/force-exit', { method: 'POST', body: JSON.stringify(forceExitForm) });
+      const formData = { ...forceExitForm };
+      // Convert date from YYYY-MM-DD to DD-MM-YYYY for backend
+      if (formData.exit_date) {
+        const [year, month, day] = formData.exit_date.split('-');
+        formData.exit_date = `${day}-${month}-${year}`;
+      }
+      const res = await req('/admin/force-exit', { method: 'POST', body: JSON.stringify(formData) });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) { setForceExitMsg(data.message || 'Force exit done.'); setForceExitResult(data); }
+      if (res.ok) { 
+        setForceExitMsg(data.message || 'Position closed.'); 
+        setForceExitResult(data); 
+        // Clear form on success
+        setForceExitForm({ user_id: '', position_id: '', exit_price: '', exit_time: '15:30', exit_date: '' });
+      }
       else setForceExitError(data.detail || 'Failed');
-    } catch (e) { setForceExitError(e?.message || 'Error'); } finally { setForceExitLoading(false); }
+    } catch (e) { setForceExitError(e?.message || 'Error'); } 
+    finally { setForceExitLoading(false); }
   };
 
   const searchInstrument = async (q) => {
@@ -758,30 +781,60 @@ const SuperAdminDashboard = () => {
               />
             </FormField>
             
-            <FormField label="Trade Date">
-              <input
-                className={inputCls}
-                type="date"
-                value={backdateForm.trade_date}
-                onChange={e => setBackdateForm(f => ({ ...f, trade_date: e.target.value }))}
-              />
-            </FormField>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Trade Date">
+                <input
+                  className={inputCls}
+                  type="date"
+                  value={backdateForm.trade_date}
+                  onChange={e => setBackdateForm(f => ({ ...f, trade_date: e.target.value }))}
+                />
+              </FormField>
+              <FormField label="Trade Time (HH:MM)">
+                <input
+                  className={inputCls}
+                  type="time"
+                  value={backdateForm.trade_time}
+                  onChange={e => setBackdateForm(f => ({ ...f, trade_time: e.target.value }))}
+                />
+              </FormField>
+            </div>
             
             <div className="grid grid-cols-2 gap-3">
               <FormField label="Instrument Type">
                 <select className={inputCls} value={backdateForm.instrument_type}
                   onChange={e => setBackdateForm(f => ({ ...f, instrument_type: e.target.value }))}>
-                  <option value="EQ">Equity (EQ)</option>
-                  <option value="FUTSTK">Stock Future (FUTSTK)</option>
-                  <option value="OPTSTK">Stock Option (OPTSTK)</option>
-                  <option value="FUTIDX">Index Future (FUTIDX)</option>
-                  <option value="OPTIDX">Index Option (OPTIDX)</option>
+                  <optgroup label="Equity">
+                    <option value="EQ">Equity (EQ)</option>
+                  </optgroup>
+                  <optgroup label="Index">
+                    <option value="FUTIDX">Index Future (FUTIDX)</option>
+                    <option value="OPTIDX">Index Option (OPTIDX)</option>
+                  </optgroup>
+                  <optgroup label="Stock Derivatives">
+                    <option value="FUTSTK">Stock Future (FUTSTK)</option>
+                    <option value="OPTSTK">Stock Option (OPTSTK)</option>
+                  </optgroup>
+                  <optgroup label="Commodity Derivatives">
+                    <option value="FUTCOMM">Commodity Future (FUTCOMM)</option>
+                    <option value="OPTCOMM">Commodity Option (OPTCOMM)</option>
+                  </optgroup>
                 </select>
               </FormField>
               <FormField label="Exchange">
                 <select className={inputCls} value={backdateForm.exchange}
                   onChange={e => setBackdateForm(f => ({ ...f, exchange: e.target.value }))}>
                   {EXCHANGES.map(ex => <option key={ex}>{ex}</option>)}
+                </select>
+              </FormField>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-3">
+              <FormField label="Product Type">
+                <select className={inputCls} value={backdateForm.product_type}
+                  onChange={e => setBackdateForm(f => ({ ...f, product_type: e.target.value }))}>
+                  <option value="MIS">MIS (Intraday)</option>
+                  <option value="NORMAL">NORMAL (Delivery)</option>
                 </select>
               </FormField>
             </div>
@@ -809,6 +862,14 @@ const SuperAdminDashboard = () => {
             <FormField label="Position ID">
               <input className={inputCls} value={forceExitForm.position_id}
                 onChange={e => setForceExitForm(f => ({ ...f, position_id: e.target.value }))} placeholder="Position ID" />
+            </FormField>
+            <FormField label="Exit Date">
+              <input className={inputCls} type="date" value={forceExitForm.exit_date}
+                onChange={e => setForceExitForm(f => ({ ...f, exit_date: e.target.value }))} />
+            </FormField>
+            <FormField label="Exit Time (HH:MM)">
+              <input className={inputCls} type="time" value={forceExitForm.exit_time}
+                onChange={e => setForceExitForm(f => ({ ...f, exit_time: e.target.value }))} />
             </FormField>
             <FormField label="Exit Price">
               <input className={inputCls} type="number" step="0.05" value={forceExitForm.exit_price}

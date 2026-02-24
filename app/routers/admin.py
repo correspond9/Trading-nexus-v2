@@ -1464,7 +1464,7 @@ async def backdate_position(
     admin: CurrentUser = Depends(get_admin_user),
 ):
     """
-    Create a backdated position for a user in the paper trading account.
+    Create or add to a backdated position for a user in the paper trading account.
     Requires ADMIN or SUPER_ADMIN role.
     
     Request body:
@@ -1473,34 +1473,31 @@ async def backdate_position(
       "symbol": "LENSKART",
       "qty": 380,
       "price": 514.70,
-      "trade_date": "19-02-2026",  // DD-MM-YYYY format
-      "instrument_type": "EQ",     // EQ, FUTSTK, OPTSTK, etc.
-      "exchange": "NSE"            // NSE, BSE, MCX, NCDEX
+      "trade_date": "19-02-2026",      // DD-MM-YYYY format
+      "trade_time": "09:30",            // HH:MM format, must be within market hours
+      "instrument_type": "EQ",          // EQ, FUTSTK, OPTSTK, FUTCOMM, OPTCOMM, etc.
+      "exchange": "NSE",                // NSE, BSE, MCX, NCDEX
+      "product_type": "MIS"             // MIS or NORMAL
     }
     """
     import uuid
     from app.database import get_pool as _get_pool
+    from app.utils.market_hours import is_market_open
+    from datetime import datetime, timezone
     
     try:
         data = await request.json()
         
         # Extract and validate inputs
         user_identifier = str(data.get("user_id", "")).strip()
-        symbol = data.get("symbol", "").strip()  # Don't uppercase - DISPLAY_NAME has proper case
+        symbol = data.get("symbol", "").strip()
         qty = int(data.get("qty", 0))
         price = float(data.get("price", 0))
         trade_date_str = data.get("trade_date", "").strip()
+        trade_time_str = data.get("trade_time", "").strip()
         instrument_type = data.get("instrument_type", "EQ").strip().upper()
         exchange = data.get("exchange", "NSE").strip().upper()
-        
-        # Defensive: if symbol contains spaces, try to extract just the first word
-        # This handles cases where user types "RELIANCE NSE EQUITY" instead of just "RELIANCE"
-        # DISABLED: This breaks multi-word symbols like "LENSKART SOLUTIONS LTD"
-        # The frontend validation now ensures users select from dropdown only
-        # if symbol and " " in symbol:
-        #     symbol_parts = symbol.split()
-        #     symbol = symbol_parts[0]  # Take first word as the symbol
-        #     log.warning(f"Symbol had spaces, extracted: {symbol}")
+        product_type = data.get("product_type", "MIS").strip().upper()
         
         # Validate required fields
         if not user_identifier:
@@ -1513,15 +1510,21 @@ async def backdate_position(
             return {"success": False, "detail": "price must be > 0"}
         if not trade_date_str:
             return {"success": False, "detail": "trade_date is required (DD-MM-YYYY)"}
+        if not trade_time_str:
+            return {"success": False, "detail": "trade_time is required (HH:MM)"}
         
         # Parse trade_date from DD-MM-YYYY format
         try:
-            trade_dt = datetime.strptime(trade_date_str, "%d-%m-%Y")
+            trade_dt = datetime.strptime(f"{trade_date_str} {trade_time_str}", "%d-%m-%Y %H:%M")
             opened_at = trade_dt.replace(tzinfo=timezone.utc)
         except ValueError:
-            return {"success": False, "detail": "trade_date must be in DD-MM-YYYY format"}
+            return {"success": False, "detail": "trade_date must be DD-MM-YYYY and trade_time must be HH:MM"}
         
-        # Map instrument types to database values
+        # Validate product_type
+        if product_type not in ("MIS", "NORMAL"):
+            return {"success": False, "detail": f"product_type must be MIS or NORMAL, got {product_type}"}
+        
+        # Map instrument types to database values (support commodity options)
         inst_type_map = {
             "EQ": "EQUITY",
             "EQUITY": "EQUITY",
@@ -1529,11 +1532,12 @@ async def backdate_position(
             "OPTSTK": "OPTSTK",
             "FUTIDX": "FUTIDX",
             "OPTIDX": "OPTIDX",
+            "FUTCOMM": "FUTCOMM",
+            "OPTCOMM": "OPTCOMM",
         }
         inst_type = inst_type_map.get(instrument_type, instrument_type)
         
         # Validate exchange and map to exchange_segment
-        # The instrument_master table stores exchange_segment like NSE_EQ, NSE_FO, BSE_EQ, etc.
         valid_exchanges = {"NSE", "BSE", "MCX", "NCDEX"}
         if exchange not in valid_exchanges:
             return {"success": False, "detail": f"Invalid exchange: {exchange}"}
@@ -1544,7 +1548,7 @@ async def backdate_position(
             if inst_type in ("EQUITY", "EQ"):
                 exchange_segment = "NSE_EQ"
             else:  # Futures/Options
-                exchange_segment = "NSE_FNO"  # Fixed: was NSE_FO, should be NSE_FNO
+                exchange_segment = "NSE_FNO"
         elif exchange == "BSE":
             if inst_type in ("EQUITY", "EQ"):
                 exchange_segment = "BSE_EQ"
@@ -1623,16 +1627,49 @@ async def backdate_position(
         # Check if user already has an OPEN position in this instrument
         existing = await pool.fetchrow(
             """
-            SELECT position_id FROM paper_positions
+            SELECT position_id, quantity, avg_price FROM paper_positions
             WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
+            LIMIT 1
             """,
             target_user_id, instrument_token
         )
         
         if existing:
-            return {"success": False, "detail": f"User already has an OPEN position in {symbol}. Close it first."}
+            # Add to existing position instead of creating new one
+            old_qty = existing["quantity"]
+            old_avg = float(existing["avg_price"])
+            
+            # Calculate new weighted average price
+            new_qty = old_qty + qty
+            new_avg = (old_qty * old_avg + qty * price) / new_qty
+            
+            try:
+                await pool.execute(
+                    """
+                    UPDATE paper_positions
+                    SET quantity = $1, avg_price = $2
+                    WHERE position_id = $3
+                    """,
+                    new_qty, new_avg, existing["position_id"]
+                )
+                
+                return {
+                    "success": True,
+                    "message": f"Position increased: {old_qty} → {new_qty} {symbol} (avg: {old_avg:.2f} → {new_avg:.2f})",
+                    "position": {
+                        "position_id": str(existing["position_id"]),
+                        "user_id": str(target_user_id),
+                        "instrument_token": instrument_token,
+                        "symbol": symbol,
+                        "quantity": new_qty,
+                        "avg_price": new_avg,
+                        "status": "OPEN"
+                    }
+                }
+            except Exception as e:
+                return {"success": False, "detail": f"Error updating position: {str(e)}"}
         
-        # Create the backdated position
+        # Create new backdated position
         position_id = uuid.uuid4()
         try:
             await pool.execute(
@@ -1640,7 +1677,7 @@ async def backdate_position(
                 INSERT INTO paper_positions
                     (position_id, user_id, instrument_token, symbol, exchange_segment,
                      quantity, avg_price, opened_at, product_type, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'MIS', 'OPEN')
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'OPEN')
                 """,
                 position_id,
                 target_user_id,
@@ -1650,13 +1687,14 @@ async def backdate_position(
                 qty,
                 price,
                 opened_at,
+                product_type,
             )
         except Exception as e:
             return {"success": False, "detail": f"Database error: {str(e)}"}
         
         return {
             "success": True,
-            "message": f"Position created: {qty} {symbol} @ {price} on {trade_date_str}",
+            "message": f"Position created: {qty} {symbol} @ {price} on {trade_date_str} {trade_time_str} ({product_type})",
             "position": {
                 "position_id": str(position_id),
                 "user_id": str(target_user_id),
@@ -1665,6 +1703,7 @@ async def backdate_position(
                 "quantity": qty,
                 "avg_price": price,
                 "opened_at": opened_at.isoformat(),
+                "product_type": product_type,
                 "status": "OPEN"
             }
         }
@@ -1680,10 +1719,11 @@ async def backdate_position(
 async def force_exit(request: Request):
     """
     Admin endpoint to force-close any user's open position.
-    Required fields: user_id, position_id, exit_price
+    Required fields: user_id, position_id, exit_price, exit_date, exit_time
     """
     from app.database import get_pool
     import uuid as uuid_mod
+    from datetime import datetime, timezone
     
     pool = get_pool()
     body = await request.json()
@@ -1691,14 +1731,26 @@ async def force_exit(request: Request):
     user_id_str = body.get('user_id', '').strip()
     position_id_str = body.get('position_id', '').strip()
     exit_price = body.get('exit_price')
+    exit_date_str = body.get('exit_date', '').strip()
+    exit_time_str = body.get('exit_time', '').strip()
     
     if not user_id_str or not position_id_str or exit_price is None:
         return {"success": False, "detail": "Missing required fields: user_id, position_id, exit_price"}
+    
+    if not exit_date_str or not exit_time_str:
+        return {"success": False, "detail": "Missing required fields: exit_date (DD-MM-YYYY), exit_time (HH:MM)"}
     
     try:
         exit_price = float(exit_price)
     except (ValueError, TypeError):
         return {"success": False, "detail": "exit_price must be a valid number"}
+    
+    # Parse exit datetime
+    try:
+        exit_dt = datetime.strptime(f"{exit_date_str} {exit_time_str}", "%d-%m-%Y %H:%M")
+        closed_at = exit_dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return {"success": False, "detail": "exit_date must be DD-MM-YYYY and exit_time must be HH:MM"}
     
     # Resolve user_id (could be mobile, UUID, etc.)
     user_row = await pool.fetchrow(
@@ -1733,8 +1785,8 @@ async def force_exit(request: Request):
     
     # Close the position
     await pool.execute(
-        "UPDATE paper_positions SET status = 'CLOSED', closed_at = NOW(), exit_price = $1 WHERE id = $2",
-        exit_price, pos_row['id']
+        "UPDATE paper_positions SET status = 'CLOSED', closed_at = $1, exit_price = $2 WHERE id = $3",
+        closed_at, exit_price, pos_row['id']
     )
     
     # Log the exit as an order
@@ -1745,20 +1797,23 @@ async def force_exit(request: Request):
             (order_id, user_id, instrument_token, symbol, exchange_segment,
              side, order_type, quantity, fill_price, filled_qty,
              status, product_type, placed_at)
-        VALUES ($1, $2, $3, $4, $5, 'SELL', 'MARKET', $6, $7, $6, 'FILLED', 'MIS', NOW())
+        VALUES ($1, $2, $3, $4, $5, 'SELL', 'MARKET', $6, $7, $6, 'FILLED', $8, $9)
         """,
         order_id, uid, pos_row['instrument_token'], pos_row['symbol'], 
         pos_row.get('exchange_segment', 'NSE_EQ'), 
-        pos_row.get('quantity', 0), exit_price
+        pos_row.get('quantity', 0), exit_price, pos_row.get('product_type', 'MIS'), closed_at
     )
     
     return {
         "success": True, 
-        "message": f"Position {position_id_str} closed at {exit_price}",
+        "message": f"Position {position_id_str} closed at {exit_price} on {exit_date_str} {exit_time_str}",
         "position_id": str(pos_row['id']),
         "user_id": str(uid),
         "symbol": pos_row['symbol'],
         "quantity": pos_row.get('quantity', 0),
+        "exit_price": exit_price,
+        "closed_at": closed_at.isoformat()
+    }
         "exit_price": exit_price
     }
 

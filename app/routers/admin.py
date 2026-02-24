@@ -1530,10 +1530,28 @@ async def backdate_position(
         }
         inst_type = inst_type_map.get(instrument_type, instrument_type)
         
-        # Validate exchange
+        # Validate exchange and map to exchange_segment
+        # The instrument_master table stores exchange_segment like NSE_EQ, NSE_FO, BSE_EQ, etc.
         valid_exchanges = {"NSE", "BSE", "MCX", "NCDEX"}
         if exchange not in valid_exchanges:
             return {"success": False, "detail": f"Invalid exchange: {exchange}"}
+        
+        # Map exchange + instrument_type to exchange_segment
+        exchange_segment = exchange
+        if exchange == "NSE":
+            if inst_type in ("EQUITY", "EQ"):
+                exchange_segment = "NSE_EQ"
+            else:  # Futures/Options
+                exchange_segment = "NSE_FO"
+        elif exchange == "BSE":
+            if inst_type in ("EQUITY", "EQ"):
+                exchange_segment = "BSE_EQ"
+            else:
+                exchange_segment = "BSE_FO"
+        elif exchange == "MCX":
+            exchange_segment = "MCX_COMM"
+        elif exchange == "NCDEX":
+            exchange_segment = "NCDEX_COMM"
         
         pool = _get_pool()
         
@@ -1578,7 +1596,7 @@ async def backdate_position(
               AND instrument_type = $3
             LIMIT 1
             """,
-            symbol, exchange, inst_type
+            symbol, exchange_segment, inst_type
         )
         
         if not inst_row:
@@ -1589,7 +1607,7 @@ async def backdate_position(
                 WHERE symbol LIKE $1 AND exchange_segment = $2
                 LIMIT 3
                 """,
-                f"{symbol}%", exchange
+                f"{symbol}%", exchange_segment
             )
             suggestions = [row["symbol"] for row in similar]
             suggest_msg = f" Similar symbols: {', '.join(suggestions)}" if suggestions else ""

@@ -1495,10 +1495,12 @@ async def backdate_position(
         
         # Defensive: if symbol contains spaces, try to extract just the first word
         # This handles cases where user types "RELIANCE NSE EQUITY" instead of just "RELIANCE"
-        if symbol and " " in symbol:
-            symbol_parts = symbol.split()
-            symbol = symbol_parts[0]  # Take first word as the symbol
-            log.warning(f"Symbol had spaces, extracted: {symbol}")
+        # DISABLED: This breaks multi-word symbols like "LENSKART SOLUTIONS LTD"
+        # The frontend validation now ensures users select from dropdown only
+        # if symbol and " " in symbol:
+        #     symbol_parts = symbol.split()
+        #     symbol = symbol_parts[0]  # Take first word as the symbol
+        #     log.warning(f"Symbol had spaces, extracted: {symbol}")
         
         # Validate required fields
         if not user_identifier:

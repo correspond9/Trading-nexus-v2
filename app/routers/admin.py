@@ -1386,9 +1386,190 @@ async def diagnose_login(request: Request):
 
 
 @router.post("/backdate-position")
-async def backdate_position(request: Request):
-    """Stub — backdated position creation not yet implemented."""
-    return {"success": False, "detail": "Backdate position not yet implemented."}
+async def backdate_position(
+    request: Request,
+    admin: CurrentUser = Depends(get_admin_user),
+):
+    """
+    Create a backdated position for a user in the paper trading account.
+    
+    Request body:
+    {
+      "user_id": "4065" or "UUID",  // mobile or user UUID
+      "symbol": "LENSKART",
+      "qty": 380,
+      "price": 514.70,
+      "trade_date": "19-02-2026",  // DD-MM-YYYY format
+      "instrument_type": "EQ",  // EQ, FUTSTK, OPTSTK, etc.
+      "exchange": "NSE"  // NSE, BSE
+    }
+    """
+    import uuid
+    from datetime import datetime
+    from app.database import get_pool as _get_pool
+    
+    try:
+        # Parse request
+        data = await request.json()
+        user_identifier = str(data.get("user_id", "")).strip()
+        symbol = data.get("symbol", "").strip().upper()
+        qty = int(data.get("qty", 0))
+        price = float(data.get("price", 0))
+        trade_date_str = data.get("trade_date", "").strip()  # DD-MM-YYYY
+        instrument_type = data.get("instrument_type", "EQ").strip().upper()
+        exchange = data.get("exchange", "NSE").strip().upper()
+        
+        # Validations
+        if not user_identifier:
+            raise ValueError("user_id is required")
+        if not symbol:
+            raise ValueError("symbol is required")
+        if qty <= 0:
+            raise ValueError("qty must be > 0")
+        if price <= 0:
+            raise ValueError("price must be > 0")
+        if not trade_date_str:
+            raise ValueError("trade_date is required (DD-MM-YYYY)")
+        
+        # Parse trade_date
+        try:
+            trade_dt = datetime.strptime(trade_date_str, "%d-%m-%Y")
+            opened_at = trade_dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise ValueError("trade_date must be DD-MM-YYYY format")
+        
+        # Map exchange codes
+        exchange_map = {
+            "NSE": "NSE",
+            "BSE": "BSE",
+            "MCX": "MCX",
+            "NCDEX": "NCDEX",
+        }
+        exchange_segment = exchange_map.get(exchange, exchange)
+        
+        # Map instrument types
+        inst_type_map = {
+            "EQ": "EQUITY",
+            "EQUITY": "EQUITY",
+            "FUT": "FUTSTK",
+            "FUTSTK": "FUTSTK",
+            "OPT": "OPTSTK",
+            "OPTSTK": "OPTSTK",
+        }
+        inst_type = inst_type_map.get(instrument_type, instrument_type)
+        
+        pool = _get_pool()
+        
+        # Step 1: Look up user (try UUID first, then mobile)
+        user_row = None
+        try:
+            # Try as UUID
+            user_uuid = uuid.UUID(user_identifier)
+            user_row = await pool.fetchrow(
+                "SELECT id FROM users WHERE id = $1",
+                user_uuid
+            )
+        except ValueError:
+            pass
+        
+        if not user_row:
+            # Try as mobile
+            user_row = await pool.fetchrow(
+                "SELECT id FROM users WHERE mobile = $1",
+                user_identifier
+            )
+        
+        if not user_row:
+            raise ValueError(f"User not found: {user_identifier}")
+        
+        target_user_id = user_row["id"]
+        
+        # Step 2: Look up instrument
+        inst_row = await pool.fetchrow(
+            """
+            SELECT instrument_token, symbol, exchange_segment
+            FROM instrument_master
+            WHERE symbol = $1 
+              AND exchange_segment = $2
+              AND instrument_type = $3
+            LIMIT 1
+            """,
+            symbol, exchange_segment, inst_type
+        )
+        
+        if not inst_row:
+            raise ValueError(
+                f"Instrument not found: {symbol} {exchange_segment} {inst_type}"
+            )
+        
+        instrument_token = inst_row["instrument_token"]
+        
+        # Step 3: Check if position already exists
+        existing = await pool.fetchrow(
+            """
+            SELECT position_id, quantity, status
+            FROM paper_positions
+            WHERE user_id = $1 
+              AND instrument_token = $2
+              AND status = 'OPEN'
+            """,
+            target_user_id, instrument_token
+        )
+        
+        if existing:
+            raise ValueError(
+                f"User already has an OPEN position in {symbol}. "
+                f"Close the existing position first."
+            )
+        
+        # Step 4: Create the position
+        position_id = uuid.uuid4()
+        await pool.execute(
+            """
+            INSERT INTO paper_positions
+                (position_id, user_id, instrument_token, symbol, exchange_segment,
+                 quantity, avg_price, opened_at, product_type, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            """,
+            position_id,
+            target_user_id,
+            instrument_token,
+            symbol,
+            exchange_segment,
+            qty,
+            price,
+            opened_at,
+            "MIS",  # product_type
+            "OPEN"  # status
+        )
+        
+        return {
+            "success": True,
+            "message": f"Backdated position created: {qty} {symbol} @ {price}",
+            "position": {
+                "position_id": str(position_id),
+                "user_id": str(target_user_id),
+                "instrument_token": instrument_token,
+                "symbol": symbol,
+                "quantity": qty,
+                "avg_price": price,
+                "opened_at": opened_at.isoformat(),
+                "status": "OPEN"
+            }
+        }
+        
+    except ValueError as e:
+        return {
+            "success": False,
+            "detail": str(e)
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "detail": f"Server error: {str(e)}"
+        }
 
 
 @router.post("/force-exit")

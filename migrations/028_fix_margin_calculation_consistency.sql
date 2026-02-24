@@ -9,10 +9,11 @@
  * 
  * Margin Calculation Logic:
  * ─────────────────────────
- * 1. Options (CE/PE):        Premium = Current Option Price × Quantity
- * 2. Futures:                SPAN + Exposure from NSE SPAN cache (or 15% fallback)
- * 3. Commodities (MCX):      SPAN + Exposure from MCX SPAN cache (or 10% fallback)
- * 4. Equities (NSE_EQ/BSE_EQ): Full Notional = Quantity × Current Price (Margin required = qty × price)
+ * 1. Options BUY (positive qty):     Premium = Current Option Price × Quantity
+ * 2. Options SELL (negative qty):    SPAN + Exposure from NSE SPAN cache (or 100% notional fallback)
+ * 3. Futures:                        SPAN + Exposure from NSE SPAN cache (or 15% fallback)
+ * 4. Commodities (MCX):              SPAN + Exposure from MCX SPAN cache (or 10% fallback)
+ * 5. Equities (NSE_EQ/BSE_EQ):       Full Notional = Quantity × Current Price
  * 
  * Impact: Available margin will now be accurately calculated across
  *         the entire system and consistent with order placement checks.
@@ -45,11 +46,41 @@ BEGIN
     
     -- Calculate based on instrument type
     
-    -- CASE 1: Options (CALL/PUT) - Premium = Current Option Price × Quantity
+    -- CASE 1: OPTIONS (CALL/PUT) - Different rules for BUY vs SELL
     IF (p_exchange_segment ILIKE '%OPT%' 
         OR p_symbol ILIKE '%CE' 
         OR p_symbol ILIKE '%PE') THEN
-        RETURN ABS(p_quantity) * v_ltp;
+        
+        -- OPTION BUY (positive quantity): Premium = Current Option Price × Quantity
+        IF p_quantity > 0 THEN
+            RETURN ABS(p_quantity) * v_ltp;
+        END IF;
+        
+        -- OPTION SELL (negative quantity): Use SPAN + Exposure Limit from NSE cache
+        IF p_quantity < 0 THEN
+            SELECT COALESCE(price_scan, 0) INTO v_span_margin
+            FROM span_margin_cache
+            WHERE symbol = p_symbol 
+                AND is_latest = true
+            LIMIT 1;
+            
+            IF v_span_margin > 0 THEN
+                -- SPAN found: Calculate SPAN × Quantity + Exposure Limit
+                SELECT COALESCE(exposure_limit_margin, 0) INTO v_exposure_margin
+                FROM span_margin_cache
+                WHERE symbol = p_symbol 
+                    AND is_latest = true
+                LIMIT 1;
+                
+                RETURN (v_span_margin * ABS(p_quantity)) + (v_exposure_margin * ABS(p_quantity));
+            ELSE
+                -- SPAN not found: Use 100% of notional as fallback for option sellers
+                RETURN ABS(p_quantity) * v_ltp;
+            END IF;
+        END IF;
+        
+        -- Zero quantity (closed position)
+        RETURN 0;
     END IF;
     
     -- CASE 2: Futures - Use SPAN from cache if available
@@ -159,13 +190,14 @@ GROUP BY pa.user_id, pa.balance, pa.margin_allotted;
 -- Add comment documenting the change
 COMMENT ON FUNCTION calculate_position_margin(INTEGER, VARCHAR, VARCHAR, INTEGER, VARCHAR) IS
 'Calculates the actual required margin for an open position using:
-- Options: Premium (Current Option Price × Quantity)
-- Futures: SPAN + Exposure from SPAN cache (or 15% fallback)
-- Commodities: SPAN from MCX cache (or 10% fallback)
-- Equities (NSE_EQ, BSE_EQ): Full Notional Value (Qty × Price) for both MIS and NORMAL
-- Default: Full Notional Value if instrument type cannot be determined
+- Option BUY (qty > 0):   Premium = Current Option Price × Quantity
+- Option SELL (qty < 0):  SPAN + Exposure from NSE SPAN cache (or 100% notional fallback)
+- Futures:               SPAN + Exposure from NSE SPAN cache (or 15% fallback)
+- Commodities:           SPAN from MCX SPAN cache (or 10% fallback)
+- Equities:              Full Notional Value (Qty × Price) for both MIS and NORMAL
 
 This ensures:
-1. Accurate margin calculation across all instrument types
-2. Consistency between order placement checks and used margin display
-3. Proper enforcement of available margin limits';
+1. Correct margin for option sellers using SPAN + Exposure
+2. Correct margin for option buyers using premium only
+3. Consistency between order placement checks and used margin display
+4. Proper enforcement of available margin limits';

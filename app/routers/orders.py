@@ -229,19 +229,16 @@ async def place_paper_order(
                     SELECT
                         COALESCE(pa.margin_allotted, 0) AS margin_allotted,
                         COALESCE(SUM(
-                            CASE
-                                WHEN (pp.exchange_segment ILIKE '%OPT%' OR pp.symbol ILIKE '%CE' OR pp.symbol ILIKE '%PE')
-                                    THEN COALESCE(md.ltp, pp.avg_price) * ABS(pp.quantity)
-                                WHEN (pp.exchange_segment ILIKE '%FUT%' OR pp.symbol ILIKE '%FUT%')
-                                    THEN COALESCE(md.ltp, pp.avg_price) * ABS(pp.quantity) * 0.15
-                                WHEN UPPER(COALESCE(pp.product_type,'MIS')) IN ('MIS','INTRADAY')
-                                    THEN COALESCE(md.ltp, pp.avg_price) * ABS(pp.quantity) * 0.20
-                                ELSE COALESCE(md.ltp, pp.avg_price) * ABS(pp.quantity) * 1.0
-                            END
+                            calculate_position_margin(
+                                pp.instrument_token,
+                                pp.symbol,
+                                pp.exchange_segment,
+                                pp.quantity,
+                                pp.product_type
+                            )
                         ) FILTER (WHERE pp.status='OPEN' AND pp.quantity != 0), 0) AS used_margin
                     FROM paper_accounts pa
                     LEFT JOIN paper_positions pp ON pp.user_id = pa.user_id
-                    LEFT JOIN market_data md ON md.instrument_token = pp.instrument_token
                     WHERE pa.user_id = $1::uuid
                     GROUP BY pa.margin_allotted
                     FOR UPDATE OF pa

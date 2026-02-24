@@ -1544,7 +1544,7 @@ async def backdate_position(
             if inst_type in ("EQUITY", "EQ"):
                 exchange_segment = "NSE_EQ"
             else:  # Futures/Options
-                exchange_segment = "NSE_FO"
+                exchange_segment = "NSE_FNO"  # Fixed: was NSE_FO, should be NSE_FNO
         elif exchange == "BSE":
             if inst_type in ("EQUITY", "EQ"):
                 exchange_segment = "BSE_EQ"

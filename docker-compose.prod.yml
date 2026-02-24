@@ -13,6 +13,7 @@ services:
       - "traefik.http.routers.tradingbackend.service=tradingbackend"
       - "traefik.http.routers.tradingbackend.entrypoints=http,https"
       - "traefik.http.routers.tradingbackend.tls=true"
+      - "traefik.http.routers.tradingbackend.tls.certresolver=letsencrypt"
       - "traefik.http.services.tradingbackend.loadbalancer.server.port=8000"
     environment:
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/trading_terminal
@@ -73,6 +74,7 @@ services:
       - "traefik.http.routers.tradingfrontend.rule=Host(`tradingnexus.pro`) || Host(`www.tradingnexus.pro`)"
       - "traefik.http.routers.tradingfrontend.entrypoints=http,https"
       - "traefik.http.routers.tradingfrontend.tls=true"
+      - "traefik.http.routers.tradingfrontend.tls.certresolver=letsencrypt"
       - "traefik.http.services.tradingfrontend.loadbalancer.server.port=80"
     environment:
       - VITE_API_URL=${VITE_API_URL:-/api/v2}

@@ -155,8 +155,9 @@ def _build_record(row: dict, tier: str) -> tuple:
     exch_id  = (row.get("EXCH_ID") or "").strip().upper()
     seg_code = (row.get("SEGMENT") or "").strip().upper()
     segment  = _map_exchange_segment(exch_id, seg_code)
-    symbol   = (row.get("SYMBOL_NAME") or "").strip()
-    under    = (row.get("UNDERLYING_SYMBOL") or symbol).strip().upper()
+    # Use DISPLAY_NAME for searchable symbol field (user-friendly names like "MARUTI SUZUKI INDIA LTD")
+    symbol   = (row.get("DISPLAY_NAME") or row.get("SYMBOL_NAME") or "").strip()
+    under    = (row.get("UNDERLYING_SYMBOL") or row.get("SYMBOL_NAME") or symbol).strip().upper()
     itype    = (row.get("INSTRUMENT") or "").strip().upper()
     expiry   = _parse_expiry(row.get("SM_EXPIRY_DATE", ""))
     strike_s = (row.get("STRIKE_PRICE") or "").strip()
@@ -167,7 +168,8 @@ def _build_record(row: dict, tier: str) -> tuple:
     lot_s    = (row.get("LOT_SIZE") or "1").strip()
     lot      = int(float(lot_s)) if lot_s else 1
     isin     = (row.get("ISIN") or "").strip() or None
-    display  = (row.get("DISPLAY_NAME") or "").strip() or None
+    # Store SYMBOL_NAME in display_name for reference (the actual ticker symbol)
+    display  = (row.get("SYMBOL_NAME") or "").strip() or None
     series   = (row.get("SERIES") or "").strip() or None
     ws       = _ws_slot(token) if tier == "B" else None
 

@@ -22,10 +22,8 @@ router = APIRouter(tags=["Search"])
 def _fmt_instrument(r) -> dict:
     d = dict(r)
     d["instrument_token"] = int(d.get("instrument_token") or 0)
-    # For cash equities, the master CSV's SYMBOL_NAME is a long company name.
-    # The UI expects the short symbol (UNDERLYING_SYMBOL), which we store as `underlying`.
-    if (d.get("instrument_type") or "").upper() == "EQUITY" and d.get("underlying"):
-        d["symbol"] = d["underlying"]
+    # Symbol now contains DISPLAY_NAME (full company name) for searchability.
+    # SYMBOL_NAME (the ticker) is stored in display_name field for reference.
     # Frontend compatibility: many components expect token/security_id fields.
     d["token"] = d["instrument_token"]
     d["security_id"] = str(d["instrument_token"]) if d["instrument_token"] else ""

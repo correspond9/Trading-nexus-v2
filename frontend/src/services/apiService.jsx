@@ -79,43 +79,68 @@ class ApiService {
 
   async get(endpoint, params = {}) {
     const url = this._buildUrl(endpoint, params);
-    const res = await fetch(url, { headers: this._getHeaders() });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      if (res.status === 401) this._handleUnauthorized();
-      throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+    try {
+      const res = await fetch(url, { headers: this._getHeaders(), mode: 'cors', credentials: 'include' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        if (res.status === 401) this._handleUnauthorized();
+        throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+      }
+      return res.json();
+    } catch (err) {
+      if (err.message && err.message.includes('Failed to fetch')) {
+        throw Object.assign(new Error('Network error: Unable to reach server. Please check your connection and ensure the server is running.'), { status: 0, data: { detail: err.message } });
+      }
+      throw err;
     }
-    return res.json();
   }
 
   async post(endpoint, data = {}) {
     const url = this._buildUrl(endpoint, {});
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: this._getHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      if (res.status === 401) this._handleUnauthorized();
-      throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: this._getHeaders(),
+        body: JSON.stringify(data),
+        mode: 'cors',
+        credentials: 'include'
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        if (res.status === 401) this._handleUnauthorized();
+        throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+      }
+      return res.json();
+    } catch (err) {
+      if (err.message && err.message.includes('Failed to fetch')) {
+        throw Object.assign(new Error('Network error: Unable to reach server. Please check your connection and ensure the server is running.'), { status: 0, data: { detail: err.message } });
+      }
+      throw err;
     }
-    return res.json();
   }
 
   async put(endpoint, data = {}) {
     const url = this._buildUrl(endpoint, {});
-    const res = await fetch(url, {
-      method: 'PUT',
-      headers: this._getHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      if (res.status === 401) this._handleUnauthorized();
-      throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+    try {
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: this._getHeaders(),
+        body: JSON.stringify(data),
+        mode: 'cors',
+        credentials: 'include'
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        if (res.status === 401) this._handleUnauthorized();
+        throw Object.assign(new Error(err.detail || 'Request failed'), { status: res.status, data: err });
+      }
+      return res.json();
+    } catch (err) {
+      if (err.message && err.message.includes('Failed to fetch')) {
+        throw Object.assign(new Error('Network error: Unable to reach server. Please check your connection and ensure the server is running.'), { status: 0, data: { detail: err.message } });
+      }
+      throw err;
     }
-    return res.json();
   }
 
   async patch(endpoint, data = {}) {

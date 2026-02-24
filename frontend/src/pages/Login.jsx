@@ -53,16 +53,16 @@ const Login = () => {
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                <div className="text-sm text-red-600">{error}</div>
+              <div style={{ backgroundColor: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '0.375rem', padding: '1rem' }}>
+                <div style={{ fontSize: '0.875rem', color: '#dc2626', fontWeight: 600 }}>{error}</div>
               </div>
             )}
 
             <div>
-              <label htmlFor="mobile" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="mobile" style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: '#000' }}>
                 Mobile Number
               </label>
-              <div className="mt-1">
+              <div style={{ marginTop: '0.25rem' }}>
                 <input
                   id="mobile"
                   name="mobile"
@@ -70,17 +70,26 @@ const Login = () => {
                   required
                   value={formData.mobile}
                   onChange={handleChange}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900 bg-white"
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '0.375rem',
+                    fontSize: '0.875rem',
+                    color: '#000',
+                    backgroundColor: '#fff',
+                    boxSizing: 'border-box'
+                  }}
                   placeholder="Enter your mobile number"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="password" style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: '#000' }}>
                 Password
               </label>
-              <div className="mt-1">
+              <div style={{ marginTop: '0.25rem' }}>
                 <input
                   id="password"
                   name="password"
@@ -88,7 +97,16 @@ const Login = () => {
                   required
                   value={formData.password}
                   onChange={handleChange}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900 bg-white"
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '0.375rem',
+                    fontSize: '0.875rem',
+                    color: '#000',
+                    backgroundColor: '#fff',
+                    boxSizing: 'border-box'
+                  }}
                   placeholder="Enter your password"
                 />
               </div>
@@ -98,18 +116,39 @@ const Login = () => {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-lg text-base font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: '0.75rem 1rem',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  fontSize: '0.875rem',
+                  fontWeight: 700,
+                  color: '#fff',
+                  backgroundColor: loading ? '#1e40af' : '#2563eb',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.7 : 1,
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading) e.target.style.backgroundColor = '#1d4ed8';
+                }}
+                onMouseLeave={(e) => {
+                  if (!loading) e.target.style.backgroundColor = '#2563eb';
+                }}
               >
                 {loading ? (
-                  <div className="flex items-center gap-2">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <span>Signing in...</span>
+                    <span style={{ color: '#fff' }}>Signing in...</span>
                   </div>
                 ) : (
-                  'Sign in'
+                  <span style={{ color: '#fff' }}>Sign in</span>
                 )}
               </button>
             </div>

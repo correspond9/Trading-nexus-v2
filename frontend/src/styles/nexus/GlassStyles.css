@@ -343,3 +343,205 @@
         filter: blur(0);
     }
 }
+/* ══════════════════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE STYLES
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Mobile First - Base styles for screens < 640px */
+@media (max-width: 639px) {
+  /* Typography - Increase readability on small screens */
+  body {
+    font-size: 14px !important;
+    line-height: 1.6 !important;
+  }
+
+  h1 {
+    font-size: clamp(1.75rem, 8vw, 2.5rem) !important;
+  }
+
+  h2 {
+    font-size: clamp(1.5rem, 6vw, 2rem) !important;
+  }
+
+  h3 {
+    font-size: clamp(1.25rem, 5vw, 1.75rem) !important;
+  }
+
+  /* Glass Container - Stack vertically on mobile */
+  .glass-container {
+    padding: 1rem !important;
+    margin: 0.5rem !important;
+    border-radius: 12px !important;
+  }
+
+  /* Uiverse Button - Full width on mobile */
+  .uiverse-button {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 60px !important;
+    font-size: 14px !important;
+    padding: 0 1rem !important;
+  }
+
+  .uiverse-button .text {
+    font-size: 14px !important;
+  }
+
+  /* Grid Layouts - Single column on mobile */
+  .grid,
+  [class*='grid-cols'] {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+
+  /* Cards - Full width with proper spacing */
+  .card,
+  .glass-card {
+    width: 100% !important;
+    margin: 0.75rem 0 !important;
+    padding: 1.25rem !important;
+  }
+
+  /* Forms - Touch-friendly inputs */
+  input,
+  textarea,
+  select,
+  .search-input {
+    width: 100% !important;
+    height: 48px !important;
+    font-size: 16px !important; /* Prevents zoom on iOS */
+    padding: 0.75rem !important;
+    border-radius: 8px !important;
+  }
+
+  textarea {
+    height: auto !important;
+    min-height: 120px !important;
+  }
+
+  /* Buttons - Minimum 44px touch target */
+  button,
+  .btn,
+  .glass-btn {
+    min-height: 44px !important;
+    padding: 0.75rem 1.25rem !important;
+    font-size: 15px !important;
+  }
+
+  /* Theme Toggle - Larger touch target */
+  .theme-toggle {
+    width: 70px !important;
+    height: 36px !important;
+  }
+
+  /* Hero Sections - Stack content */
+  .hero,
+  .hero-content {
+    flex-direction: column !important;
+    text-align: center !important;
+    padding: 2rem 1rem !important;
+  }
+
+  /* Feature Grid - Single column */
+  .features-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1.5rem !important;
+  }
+
+  /* Reduce animations on mobile for performance */
+  .tilt-card,
+  [data-tilt] {
+    transform: none !important;
+  }
+
+  /* Spacing utilities */
+  .container {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  /* Glass effects - Reduce blur for performance */
+  .glass-effect,
+  [class*='glass-'] {
+    backdrop-filter: blur(10px) !important;
+  }
+}
+
+/* Tablet - 640px to 1023px */
+@media (min-width: 640px) and (max-width: 1023px) {
+  /* Typography */
+  h1 {
+    font-size: clamp(2rem, 6vw, 3rem) !important;
+  }
+
+  h2 {
+    font-size: clamp(1.75rem, 5vw, 2.5rem) !important;
+  }
+
+  /* Containers */
+  .glass-container {
+    padding: 1.5rem !important;
+    margin: 1rem !important;
+  }
+
+  /* Buttons - Partial width */
+  .uiverse-button {
+    width: auto !important;
+    min-width: 200px !important;
+    max-width: 320px !important;
+  }
+
+  button,
+  .btn {
+    width: auto !important;
+    min-width: 150px !important;
+  }
+
+  /* Grid - 2 columns on tablet */
+  .grid-cols-3,
+  .grid-cols-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Cards */
+  .card,
+  .glass-card {
+    padding: 1.5rem !important;
+  }
+}
+
+/* Desktop - 1024px and above */
+@media (min-width: 1024px) {
+  /* Hover effects enabled only on desktop */
+  .hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Enable tilt effects on desktop */
+  .tilt-card {
+    transform-style: preserve-3d;
+  }
+}
+
+/* Extra small devices (iPhone SE) */
+@media (max-width: 375px) {
+  body {
+    font-size: 13px !important;
+  }
+
+  h1 {
+    font-size: 1.75rem !important;
+  }
+
+  .glass-container {
+    padding: 0.75rem !important;
+  }
+
+  button,
+  .btn,
+  .uiverse-button {
+    font-size: 14px !important;
+    padding: 0.65rem 1rem !important;
+  }
+}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import VanillaTilt from 'vanilla-tilt';
 import '../../styles/nexus/GlassStyles.css';
@@ -11,18 +11,23 @@ interface LandingPageProps {
 const LandingPage: React.FC<LandingPageProps> = ({ toggleTheme, theme }) => {
     const navigate = useNavigate();
     const revealRefs = useRef<HTMLDivElement[]>([]);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     useEffect(() => {
-        // Vanilla Tilt
-        const tiltElements = document.querySelectorAll('.card');
-        tiltElements.forEach((el) => {
-            VanillaTilt.init(el as HTMLElement, {
-                max: 10,
-                speed: 400,
-                glare: true,
-                'max-glare': 0.2,
+        // Disable Vanilla Tilt on mobile devices for performance
+        const isMobile = window.innerWidth < 768;
+        
+        if (!isMobile) {
+            const tiltElements = document.querySelectorAll('.card');
+            tiltElements.forEach((el) => {
+                VanillaTilt.init(el as HTMLElement, {
+                    max: 10,
+                    speed: 400,
+                    glare: true,
+                    'max-glare': 0.2,
+                });
             });
-        });
+        }
 
         // Intersection Observer for scroll reveal
         const observer = new IntersectionObserver((entries) => {
@@ -48,55 +53,55 @@ const LandingPage: React.FC<LandingPageProps> = ({ toggleTheme, theme }) => {
 
     return (
         <div className="nexus-glass-portal" data-theme={theme}>
-            <nav>
-                <div className="brand" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-                    <img src="/logo.png" alt="Trading Nexus" style={{ width: '80px', height: '80px', objectFit: 'contain' }} />
-                    <span style={{ fontWeight: 800, letterSpacing: '3px', textTransform: 'uppercase', marginTop: '10px' }}>TRADING NEXUS</span>
+            <nav style={{ padding: '1rem 2rem' }}>
+                <div className="brand" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} style={{ cursor: 'pointer' }}>
+                    <img src="/logo.png" alt="Trading Nexus" style={{ width: '60px', height: '60px', objectFit: 'contain' }} />
+                    <span style={{ fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', fontSize: 'clamp(0.9rem, 2.5vw, 1.1rem)' }}>TRADING NEXUS</span>
                 </div>
-                <div className="theme-toggle" onClick={toggleTheme}>
+                <div className="theme-toggle" onClick={toggleTheme} style={{ cursor: 'pointer' }}>
                     <div className="toggle-dot"></div>
                 </div>
             </nav>
 
-            <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 20px' }}>
-                <section className="hero reveal" ref={addToRefs} style={{ padding: '100px 0', textAlign: 'center' }}>
-                    <h1>The Ecosystem for Professional Traders</h1>
-                    <p style={{ fontSize: '1.25rem', maxWidth: '700px', margin: '0 auto 40px' }}>From free foundational learning to institutional-grade trading accounts. We provide the infrastructure and instruments to conquer it.</p>
-                    <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                        <button onClick={() => navigate('/signup')} className="btn">Start Your Journey</button>
-                        <button className="btn btn-glass">Learn More</button>
+            <main style={{ maxWidth: '1200px', margin: '0 auto', padding: 'clamp(1rem, 3vw, 2rem)' }}>
+                <section className="hero reveal" ref={addToRefs} style={{ padding: 'clamp(3rem, 10vw, 6rem) 0', textAlign: 'center' }}>
+                    <h1 style={{ fontSize: 'clamp(2rem, 6vw, 3.5rem)', marginBottom: '1.5rem' }}>The Ecosystem for Professional Traders</h1>
+                    <p style={{ fontSize: 'clamp(1rem, 3vw, 1.25rem)', maxWidth: '700px', margin: '0 auto 2.5rem', padding: '0 1rem' }}>From free foundational learning to institutional-grade trading accounts. We provide the infrastructure and instruments to conquer it.</p>
+                    <div style={{ display: 'flex', gap: 'clamp(0.75rem, 2vw, 1.25rem)', justifyContent: 'center', flexWrap: 'wrap', padding: '0 1rem' }}>
+                        <button onClick={() => navigate('/signup')} className="btn" style={{ padding: 'clamp(0.75rem, 2vw, 1rem) clamp(1.5rem, 4vw, 2.5rem)' }}>Start Your Journey</button>
+                        <button className="btn btn-glass" style={{ padding: 'clamp(0.75rem, 2vw, 1rem) clamp(1.5rem, 4vw, 2.5rem)' }}>Learn More</button>
                     </div>
                 </section>
 
-                <div className="grid">
-                    <div className="glass card reveal" ref={addToRefs}>
-                        <div className="card-icon">📚</div>
-                        <h3>Knowledge Hub</h3>
-                        <p>High-tier education shouldn't be gated. Access our complete curriculum without spending a dime. Price Action mastery, Risk Management, and more.</p>
-                        <button className="btn btn-glass">Explore Academy</button>
+                <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 'clamp(1rem, 3vw, 2rem)', padding: '0 1rem' }}>
+                    <div className="glass card reveal tilt-card" ref={addToRefs}>
+                        <div className="card-icon" style={{ fontSize: 'clamp(2rem, 5vw, 3rem)' }}>📚</div>
+                        <h3 style={{ fontSize: 'clamp(1.25rem, 4vw, 1.5rem)' }}>Knowledge Hub</h3>
+                        <p style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1rem)' }}>High-tier education shouldn't be gated. Access our complete curriculum without spending a dime. Price Action mastery, Risk Management, and more.</p>
+                        <button className="btn btn-glass" style={{ marginTop: '1rem', width: '100%' }}>Explore Academy</button>
                     </div>
 
-                    <div className="glass card reveal" ref={addToRefs}>
-                        <div className="card-icon">💰</div>
-                        <h3>Mentoring from Pro-Traders</h3>
-                        <p>Ready to trade bigger? Nobody can earn on behalf of you, you have to learn and earn yourself</p>
-                        <button className="btn btn-glass">Join hands</button>
+                    <div className="glass card reveal tilt-card" ref={addToRefs}>
+                        <div className="card-icon" style={{ fontSize: 'clamp(2rem, 5vw, 3rem)' }}>💰</div>
+                        <h3 style={{ fontSize: 'clamp(1.25rem, 4vw, 1.5rem)' }}>Mentoring from Pro-Traders</h3>
+                        <p style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1rem)' }}>Ready to trade bigger? Nobody can earn on behalf of you, you have to learn and earn yourself</p>
+                        <button className="btn btn-glass" style={{ marginTop: '1rem', width: '100%' }}>Join hands</button>
                     </div>
 
-                    <div className="glass card reveal" ref={addToRefs}>
-                        <div className="card-icon">⚡</div>
-                        <h3>Pro Infrastructure</h3>
-                        <p>Optimized for professional scalpers and swing traders. Institutional leverage, low latency execution, and direct API access.</p>
-                        <button className="btn btn-glass">Open Account</button>
+                    <div className="glass card reveal tilt-card" ref={addToRefs}>
+                        <div className="card-icon" style={{ fontSize: 'clamp(2rem, 5vw, 3rem)' }}>⚡</div>
+                        <h3 style={{ fontSize: 'clamp(1.25rem, 4vw, 1.5rem)' }}>Pro Infrastructure</h3>
+                        <p style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1rem)' }}>Optimized for professional scalpers and swing traders. Institutional leverage, low latency execution, and direct API access.</p>
+                        <button className="btn btn-glass" style={{ marginTop: '1rem', width: '100%' }}>Open Account</button>
                     </div>
                 </div>
 
-                <section className="join-now reveal" id="join" ref={addToRefs} style={{ padding: '100px 0', textAlign: 'center' }}>
-                    <div className="glass join-box" style={{ padding: '80px 40px', maxWidth: '800px', margin: '0 auto' }}>
-                        <h2>Ready to Join the Elite?</h2>
-                        <p className="join-desc" style={{ marginBottom: '40px' }}>Become part of a global ecosystem of professional traders. Secure your spot today.</p>
+                <section className="join-now reveal" id="join" ref={addToRefs} style={{ padding: 'clamp(3rem, 10vw, 6rem) 0', textAlign: 'center' }}>
+                    <div className="glass join-box" style={{ padding: 'clamp(2rem, 8vw, 5rem) clamp(1.5rem, 5vw, 2.5rem)', maxWidth: '800px', margin: '0 auto' }}>
+                        <h2 style={{ fontSize: 'clamp(1.75rem, 5vw, 2.5rem)', marginBottom: '1rem' }}>Ready to Join the Elite?</h2>
+                        <p className="join-desc" style={{ marginBottom: '2.5rem', fontSize: 'clamp(1rem, 3vw, 1.1rem)' }}>Become part of a global ecosystem of professional traders. Secure your spot today.</p>
 
-                        <button className="uiverse-button" onClick={() => navigate('/signup')}>
+                        <button className="uiverse-button" onClick={() => navigate('/signup')} style={{ margin: '0 auto' }}>
                             <div className="bg"></div>
                             <div className="wrap">
                                 <div className="btn-outline"></div>
@@ -117,9 +122,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ toggleTheme, theme }) => {
                 </section>
             </main>
 
-            <footer style={{ padding: '40px', textAlign: 'center', borderTop: '1px solid var(--glass-border)', color: 'var(--text-dim)' }}>
-                <p>&copy; 2026 Institutional Trading Hub. All rights reserved.</p>
-                <p style={{ marginTop: '10px', opacity: 0.6, fontSize: '0.9rem' }}>Trading involves risk. Education is key to success.</p>
+            <footer className="footer" style={{ padding: 'clamp(2rem, 5vw, 2.5rem)', textAlign: 'center', borderTop: '1px solid var(--glass-border)', color: 'var(--text-dim)' }}>
+                <p style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1rem)' }}>&copy; 2026 Institutional Trading Hub. All rights reserved.</p>
+                <p style={{ marginTop: '10px', opacity: 0.6, fontSize: 'clamp(0.8rem, 2vw, 0.9rem)' }}>Trading involves risk. Education is key to success.</p>
             </footer>
         </div>
     );

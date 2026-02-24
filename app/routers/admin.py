@@ -1588,12 +1588,12 @@ async def backdate_position(
         
         target_user_id = user_row["id"]
         
-        # Lookup instrument
+        # Lookup instrument (case-insensitive search)
         inst_row = await pool.fetchrow(
             """
             SELECT instrument_token, symbol, exchange_segment
             FROM instrument_master
-            WHERE symbol = $1 
+            WHERE LOWER(symbol) = LOWER($1)
               AND exchange_segment = $2
               AND instrument_type = $3
             LIMIT 1
@@ -1602,11 +1602,11 @@ async def backdate_position(
         )
         
         if not inst_row:
-            # Try to find similar symbols to suggest
+            # Try to find similar symbols to suggest (case-insensitive)
             similar = await pool.fetch(
                 """
                 SELECT DISTINCT symbol FROM instrument_master
-                WHERE symbol LIKE $1 AND exchange_segment = $2
+                WHERE LOWER(symbol) LIKE LOWER($1) AND exchange_segment = $2
                 LIMIT 3
                 """,
                 f"{symbol}%", exchange_segment

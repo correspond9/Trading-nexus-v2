@@ -142,8 +142,8 @@ async def subscriptions_search(
 # ── General instrument search ──────────────────────────────────────────────
 
 @router.get("/instruments/search")
-async def instruments_search(q: str = Query(default="")):
-    return {"data": await _search(q)}
+async def instruments_search(q: str = Query(default=""), limit: int = Query(default=50)):
+    return await _search(q, limit=limit)
 
 
 @router.get("/instruments/futures/search")

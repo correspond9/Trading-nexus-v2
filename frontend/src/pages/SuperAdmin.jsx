@@ -303,7 +303,11 @@ const SuperAdminDashboard = () => {
     if (!q || q.length < 2) { setInstrumentSuggestions([]); return; }
     try {
       const res = await req(`/instruments/search?q=${encodeURIComponent(q)}&limit=8`);
-      if (res.ok) setInstrumentSuggestions(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        const results = Array.isArray(data) ? data : data.data || [];
+        setInstrumentSuggestions(results);
+      }
     } catch { setInstrumentSuggestions([]); }
   };
 

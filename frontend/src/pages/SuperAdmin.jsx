@@ -292,13 +292,6 @@ const SuperAdminDashboard = () => {
         return;
       }
       
-      // Validate symbol - must not contain spaces (indicates user didn't use search dropdown)
-      if (backdateForm.symbol.includes(' ')) {
-        setBackdateError('Symbol must not contain spaces. Please use the search dropdown to select an instrument.');
-        setBackdateLoading(false);
-        return;
-      }
-      
       // Convert date from YYYY-MM-DD to DD-MM-YYYY for backend
       const formData = { ...backdateForm };
       formData.symbol = formData.symbol.toUpperCase().trim();

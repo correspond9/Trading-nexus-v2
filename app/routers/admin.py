@@ -2450,6 +2450,179 @@ async def assign_user_brokerage_plans(
     return {"success": True, "message": f"Brokerage plans assigned to user {user_id}"}
 
 
+# ── User Soft Delete & Archival ──────────────────────────────────────────────
+
+@router.post("/users/{user_id}/soft-delete")
+async def soft_delete_user(
+    user_id: str,
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    """
+    Soft delete (archive) a user.
+    Sets is_archived = True but keeps all data intact.
+    User cannot login after archival.
+    """
+    from app.database import get_pool
+    pool = get_pool()
+    
+    # Verify user exists
+    user = await pool.fetchrow("SELECT id, mobile, name FROM users WHERE id = $1::uuid OR mobile = $1", user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User not found")
+    
+    user_id_uuid = user['id']
+    user_display = user['mobile'] or user['name'] or str(user_id_uuid)
+    
+    # Check if already archived
+    archived = await pool.fetchval(
+        "SELECT is_archived FROM users WHERE id = $1",
+        user_id_uuid
+    )
+    if archived:
+        raise HTTPException(status_code=400, detail=f"User already archived")
+    
+    # Soft delete: mark as archived
+    await pool.execute(
+        """
+        UPDATE users 
+        SET is_archived = TRUE, archived_at = now()
+        WHERE id = $1
+        """,
+        user_id_uuid
+    )
+    
+    log.info(f"User {user_display} (ID: {user_id_uuid}) archived by admin")
+    
+    return {
+        "success": True,
+        "message": f"User {user_display} has been archived",
+        "user_id": str(user_id_uuid),
+        "user_identifier": user_display,
+    }
+
+
+@router.get("/users/archived")
+async def get_archived_users(
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    """
+    Get list of all archived users.
+    Shows when they were archived.
+    """
+    from app.database import get_pool
+    pool = get_pool()
+    
+    archived = await pool.fetch(
+        """
+        SELECT 
+            id::text as user_id,
+            mobile,
+            name,
+            email,
+            is_archived,
+            archived_at,
+            created_at,
+            last_login
+        FROM users
+        WHERE is_archived = TRUE
+        ORDER BY archived_at DESC
+        """
+    )
+    
+    return {
+        "success": True,
+        "count": len(archived),
+        "archived_users": [dict(row) for row in archived]
+    }
+
+
+# ── User Position Deletion ────────────────────────────────────────────────────
+
+@router.post("/users/{user_id}/positions/delete-all")
+async def delete_all_user_positions(
+    user_id: str,
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    """
+    COMPLETELY DELETE ALL DATA related to a user's positions:
+    - paper_positions (all)
+    - paper_orders (all)
+    - paper_trades (all)
+    - ledger_entries (all)
+    - trade_history (all)
+    
+    This is irreversible! Used for clearing wrong backdated entries.
+    """
+    from app.database import get_pool
+    pool = get_pool()
+    
+    # Resolve user_id
+    user = await pool.fetchrow(
+        "SELECT id, mobile, name FROM users WHERE id = $1::uuid OR mobile = $1",
+        user_id
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user_id_uuid = user['id']
+    user_display = user['mobile'] or user['name'] or str(user_id_uuid)
+    
+    # Count before deletion
+    pos_count = await pool.fetchval("SELECT COUNT(*) FROM paper_positions WHERE user_id = $1", user_id_uuid)
+    orders_count = await pool.fetchval("SELECT COUNT(*) FROM paper_orders WHERE user_id = $1", user_id_uuid)
+    ledger_count = await pool.fetchval("SELECT COUNT(*) FROM ledger_entries WHERE user_id = $1", user_id_uuid)
+    
+    # Delete in correct order (respect foreign keys)
+    total_deleted = 0
+    
+    # 1. Delete ledger entries
+    deleted = await pool.fetchval(
+        "DELETE FROM ledger_entries WHERE user_id = $1",
+        user_id_uuid
+    )
+    total_deleted += deleted or 0
+    
+    # 2. Delete paper trades
+    deleted = await pool.fetchval(
+        "DELETE FROM paper_trades WHERE user_id = $1",
+        user_id_uuid
+    )
+    total_deleted += deleted or 0
+    
+    # 3. Delete paper orders
+    deleted = await pool.fetchval(
+        "DELETE FROM paper_orders WHERE user_id = $1",
+        user_id_uuid
+    )
+    total_deleted += deleted or 0
+    
+    # 4. Delete paper positions
+    deleted = await pool.fetchval(
+        "DELETE FROM paper_positions WHERE user_id = $1",
+        user_id_uuid
+    )
+    total_deleted += deleted or 0
+    
+    log.warning(
+        f"ALL POSITIONS DELETED for user {user_display} "
+        f"(ID: {user_id_uuid}). Deleted: {pos_count} positions, "
+        f"{orders_count} orders, {ledger_count} ledger entries."
+    )
+    
+    return {
+        "success": True,
+        "message": f"All positions and related data deleted for user {user_display}",
+        "user_id": str(user_id_uuid),
+        "user_identifier": user_display,
+        "deleted_summary": {
+            "positions": pos_count or 0,
+            "orders": orders_count or 0,
+            "ledger_entries": ledger_count or 0,
+            "total": total_deleted
+        }
+    }
+
+
 @router.get("/charge-calculation/status")
 async def charge_calculation_status(
     current_user: CurrentUser = Depends(get_admin_user),

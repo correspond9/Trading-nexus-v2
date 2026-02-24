@@ -76,6 +76,20 @@ const SuperAdminDashboard = () => {
   const [authCheckResult, setAuthCheckResult]         = useState(null);
   const [authCheckError, setAuthCheckError]           = useState('');
 
+  // ── Soft delete user ──
+  const [deleteUserSelection, setDeleteUserSelection] = useState('');
+  const [deleteUsersLoading, setDeleteUsersLoading]   = useState(false);
+  const [deleteUsersError, setDeleteUsersError]       = useState('');
+  const [deleteUsersMsg, setDeleteUsersMsg]           = useState('');
+  const [archivedUsers, setArchivedUsers]             = useState([]);
+  const [archivedUsersLoading, setArchivedUsersLoading] = useState(false);
+
+  // ── Delete user positions ──
+  const [deletePositionsUserSelection, setDeletePositionsUserSelection] = useState('');
+  const [deletePositionsLoading, setDeletePositionsLoading] = useState(false);
+  const [deletePositionsError, setDeletePositionsError] = useState('');
+  const [deletePositionsMsg, setDeletePositionsMsg]   = useState('');
+
   // ── Backdate position ──
   const [backdateForm, setBackdateForm]     = useState({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', trade_time: '09:15', instrument_type: 'EQ', exchange: 'NSE', product_type: 'MIS' });
   const [backdateLoading, setBackdateLoading] = useState(false);
@@ -257,6 +271,55 @@ const SuperAdminDashboard = () => {
       const data = await res.json().catch(() => ({}));
       if (res.ok) setAuthCheckResult(data); else setAuthCheckError(data.detail || 'Check failed');
     } catch (e) { setAuthCheckError(e?.message || 'Error'); } finally { setAuthCheckLoading(false); }
+  };
+
+  const handleSoftDeleteUser = async () => {
+    if (!deleteUserSelection) { setDeleteUsersError('Select a user.'); return; }
+    if (!window.confirm(`⚠️ This will ARCHIVE the user. They cannot login again.\n\nUser: ${deleteUserSelection}\n\nContinue?`)) return;
+    
+    setDeleteUsersLoading(true); setDeleteUsersError(''); setDeleteUsersMsg('');
+    try {
+      const res = await req(`/admin/users/${deleteUserSelection}/soft-delete`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setDeleteUsersMsg(data.message || 'User archived successfully');
+        setDeleteUserSelection('');
+        // Refresh archived list
+        fetchArchivedUsers();
+      } else {
+        setDeleteUsersError(data.detail || 'Soft delete failed');
+      }
+    } catch (e) { setDeleteUsersError(e?.message || 'Error'); } finally { setDeleteUsersLoading(false); }
+  };
+
+  const fetchArchivedUsers = async () => {
+    setArchivedUsersLoading(true);
+    try {
+      const res = await req('/admin/users/archived');
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setArchivedUsers(data.archived_users || []);
+    } catch (e) { /* ignore */ } finally { setArchivedUsersLoading(false); }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'authCheck') { fetchArchivedUsers(); }
+  }, [activeTab]);
+
+  const handleDeleteUserPositions = async () => {
+    if (!deletePositionsUserSelection) { setDeletePositionsError('Select a user.'); return; }
+    if (!window.confirm(`⚠️ PERMANENT! All positions, orders, and ledger entries will be DELETED.\n\nUser: ${deletePositionsUserSelection}\n\nThis cannot be undone!\n\nContinue?`)) return;
+    
+    setDeletePositionsLoading(true); setDeletePositionsError(''); setDeletePositionsMsg('');
+    try {
+      const res = await req(`/admin/users/${deletePositionsUserSelection}/positions/delete-all`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setDeletePositionsMsg(data.message || 'Positions deleted successfully');
+        setDeletePositionsUserSelection('');
+      } else {
+        setDeletePositionsError(data.detail || 'Position deletion failed');
+      }
+    } catch (e) { setDeletePositionsError(e?.message || 'Error'); } finally { setDeletePositionsLoading(false); }
   };
 
   const handleBackdatePosition = async () => {
@@ -647,26 +710,87 @@ const SuperAdminDashboard = () => {
 
       {/* ── User Auth Check ── */}
       {activeTab === 'authCheck' && (
-        <div className="max-w-lg space-y-4">
-          <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
-            <h2 className="text-base font-semibold">Diagnose User Login</h2>
-            <p className="text-xs text-gray-400">Check why a user cannot log in. Enter their mobile or username.</p>
-            <FormField label="Mobile / Username">
-              <input className={inputCls} value={authCheckIdentifier}
-                onChange={e => setAuthCheckIdentifier(e.target.value)} placeholder="9876543210" />
-            </FormField>
-            <FormField label="Password (optional — verifies hash)">
-              <input className={inputCls} type="password" value={authCheckPassword}
-                onChange={e => setAuthCheckPassword(e.target.value)} placeholder="Leave blank to skip" />
-            </FormField>
-            {authCheckError && <p className="text-xs text-red-400">{authCheckError}</p>}
-            <button onClick={handleUserAuthCheck} disabled={authCheckLoading} className={btnCls('blue')}>
-              {authCheckLoading ? 'Checking…' : 'Run Diagnosis'}
-            </button>
-            {authCheckResult && (
-              <pre className="rounded-lg p-3 text-xs overflow-auto max-h-72 bg-zinc-950 text-zinc-100">
-                {JSON.stringify(authCheckResult, null, 2)}
-              </pre>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left column — Diagnose & Delete */}
+          <div className="space-y-6">
+            {/* Diagnose User Login */}
+            <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+              <h2 className="text-base font-semibold">Diagnose User Login</h2>
+              <p className="text-xs text-gray-400">Check why a user cannot log in. Enter their mobile or username.</p>
+              <FormField label="Mobile / Username">
+                <input className={inputCls} value={authCheckIdentifier}
+                  onChange={e => setAuthCheckIdentifier(e.target.value)} placeholder="9876543210" />
+              </FormField>
+              <FormField label="Password (optional — verifies hash)">
+                <input className={inputCls} type="password" value={authCheckPassword}
+                  onChange={e => setAuthCheckPassword(e.target.value)} placeholder="Leave blank to skip" />
+              </FormField>
+              {authCheckError && <p className="text-xs text-red-400">{authCheckError}</p>}
+              <button onClick={handleUserAuthCheck} disabled={authCheckLoading} className={btnCls('blue')}>
+                {authCheckLoading ? 'Checking…' : 'Run Diagnosis'}
+              </button>
+              {authCheckResult && (
+                <pre className="rounded-lg p-3 text-xs overflow-auto max-h-72 bg-zinc-950 text-zinc-100">
+                  {JSON.stringify(authCheckResult, null, 2)}
+                </pre>
+              )}
+            </div>
+
+            {/* Soft Delete User */}
+            <div className="rounded-xl p-5 space-y-4 bg-red-950/30 border border-red-700/50">
+              <h2 className="text-base font-semibold text-red-300">Soft Delete User (Archive)</h2>
+              <p className="text-xs text-gray-400">Archive a user — they cannot login but data is preserved. Recoverable.</p>
+              <FormField label="User to Archive">
+                <input className={inputCls} value={deleteUserSelection}
+                  onChange={e => setDeleteUserSelection(e.target.value)} placeholder="Mobile or User ID" />
+              </FormField>
+              {deleteUsersError && <p className="text-xs text-red-400">❌ {deleteUsersError}</p>}
+              {deleteUsersMsg && <p className="text-xs text-green-400">✓ {deleteUsersMsg}</p>}
+              <button onClick={handleSoftDeleteUser} disabled={deleteUsersLoading} className={btnCls('red')}>
+                {deleteUsersLoading ? 'Archiving…' : '🗑️ Archive User'}
+              </button>
+            </div>
+
+            {/* Delete User Positions */}
+            <div className="rounded-xl p-5 space-y-4 bg-orange-950/30 border border-orange-700/50">
+              <h2 className="text-base font-semibold text-orange-300">Delete All Positions</h2>
+              <p className="text-xs text-gray-400">⚠️ PERMANENT: Removes ALL positions, orders, and ledger entries. For fixing wrong backdated orders.</p>
+              <FormField label="User (clear all positions)">
+                <input className={inputCls} value={deletePositionsUserSelection}
+                  onChange={e => setDeletePositionsUserSelection(e.target.value)} placeholder="Mobile or User ID" />
+              </FormField>
+              {deletePositionsError && <p className="text-xs text-orange-400">❌ {deletePositionsError}</p>}
+              {deletePositionsMsg && <p className="text-xs text-green-400">✓ {deletePositionsMsg}</p>}
+              <button onClick={handleDeleteUserPositions} disabled={deletePositionsLoading} className={btnCls('red')}>
+                {deletePositionsLoading ? 'Deleting…' : '🔥 Delete ALL Positions'}
+              </button>
+            </div>
+          </div>
+
+          {/* Right column — Archived Users */}
+          <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700 h-fit">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Archived Users</h2>
+              <button onClick={fetchArchivedUsers} disabled={archivedUsersLoading} 
+                className={`text-xs ${archivedUsersLoading ? 'text-gray-500' : 'text-blue-400 hover:text-blue-300'}`}>
+                {archivedUsersLoading ? '⟳ Loading…' : '🔄 Refresh'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">Users who have been archived. They cannot login.</p>
+            {archivedUsers && archivedUsers.length > 0 ? (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {archivedUsers.map((u, idx) => (
+                  <div key={idx} className="p-3 bg-zinc-900 rounded-lg border border-zinc-700 text-xs">
+                    <div className="font-semibold text-white">{u.mobile || u.name || u.email}</div>
+                    <div className="text-gray-400 text-xs mt-1">
+                      Archived: {new Date(u.archived_at).toLocaleDateString()} 
+                      {u.last_login && ` | Last login: ${new Date(u.last_login).toLocaleDateString()}`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500">No archived users yet.</p>
             )}
           </div>
         </div>

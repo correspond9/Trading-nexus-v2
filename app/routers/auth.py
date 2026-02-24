@@ -51,6 +51,10 @@ async def login(body: LoginRequest):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    # Check if user is archived (soft deleted)
+    if user.get("is_archived"):
+        raise HTTPException(status_code=403, detail="Account has been archived and is unavailable")
+
     if not _check(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 

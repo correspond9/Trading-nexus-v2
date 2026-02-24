@@ -1,9 +1,10 @@
 --
--- Migration 025: Production Seed Data (Corrected)
--- Uses actual column names from schema migration 020
+-- Migration 025: Ensure Brokerage Plans Exist
+-- Idempotent: uses ON CONFLICT DO NOTHING to handle duplicate key errors
+-- This ensures the data is present even if run multiple times
 --
 
--- Insert Brokerage Plans (using correct column names matching schema)
+-- Ensure brokerage plans exist (ignore if already present from migration 020)
 INSERT INTO brokerage_plans (plan_id, plan_code, plan_name, instrument_group, flat_fee, percent_fee, is_active) VALUES
   (1, 'PLAN_A', 'Plan A - Equity/Options - ₹20 flat', 'EQUITY_OPTIONS', 20.00, 0.000000, true),
   (2, 'PLAN_B', 'Plan B - Equity/Options - 0.2% turnover', 'EQUITY_OPTIONS', 0.00, 0.002000, true),
@@ -17,10 +18,4 @@ INSERT INTO brokerage_plans (plan_id, plan_code, plan_name, instrument_group, fl
   (10, 'PLAN_E_FUTURES', 'Plan E - Futures - 0.05% turnover', 'FUTURES', 0.00, 0.000500, true),
   (51, 'PLAN_NIL', 'Plan NIL - Equity/Options - ₹0 (no brokerage)', 'EQUITY_OPTIONS', 0.00, 0.000000, true),
   (52, 'PLAN_NIL_FUTURES', 'Plan NIL - Futures - ₹0 (no brokerage)', 'FUTURES', 0.00, 0.000000, true)
-ON CONFLICT (plan_id) DO UPDATE SET
-  plan_code = EXCLUDED.plan_code,
-  plan_name = EXCLUDED.plan_name,
-  instrument_group = EXCLUDED.instrument_group,
-  flat_fee = EXCLUDED.flat_fee,
-  percent_fee = EXCLUDED.percent_fee,
-  is_active = EXCLUDED.is_active;
+ON CONFLICT (plan_id) DO NOTHING;

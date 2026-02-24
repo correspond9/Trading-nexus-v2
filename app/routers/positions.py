@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
 from app.database import get_pool
 from app.dependencies import CurrentUser, get_current_user
+from app.market_hours import is_market_open, get_market_state
 
 log = logging.getLogger(__name__)
 
@@ -117,6 +118,17 @@ async def close_position(
 
     if not row:
         raise HTTPException(status_code=404, detail="Position not found")
+
+    # ── Market hours validation ────────────────────────────────────────
+    exchange_segment = row.get("exchange_segment") or "NSE_EQ"
+    symbol = row.get("symbol") or ""
+    
+    if not is_market_open(exchange_segment, symbol):
+        market_state = get_market_state(exchange_segment, symbol)
+        raise HTTPException(
+            status_code=403,
+            detail=f"Market is {market_state.value}. Positions can only be closed during market hours."
+        )
 
     # Get current LTP for realized P&L calc
     ltp_row = await pool.fetchrow(

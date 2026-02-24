@@ -83,6 +83,7 @@ const SuperAdminDashboard = () => {
   const [backdateMsg, setBackdateMsg]       = useState('');
   const [backdateResult, setBackdateResult] = useState(null);
   const [symbolInputBlur, setSymbolInputBlur] = useState(false);
+  const [instrumentSelectedFromDropdown, setInstrumentSelectedFromDropdown] = useState(false);
 
   // ── Force exit ──
   const [forceExitForm, setForceExitForm]     = useState({ user_id: '', position_id: '', exit_price: '' });
@@ -312,6 +313,7 @@ const SuperAdminDashboard = () => {
         setBackdateResult(data); 
         // Clear form on success
         setBackdateForm({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', instrument_type: 'EQ', exchange: 'NSE' });
+        setInstrumentSelectedFromDropdown(false); // Reset selection flag
       }
       else setBackdateError(data.detail || 'Failed');
     } catch (e) { setBackdateError(e?.message || 'Error'); } 
@@ -668,13 +670,14 @@ const SuperAdminDashboard = () => {
             <FormField label="Symbol">
               <div className="relative">
                 <input
-                  className={`${inputCls} ${backdateForm.symbol && !instrumentSuggestions.length && symbolInputBlur ? 'border-red-500 border-2' : ''}`}
+                  className={`${inputCls} ${backdateForm.symbol && !instrumentSuggestions.length && symbolInputBlur && !instrumentSelectedFromDropdown ? 'border-red-500 border-2' : ''}`}
                   type="text"
                   value={backdateForm.symbol}
                   onChange={e => {
                     const val = e.target.value;
                     searchInstrument(val);
                     setBackdateForm(f => ({ ...f, symbol: val }));
+                    setInstrumentSelectedFromDropdown(false); // User is typing, not selecting
                   }}
                   onBlur={() => setTimeout(() => setSymbolInputBlur(true), 150)}
                   onFocus={() => setSymbolInputBlur(false)}
@@ -683,7 +686,7 @@ const SuperAdminDashboard = () => {
                   maxLength="20"
                 />
                 
-                {backdateForm.symbol && symbolInputBlur && !instrumentSuggestions.length && (
+                {backdateForm.symbol && symbolInputBlur && !instrumentSuggestions.length && !instrumentSelectedFromDropdown && (
                   <p className="text-xs text-red-400 mt-1">⚠️ Please search and select from dropdown</p>
                 )}
                 
@@ -711,6 +714,7 @@ const SuperAdminDashboard = () => {
                             }));
                             setInstrumentSuggestions([]);
                             setSymbolInputBlur(true);
+                            setInstrumentSelectedFromDropdown(true); // Mark as selected from dropdown
                           }}
                           className="px-4 py-3 hover:bg-blue-600 cursor-pointer border-b border-gray-700 last:border-b-0 transition-colors"
                         >

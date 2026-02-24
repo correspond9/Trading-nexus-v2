@@ -30,6 +30,7 @@ const TABS = [
   { id: 'authCheck', label: 'User Auth Check' },
   { id: 'historic',  label: 'Historic Position' },
   { id: 'orders', label: 'Historic Orders' },
+  { id: 'portalUsers', label: 'Portal Signups' },
   { id: 'schedulers', label: 'Schedulers' },
 ];
 
@@ -89,6 +90,12 @@ const SuperAdminDashboard = () => {
   const [deletePositionsLoading, setDeletePositionsLoading] = useState(false);
   const [deletePositionsError, setDeletePositionsError] = useState('');
   const [deletePositionsMsg, setDeletePositionsMsg]   = useState('');
+
+  // ── Portal users ──
+  const [portalUsers, setPortalUsers]             = useState([]);
+  const [portalUsersLoading, setPortalUsersLoading] = useState(false);
+  const [portalUsersError, setPortalUsersError]   = useState('');
+  const [portalUsersTotal, setPortalUsersTotal]   = useState(0);
 
   // ── Backdate position ──
   const [backdateForm, setBackdateForm]     = useState({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', trade_time: '09:15', instrument_type: 'EQ', exchange: 'NSE', product_type: 'MIS' });
@@ -187,6 +194,34 @@ const SuperAdminDashboard = () => {
       setSchedWorking(null);
     }
   };
+
+  // ── Fetch Portal Users ──
+  const fetchPortalUsers = useCallback(async () => {
+    setPortalUsersLoading(true);
+    setPortalUsersError('');
+    try {
+      const res = await req('/auth/portal/users');
+      if (res.ok) {
+        const data = await res.json();
+        setPortalUsers(data.users || []);
+        setPortalUsersTotal(data.total || 0);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setPortalUsersError(errData.detail || 'Failed to load portal users');
+      }
+    } catch (e) {
+      setPortalUsersError(e?.message || 'Error fetching portal users');
+    } finally {
+      setPortalUsersLoading(false);
+    }
+  }, []);
+
+  // Load portal users when tab is active
+  useEffect(() => {
+    if (activeTab === 'portalUsers') {
+      fetchPortalUsers();
+    }
+  }, [activeTab, fetchPortalUsers]);
 
   // ── Handlers ──
   const handleSave = async () => {
@@ -1009,6 +1044,78 @@ const SuperAdminDashboard = () => {
             <button onClick={handleForceExit} disabled={forceExitLoading} className={`${btnCls('red')} mt-2`}>
               {forceExitLoading ? 'Exiting…' : 'Force Exit Position'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Portal Users ── */}
+      {activeTab === 'portalUsers' && (
+        <div className="space-y-4">
+          <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-base font-semibold">Educational Portal Signups</h2>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Total registrations: <span className="font-semibold text-zinc-100">{portalUsersTotal}</span>
+                </p>
+              </div>
+              <button onClick={fetchPortalUsers} disabled={portalUsersLoading} className={btnCls('blue')}>
+                {portalUsersLoading ? 'Loading…' : 'Refresh'}
+              </button>
+            </div>
+
+            {portalUsersError && (
+              <div className="mb-4 p-3 bg-red-900/20 border border-red-700/40 rounded-lg text-xs text-red-300">
+                {portalUsersError}
+              </div>
+            )}
+
+            {portalUsersLoading && (
+              <div className="text-center py-8 text-zinc-400">
+                Loading portal users...
+              </div>
+            )}
+
+            {!portalUsersLoading && portalUsers.length === 0 && (
+              <div className="text-center py-8 text-zinc-400">
+                No portal signups yet
+              </div>
+            )}
+
+            {!portalUsersLoading && portalUsers.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-zinc-400 border-b border-zinc-700">
+                      <th className="text-left py-3 px-4">Name</th>
+                      <th className="text-left py-3 px-4">Email</th>
+                      <th className="text-left py-3 px-4">Experience Level</th>
+                      <th className="text-left py-3 px-4">Signup Date</th>
+                      <th className="text-left py-3 px-4">Last Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {portalUsers.map((user, idx) => (
+                      <tr key={user.id} className={`border-b border-zinc-700 hover:bg-zinc-700/30 ${idx % 2 === 0 ? 'bg-zinc-800/50' : ''}`}>
+                        <td className="py-3 px-4 font-medium text-zinc-100">{user.name}</td>
+                        <td className="py-3 px-4 text-zinc-300">{user.email}</td>
+                        <td className="py-3 px-4">
+                          <span className="text-xs px-2 py-1 rounded-full bg-blue-900/40 text-blue-300 border border-blue-700/40">
+                            {user.experience_level}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-xs text-zinc-400">
+                          {user.created_at ? new Date(user.created_at).toLocaleString() : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-zinc-400">
+                          {user.updated_at ? new Date(user.updated_at).toLocaleString() : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

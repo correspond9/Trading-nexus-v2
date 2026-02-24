@@ -4,6 +4,7 @@ POST /auth/login                    {mobile, password}                    → {a
 POST /auth/logout                   {token}                              → {success}
 GET  /auth/me                                                            → user from X-AUTH header
 POST /auth/portal/signup            {name, email, experience_level}      → {success, message, user_id}
+GET  /auth/portal/users             (admin only)                         → {users: [...]}
 """
 import logging
 from typing import Optional
@@ -181,3 +182,67 @@ async def portal_signup(body: PortalSignupRequest):
     except Exception as e:
         log.error(f"Portal signup error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to create account. Please try again later.")
+
+
+@router.get("/portal/users")
+@router.get("/portal/users/")
+async def get_portal_users(user: CurrentUser = Depends(get_current_user)):
+    """
+    Retrieve all portal signup registrations.
+    
+    Admin only - requires SUPER_ADMIN role.
+    
+    Returns:
+    - users: List of portal users with id, name, email, experience_level, created_at
+    - total: Total count of registrations
+    """
+    # Verify super admin role
+    if user.role != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only super admins can view portal users")
+    
+    pool = get_pool()
+    
+    try:
+        # Fetch all portal users ordered by creation date (newest first)
+        users = await pool.fetch(
+            """
+            SELECT 
+                id, 
+                name, 
+                email, 
+                experience_level, 
+                created_at,
+                updated_at
+            FROM portal_users
+            ORDER BY created_at DESC
+            """
+        )
+        
+        # Get total count
+        count_result = await pool.fetchval(
+            "SELECT COUNT(*) FROM portal_users"
+        )
+        
+        # Convert to dict format for JSON response
+        users_list = [
+            {
+                "id": str(u["id"]),
+                "name": u["name"],
+                "email": u["email"],
+                "experience_level": u["experience_level"],
+                "created_at": u["created_at"].isoformat() if u["created_at"] else None,
+                "updated_at": u["updated_at"].isoformat() if u["updated_at"] else None,
+            }
+            for u in users
+        ]
+        
+        log.info(f"Portal users retrieved by {user.mobile}: {count_result} total")
+        
+        return {
+            "users": users_list,
+            "total": count_result,
+        }
+    
+    except Exception as e:
+        log.error(f"Error fetching portal users: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch portal users")

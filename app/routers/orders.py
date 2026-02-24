@@ -194,6 +194,20 @@ async def place_paper_order(
     # ── Market hours validation ────────────────────────────────────────────
     if not is_market_open(body.exchange_segment, body.symbol):
         market_state = get_market_state(body.exchange_segment, body.symbol)
+        
+        # Log REJECTED order for audit trail
+        await pool.execute(
+            """
+            INSERT INTO paper_orders
+                (order_id, user_id, instrument_token, symbol, exchange_segment,
+                 side, order_type, quantity, limit_price, fill_price, filled_qty,
+                 status, product_type, security_id, placed_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 'REJECTED', $11, $12, NOW())
+            """,
+            order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+            side, ord_type, qty, lp, fill_price, prod, token or 0
+        )
+        
         raise HTTPException(
             status_code=403,
             detail=f"Market is {market_state.value}. Orders can only be placed during market hours."

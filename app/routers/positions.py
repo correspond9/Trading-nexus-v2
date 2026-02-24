@@ -2,6 +2,7 @@
 app/routers/positions.py  (v2 — /portfolio/positions prefix)
 """
 import logging
+import uuid
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
@@ -79,7 +80,7 @@ async def close_position(
     current_user: CurrentUser = Depends(get_current_user),
     user_id:     Optional[str] = Query(None),  # admin can pass target user_id
 ):
-    """Mark a specific position as closed (paper mode flat)."""
+    """Mark a specific position as closed (paper mode flat). Logs order for audit trail."""
     uid  = _uid(request, user_id, current_user)
     pool = get_pool()
 
@@ -119,36 +120,76 @@ async def close_position(
     if not row:
         raise HTTPException(status_code=404, detail="Position not found")
 
-    # ── Market hours validation ────────────────────────────────────────
+    # Extract position details
     exchange_segment = row.get("exchange_segment") or "NSE_EQ"
     symbol = row.get("symbol") or ""
+    instrument_token = row["instrument_token"]
+    qty = int(row.get("quantity") or row.get("net_qty") or 0)
+    avg = float(row.get("avg_price") or row.get("avg_cost") or 0)
+    product_type = row.get("product_type") or "MIS"
     
+    # Get current LTP for fill price
+    ltp_row = await pool.fetchrow(
+        "SELECT ltp FROM market_data WHERE instrument_token=$1",
+        instrument_token,
+    )
+    ltp = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else avg
+    
+    # Generate order ID
+    order_id = str(uuid.uuid4())
+    
+    # ── CRITICAL: Log the exit order FIRST (audit trail) ──────────────────
+    # This ensures ALL exit attempts are recorded, even if rejected
+    await pool.execute(
+        """
+        INSERT INTO paper_orders
+            (order_id, user_id, instrument_token, symbol, exchange_segment,
+             side, order_type, quantity, fill_price, filled_qty,
+             status, product_type, placed_at)
+        VALUES ($1, $2, $3, $4, $5, 'SELL', 'MARKET', $6, $7, 0, 'PENDING', $8, NOW())
+        """,
+        order_id, uid, instrument_token, symbol, exchange_segment,
+        qty, ltp, product_type
+    )
+    
+    # ── Market hours validation ────────────────────────────────────────
     if not is_market_open(exchange_segment, symbol):
         market_state = get_market_state(exchange_segment, symbol)
+        
+        # Update order status to REJECTED
+        await pool.execute(
+            "UPDATE paper_orders SET status = 'REJECTED' WHERE order_id = $1",
+            order_id
+        )
+        
         raise HTTPException(
             status_code=403,
             detail=f"Market is {market_state.value}. Positions can only be closed during market hours."
         )
-
-    # Get current LTP for realized P&L calc
-    ltp_row = await pool.fetchrow(
-        "SELECT ltp FROM market_data WHERE instrument_token=$1",
-        row["instrument_token"],
-    )
-    ltp = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else float(row["avg_price"] or 0)
-    qty = int(row.get("quantity") or row.get("net_qty") or 0)
-    avg = float(row.get("avg_price") or row.get("avg_cost") or 0)
+    
+    # Calculate realized P&L
     realized = round((ltp - avg) * qty, 2)
 
+    # Update order to FILLED and close position
+    await pool.execute(
+        """
+        UPDATE paper_orders 
+        SET status = 'FILLED', filled_qty = $2, filled_at = NOW()
+        WHERE order_id = $1
+        """,
+        order_id, qty
+    )
+    
     await pool.execute(
         """
         UPDATE paper_positions
         SET quantity = 0, status = 'CLOSED', realized_pnl = $1, closed_at = NOW()
         WHERE instrument_token = $2 AND user_id = $3
         """,
-        realized, row["instrument_token"], str(row["user_id"]),
+        realized, instrument_token, str(row["user_id"]),
     )
-    return {"success": True, "realized_pnl": realized}
+    
+    return {"success": True, "realized_pnl": realized, "order_id": order_id}
 
 
 @router.get("/pnl/summary")

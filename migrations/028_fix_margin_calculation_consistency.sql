@@ -21,7 +21,7 @@
 
 -- Create function to calculate real margin for an open position
 CREATE OR REPLACE FUNCTION calculate_position_margin(
-    p_instrument_token INTEGER,
+    p_instrument_token BIGINT,
     p_symbol VARCHAR,
     p_exchange_segment VARCHAR,
     p_quantity INTEGER,
@@ -188,7 +188,7 @@ GROUP BY pa.user_id, pa.balance, pa.margin_allotted;
 
 
 -- Add comment documenting the change
-COMMENT ON FUNCTION calculate_position_margin(INTEGER, VARCHAR, VARCHAR, INTEGER, VARCHAR) IS
+COMMENT ON FUNCTION calculate_position_margin(BIGINT, VARCHAR, VARCHAR, INTEGER, VARCHAR) IS
 'Calculates the actual required margin for an open position using:
 - Option BUY (qty > 0):   Premium = Current Option Price × Quantity
 - Option SELL (qty < 0):  SPAN + Exposure from NSE SPAN cache (or 100% notional fallback)

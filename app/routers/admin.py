@@ -2568,43 +2568,47 @@ async def delete_all_user_positions(
     # Count before deletion
     pos_count = await pool.fetchval("SELECT COUNT(*) FROM paper_positions WHERE user_id = $1", user_id_uuid)
     orders_count = await pool.fetchval("SELECT COUNT(*) FROM paper_orders WHERE user_id = $1", user_id_uuid)
+    trades_count = await pool.fetchval("SELECT COUNT(*) FROM paper_trades WHERE user_id = $1", user_id_uuid)
     ledger_count = await pool.fetchval("SELECT COUNT(*) FROM ledger_entries WHERE user_id = $1", user_id_uuid)
     
     # Delete in correct order (respect foreign keys)
-    total_deleted = 0
+    # Using execute() instead of fetchval() for DELETE statements
     
     # 1. Delete ledger entries
-    deleted = await pool.fetchval(
+    result_ledger = await pool.execute(
         "DELETE FROM ledger_entries WHERE user_id = $1",
         user_id_uuid
     )
-    total_deleted += deleted or 0
+    deleted_ledger = int(result_ledger.split()[-1]) if result_ledger else 0
     
     # 2. Delete paper trades
-    deleted = await pool.fetchval(
+    result_trades = await pool.execute(
         "DELETE FROM paper_trades WHERE user_id = $1",
         user_id_uuid
     )
-    total_deleted += deleted or 0
+    deleted_trades = int(result_trades.split()[-1]) if result_trades else 0
     
     # 3. Delete paper orders
-    deleted = await pool.fetchval(
+    result_orders = await pool.execute(
         "DELETE FROM paper_orders WHERE user_id = $1",
         user_id_uuid
     )
-    total_deleted += deleted or 0
+    deleted_orders = int(result_orders.split()[-1]) if result_orders else 0
     
     # 4. Delete paper positions
-    deleted = await pool.fetchval(
+    result_positions = await pool.execute(
         "DELETE FROM paper_positions WHERE user_id = $1",
         user_id_uuid
     )
-    total_deleted += deleted or 0
+    deleted_positions = int(result_positions.split()[-1]) if result_positions else 0
+    
+    total_deleted = deleted_ledger + deleted_trades + deleted_orders + deleted_positions
     
     log.warning(
         f"ALL POSITIONS DELETED for user {user_display} "
         f"(ID: {user_id_uuid}). Deleted: {pos_count} positions, "
-        f"{orders_count} orders, {ledger_count} ledger entries."
+        f"{orders_count} orders, {trades_count} trades, {ledger_count} ledger entries. "
+        f"Total records removed: {total_deleted}"
     )
     
     return {
@@ -2615,6 +2619,7 @@ async def delete_all_user_positions(
         "deleted_summary": {
             "positions": pos_count or 0,
             "orders": orders_count or 0,
+            "trades": trades_count or 0,
             "ledger_entries": ledger_count or 0,
             "total": total_deleted
         }

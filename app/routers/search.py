@@ -67,8 +67,36 @@ async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
         LIMIT {limit}
     """
     q_exact = (q or "").strip().upper()
-    rows = await pool.fetch(sql, f"%{q}%", q_exact)
-    return [_fmt_instrument(r) for r in rows]
+    try:
+        rows = await pool.fetch(sql, f"%{q}%", q_exact)
+        return [_fmt_instrument(r) for r in rows]
+    except Exception as exc:
+        msg = str(exc)
+        log.error("Instrument search failed: %s", msg)
+        # Fallback: if market_data table is missing, retry without the join.
+        if "market_data" in msg and "does not exist" in msg:
+            fallback_sql = f"""
+             SELECT instrument_token, symbol, exchange_segment,
+                 underlying, instrument_type, expiry_date, strike_price, option_type,
+                 NULL::numeric AS ltp, NULL::numeric AS close
+                FROM instrument_master
+             WHERE (symbol ILIKE $1 OR underlying ILIKE $1)
+                {extra_filter}
+                ORDER BY
+                    CASE
+                        WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
+                        WHEN upper(symbol) LIKE ($2 || '%') THEN 1
+                        WHEN upper(COALESCE(underlying, '')) LIKE ($2 || '%') THEN 2
+                        WHEN upper(symbol) LIKE ('%' || $2 || '%') THEN 3
+                        WHEN upper(COALESCE(underlying, '')) LIKE ('%' || $2 || '%') THEN 4
+                        ELSE 5
+                    END,
+                    symbol
+                LIMIT {limit}
+            """
+            rows = await pool.fetch(fallback_sql, f"%{q}%", q_exact)
+            return [_fmt_instrument(r) for r in rows]
+        raise
 
 
 # ── Subscriptions / tiers ─────────────────────────────────────────────────

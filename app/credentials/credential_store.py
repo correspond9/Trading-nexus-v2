@@ -42,6 +42,19 @@ _static_api_secret: str = ""
 # ── Phase 10: Encryption key (from environment or generate) ──────────────────
 _encryption_cipher: Optional[Fernet] = None
 
+
+async def _ensure_system_config_table(pool) -> None:
+    """Create system_config table if missing (safety net for writes)."""
+    await pool.execute(
+        """
+        CREATE TABLE IF NOT EXISTS system_config (
+            key         VARCHAR(100) PRIMARY KEY,
+            value       TEXT,
+            updated_at  TIMESTAMPTZ DEFAULT now()
+        )
+        """
+    )
+
 def _get_encryption_cipher() -> Optional[Fernet]:
     """Get or initialize encryption cipher for secrets at rest."""
     global _encryption_cipher
@@ -236,10 +249,16 @@ async def rotate_token(
 
     try:
         pool = get_pool()
+        await _ensure_system_config_table(pool)
         # Persist token
         await pool.execute(
-            "UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2",
-            new_token, "dhan_access_token",
+            """
+            INSERT INTO system_config (key, value)
+            VALUES ('dhan_access_token', $1)
+            ON CONFLICT (key) DO UPDATE
+              SET value = EXCLUDED.value, updated_at = now()
+            """,
+            new_token,
         )
         # Persist expiry (upsert — row may or may not exist yet)
         if expiry is not None:
@@ -295,9 +314,15 @@ async def update_client_id(new_client_id: str) -> None:
     _client_id = new_client_id
     try:
         pool = get_pool()
+        await _ensure_system_config_table(pool)
         await pool.execute(
-            "UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2",
-            new_client_id, "dhan_client_id",
+            """
+            INSERT INTO system_config (key, value)
+            VALUES ('dhan_client_id', $1)
+            ON CONFLICT (key) DO UPDATE
+              SET value = EXCLUDED.value, updated_at = now()
+            """,
+            new_client_id,
         )
         log.info(f"✅ Client ID updated: {new_client_id[:10]}...")
     except Exception as e:
@@ -418,12 +443,18 @@ async def update_static_credentials(
         encrypted_secret = _encrypt_secret(api_secret)
         
         pool = get_pool()
+        await _ensure_system_config_table(pool)
         await pool.executemany(
-            "UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2",
+            """
+            INSERT INTO system_config (key, value)
+            VALUES ($2, $1)
+            ON CONFLICT (key) DO UPDATE
+              SET value = EXCLUDED.value, updated_at = now()
+            """,
             [
                 (static_client_id, "dhan_static_client_id"),
                 (api_key, "dhan_api_key"),
-                (encrypted_secret, "dhan_api_secret"),  # Store encrypted
+                (encrypted_secret, "dhan_api_secret"),
             ],
         )
         log.info(

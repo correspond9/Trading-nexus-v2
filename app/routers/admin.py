@@ -1535,7 +1535,7 @@ async def backdate_position(
         
         pool = _get_pool()
         
-        # Lookup user by mobile or UUID
+        # Lookup user by UUID, mobile, or user_no
         user_row = None
         try:
             # Try UUID first
@@ -1550,6 +1550,16 @@ async def backdate_position(
                 "SELECT id FROM users WHERE mobile = $1",
                 user_identifier
             )
+            # If mobile lookup fails and the identifier is numeric, try user_no
+            if not user_row and user_identifier.isdigit():
+                try:
+                    user_no = int(user_identifier)
+                    user_row = await pool.fetchrow(
+                        "SELECT id FROM users WHERE user_no = $1",
+                        user_no,
+                    )
+                except Exception:
+                    pass
         
         if not user_row:
             return {"success": False, "detail": f"User not found: {user_identifier}"}

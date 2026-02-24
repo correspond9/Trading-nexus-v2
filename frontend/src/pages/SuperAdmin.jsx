@@ -82,6 +82,7 @@ const SuperAdminDashboard = () => {
   const [backdateError, setBackdateError]   = useState('');
   const [backdateMsg, setBackdateMsg]       = useState('');
   const [backdateResult, setBackdateResult] = useState(null);
+  const [symbolInputBlur, setSymbolInputBlur] = useState(false);
 
   // ── Force exit ──
   const [forceExitForm, setForceExitForm]     = useState({ user_id: '', position_id: '', exit_price: '' });
@@ -631,24 +632,61 @@ const SuperAdminDashboard = () => {
             </FormField>
             
             <FormField label="Symbol">
-              <input
-                className={inputCls}
-                type="text"
-                value={backdateForm.symbol}
-                onChange={e => {
-                  searchInstrument(e.target.value);
-                  setBackdateForm(f => ({ ...f, symbol: e.target.value }));
-                }}
-                list="symbolSuggestions"
-                placeholder="e.g., LENSKART, RELIANCE"
-              />
+              <div className="relative">
+                <input
+                  className={inputCls}
+                  type="text"
+                  value={backdateForm.symbol}
+                  onChange={e => {
+                    searchInstrument(e.target.value);
+                    setBackdateForm(f => ({ ...f, symbol: e.target.value }));
+                  }}
+                  onBlur={() => setTimeout(() => setSymbolInputBlur(true), 150)}
+                  onFocus={() => setSymbolInputBlur(false)}
+                  placeholder="Search stocks... (e.g., RELIANCE, INFY)"
+                  autoComplete="off"
+                />
+                
+                {instrumentSuggestions.length > 0 && !symbolInputBlur && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-64 overflow-y-auto z-10">
+                    {instrumentSuggestions.map((suggestion, idx) => {
+                      const symbol = suggestion.trading_symbol || suggestion.symbol;
+                      const exchange = suggestion.exchange_segment || suggestion.exchange || '';
+                      const instType = suggestion.instrument_type || '';
+                      
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => {
+                            setBackdateForm(f => ({ 
+                              ...f, 
+                              symbol: symbol,
+                              exchange: exchange || f.exchange,
+                              instrument_type: instType.startsWith('OPT') ? (instType.includes('IDX') ? 'OPTIDX' : 'OPTSTK') :
+                                              instType.startsWith('FUT') ? (instType.includes('IDX') ? 'FUTIDX' : 'FUTSTK') :
+                                              'EQ'
+                            }));
+                            setInstrumentSuggestions([]);
+                            setSymbolInputBlur(true);
+                          }}
+                          className="px-4 py-3 hover:bg-blue-600 cursor-pointer border-b border-gray-700 last:border-b-0 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <div className="font-semibold text-white">{symbol}</div>
+                              <div className="text-xs text-gray-400">{instType}</div>
+                            </div>
+                            <div className="text-xs px-2 py-1 bg-gray-700 rounded text-gray-300">
+                              {exchange}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </FormField>
-            
-            {instrumentSuggestions.length > 0 && (
-              <datalist id="symbolSuggestions">
-                {instrumentSuggestions.map((s, i) => <option key={i} value={s.trading_symbol || s.symbol} />)}
-              </datalist>
-            )}
             
             <FormField label="Quantity">
               <input

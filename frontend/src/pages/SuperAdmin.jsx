@@ -698,8 +698,11 @@ const SuperAdminDashboard = () => {
                   <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-64 overflow-y-auto z-10">
                     {instrumentSuggestions.map((suggestion, idx) => {
                       const symbol = suggestion.trading_symbol || suggestion.symbol;
-                      const exchange = suggestion.exchange_segment || suggestion.exchange || '';
+                      const exchangeSegment = suggestion.exchange_segment || suggestion.exchange || '';
                       const instType = suggestion.instrument_type || '';
+                      
+                      // Extract base exchange from exchange_segment (NSE_EQ -> NSE, BSE_FO -> BSE, etc.)
+                      const baseExchange = (exchangeSegment.split('_')[0] || 'NSE').toUpperCase();
                       
                       return (
                         <div
@@ -708,7 +711,7 @@ const SuperAdminDashboard = () => {
                             setBackdateForm(f => ({ 
                               ...f, 
                               symbol: symbol,
-                              exchange: exchange || f.exchange,
+                              exchange: baseExchange || f.exchange,
                               instrument_type: instType.startsWith('OPT') ? (instType.includes('IDX') ? 'OPTIDX' : 'OPTSTK') :
                                               instType.startsWith('FUT') ? (instType.includes('IDX') ? 'FUTIDX' : 'FUTSTK') :
                                               'EQ'
@@ -724,7 +727,7 @@ const SuperAdminDashboard = () => {
                               <div className="text-xs text-gray-400">{instType}</div>
                             </div>
                             <div className="text-xs px-2 py-1 bg-gray-700 rounded text-gray-300">
-                              {exchange}
+                              {exchangeSegment}
                             </div>
                           </div>
                         </div>

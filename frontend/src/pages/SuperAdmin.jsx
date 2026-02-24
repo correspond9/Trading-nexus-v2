@@ -6,8 +6,15 @@ import HistoricOrdersPage from './HistoricOrders';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const API = '/api/v2';
-const req = (path, opts = {}) =>
-  fetch(`${API}${path}`, { headers: { 'Content-Type': 'application/json' }, ...opts });
+const req = (path, opts = {}) => {
+  const token = localStorage.getItem('auth_token');
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token && { 'X-AUTH': token }),
+    ...opts.headers,
+  };
+  return fetch(`${API}${path}`, { ...opts, headers });
+};
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const EXCHANGES    = ['NSE', 'BSE', 'MCX'];
@@ -34,9 +41,12 @@ const FormField = ({ label, children }) => (
   </div>
 );
 
-const inputCls = 'w-full px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 text-zinc-100 rounded-lg outline-none focus:border-blue-500';
-const btnCls   = (color = 'blue') =>
-  `px-4 py-2 rounded-lg bg-${color}-600 hover:bg-${color}-500 text-white text-sm font-medium transition-colors disabled:opacity-50`;
+const inputCls = 'w-full px-3 py-2 text-sm bg-gray-900 border border-gray-700 text-white rounded-lg outline-none focus:border-blue-500';
+const btnCls   = (color = 'blue') => `px-4 py-2 rounded-lg font-medium transition-colors text-white text-sm ${
+  color === 'blue' ? 'bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900' :
+  color === 'red' ? 'bg-red-600 hover:bg-red-500 disabled:bg-red-900' :
+  'bg-gray-600 hover:bg-gray-500 disabled:bg-gray-900'
+}`;
 
 // ── Main component ─────────────────────────────────────────────────────────────
 const SuperAdminDashboard = () => {
@@ -366,10 +376,10 @@ const SuperAdminDashboard = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 rounded-lg p-1 overflow-x-auto bg-zinc-900 border border-zinc-700">
+      <div className="flex gap-1 rounded-lg p-1 overflow-x-auto bg-gray-900 border border-gray-700">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
-            className={`flex-shrink-0 px-4 py-2 rounded text-sm font-medium transition-all ${activeTab === t.id ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'}`}>
+            className={`flex-shrink-0 px-4 py-2 rounded text-sm font-medium transition-all ${activeTab === t.id ? 'bg-blue-600 text-white font-semibold' : 'text-gray-400 hover:text-white'}`}>
             {t.label}
           </button>
         ))}
@@ -602,7 +612,7 @@ const SuperAdminDashboard = () => {
       {activeTab === 'historic' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Backdate */}
-          <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+          <div className="rounded-xl p-5 space-y-4 bg-gray-800 border border-gray-700">
             <h2 className="text-base font-semibold">Backdate Position</h2>
             <p className="text-xs text-gray-400">Manually add a historic trade position for any user.</p>
             
@@ -700,7 +710,7 @@ const SuperAdminDashboard = () => {
           </div>
 
           {/* Force Exit */}
-          <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+          <div className="rounded-xl p-5 space-y-4 bg-gray-800 border border-gray-700">
             <h2 className="text-base font-semibold">Force Exit Position</h2>
             <p className="text-xs text-gray-400">Manually close an open position at a specified price.</p>
             <FormField label="User ID">

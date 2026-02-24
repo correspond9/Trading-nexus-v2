@@ -1042,28 +1042,99 @@ async def get_credentials_active():
 async def save_credentials(req: CredentialsSaveRequest):
     """Save credentials (client_id + access_token) from SuperAdmin dashboard."""
     from app.credentials.credential_store import update_client_id as _update_client_id
-    if req.client_id:
-        await _update_client_id(req.client_id)
-    if req.client_id and req.api_key and req.secret_api:
-        await update_static_credentials(
-            static_client_id=req.client_id,
-            api_key=req.api_key,
-            api_secret=req.secret_api,
+    import traceback
+    
+    errors = []
+    saved_items = []
+    
+    try:
+        # Update Client ID
+        if req.client_id:
+            try:
+                await _update_client_id(req.client_id)
+                saved_items.append("client_id")
+                log.info(f"✅ Client ID updated: {req.client_id[:10]}...")
+            except Exception as e:
+                error_msg = f"Failed to update client_id: {str(e)}"
+                errors.append(error_msg)
+                log.error(error_msg)
+                log.error(traceback.format_exc())
+        
+        # Update Static Credentials (API Key + Secret)
+        if req.client_id and req.api_key and req.secret_api:
+            try:
+                await update_static_credentials(
+                    static_client_id=req.client_id,
+                    api_key=req.api_key,
+                    api_secret=req.secret_api,
+                )
+                saved_items.append("static_credentials")
+                log.info(f"✅ Static credentials updated")
+            except Exception as e:
+                error_msg = f"Failed to update static credentials: {str(e)}"
+                errors.append(error_msg)
+                log.error(error_msg)
+                log.error(traceback.format_exc())
+        
+        # Update Access Token
+        token = req.access_token or req.daily_token
+        if token and not all(c in ("*", "•") for c in token) and len(token) > 8:
+            try:
+                # For local ops UX: reconnect WS immediately so changes take effect
+                # without requiring a container restart.
+                await rotate_token(token, reconnect=True)
+                saved_items.append("access_token")
+                log.info(f"✅ Access token rotated and WebSocket reconnected")
+            except Exception as e:
+                error_msg = f"Failed to update access token: {str(e)}"
+                errors.append(error_msg)
+                log.error(error_msg)
+                log.error(traceback.format_exc())
+        
+        # Update Auth Mode
+        if not token_refresher.is_enabled:
+            try:
+                await set_auth_mode("manual")
+                log.info("✅ Auth mode set to manual")
+            except Exception as e:
+                error_msg = f"Failed to set auth mode: {str(e)}"
+                errors.append(error_msg)
+                log.error(error_msg)
+        
+        # Determine response
+        if errors:
+            if saved_items:
+                return {
+                    "success": True,
+                    "partial": True,
+                    "message": f"Partially saved: {', '.join(saved_items)}",
+                    "saved": saved_items,
+                    "errors": errors,
+                    "status": "partial_success"
+                }
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Failed to save credentials: {'; '.join(errors)}"
+                )
+        else:
+            return {
+                "success": True,
+                "partial": False,
+                "message": "All credentials saved successfully.",
+                "saved": saved_items,
+                "status": "success"
+            }
+    
+    except HTTPException:
+        raise  # Re-raise HTTPException as-is
+    except Exception as e:
+        log.error(f"❌ Unexpected error in save_credentials: {str(e)}")
+        log.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
         )
-    # Accept access_token or daily_token; skip placeholder masks
-    token = req.access_token or req.daily_token
-    if token and not all(c in ("*", "•") for c in token) and len(token) > 8:
-        # For local ops UX: reconnect WS immediately so changes take effect
-        # without requiring a container restart.
-        await rotate_token(token, reconnect=True)
-
-    # If TOTP isn't configured on this instance, keep DB auth_mode consistent.
-    if not token_refresher.is_enabled:
-        try:
-            await set_auth_mode("manual")
-        except Exception:
-            pass
-    return {"success": True, "message": "Credentials saved."}
 
 
 @router.post("/auth-mode/switch")

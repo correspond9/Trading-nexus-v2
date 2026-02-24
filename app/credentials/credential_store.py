@@ -228,50 +228,82 @@ async def rotate_token(
     Update access token (and optional expiry) in memory + DB.
     Triggers a graceful reconnect of all 5 WebSockets if reconnect=True.
     """
+    import traceback
     global _access_token, _token_expiry
     _access_token = new_token
     if expiry is not None:
         _token_expiry = expiry
 
-    pool = get_pool()
-    # Persist token
-    await pool.execute(
-        "UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2",
-        new_token, "dhan_access_token",
-    )
-    # Persist expiry (upsert — row may or may not exist yet)
-    if expiry is not None:
+    try:
+        pool = get_pool()
+        # Persist token
         await pool.execute(
-            """
-            INSERT INTO system_config (key, value)
-            VALUES ('dhan_token_expiry', $1)
-            ON CONFLICT (key) DO UPDATE
-              SET value = EXCLUDED.value, updated_at = now()
-            """,
-            expiry.isoformat(),
+            "UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2",
+            new_token, "dhan_access_token",
         )
-    log.info(
-        f"Access token rotated and persisted. "
-        f"Expiry: {_token_expiry.isoformat() if _token_expiry else 'unknown'}"
-    )
+        # Persist expiry (upsert — row may or may not exist yet)
+        if expiry is not None:
+            await pool.execute(
+                """
+                INSERT INTO system_config (key, value)
+                VALUES ('dhan_token_expiry', $1)
+                ON CONFLICT (key) DO UPDATE
+                  SET value = EXCLUDED.value, updated_at = now()
+                """,
+                expiry.isoformat(),
+            )
+        log.info(
+            f"Access token rotated and persisted. "
+            f"Expiry: {_token_expiry.isoformat() if _token_expiry else 'unknown'}"
+        )
+    except Exception as e:
+        log.error(f"Failed to persist token to DB: {str(e)}")
+        log.error(traceback.format_exc())
+        # Token is still updated in memory, but log the DB persistence failure
+        raise  # Re-raise so caller knows DB update failed
 
     if reconnect:
-        # Import here to avoid circular import
-        from app.market_data.websocket_manager import ws_manager
-        from app.market_data.depth_ws_manager  import depth_ws_manager
-        await ws_manager.reconnect_all()
-        await depth_ws_manager.reconnect()
+        try:
+            # Import here to avoid circular import
+            from app.market_data.websocket_manager import ws_manager
+            from app.market_data.depth_ws_manager import depth_ws_manager
+            
+            log.info("Attempting to reconnect WebSockets after token rotation...")
+            try:
+                await ws_manager.reconnect_all()
+                log.info("✅ WebSocket manager reconnected successfully")
+            except Exception as e:
+                log.warning(f"⚠️  WebSocket manager reconnect failed: {str(e)}")
+            
+            try:
+                await depth_ws_manager.reconnect()
+                log.info("✅ Depth WebSocket manager reconnected successfully")
+            except Exception as e:
+                log.warning(f"⚠️  Depth WebSocket manager reconnect failed: {str(e)}")
+        except ImportError as e:
+            log.warning(f"Could not import WebSocket managers (likely not initialized yet): {str(e)}")
+        except Exception as e:
+            log.warning(f"⚠️  WebSocket reconnection encountered an error: {str(e)}")
+            log.warning(traceback.format_exc())
+            # Don't raise — token is still updated, just WS reconnect failed
 
 
 async def update_client_id(new_client_id: str) -> None:
+    """Update client ID in memory and database."""
+    import traceback
     global _client_id
     _client_id = new_client_id
-    pool = get_pool()
-    await pool.execute(
-        "UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2",
-        new_client_id, "dhan_client_id",
-    )
-    log.info("Client ID updated.")
+    try:
+        pool = get_pool()
+        await pool.execute(
+            "UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2",
+            new_client_id, "dhan_client_id",
+        )
+        log.info(f"✅ Client ID updated: {new_client_id[:10]}...")
+    except Exception as e:
+        log.error(f"Failed to persist client_id to DB: {str(e)}")
+        log.error(traceback.format_exc())
+        raise  # Re-raise so caller knows DB update failed
 
 
 def get_client_id() -> str:
@@ -315,23 +347,29 @@ async def set_auth_mode(mode: str) -> None:
     Persist the auth mode to DB and update in-memory cache.
     mode must be 'auto_totp', 'manual', or 'static_ip'.
     """
+    import traceback
     global _auth_mode
     if mode not in ("auto_totp", "manual", "static_ip"):
         raise ValueError(
             f"Invalid auth_mode '{mode}'. Must be 'auto_totp', 'manual', or 'static_ip'."
         )
     _auth_mode = mode
-    pool = get_pool()
-    await pool.execute(
-        """
-        INSERT INTO system_config (key, value)
-        VALUES ('auth_mode', $1)
-        ON CONFLICT (key) DO UPDATE
-          SET value = EXCLUDED.value, updated_at = now()
-        """,
-        mode,
-    )
-    log.info(f"auth_mode set to '{mode}' and persisted.")
+    try:
+        pool = get_pool()
+        await pool.execute(
+            """
+            INSERT INTO system_config (key, value)
+            VALUES ('auth_mode', $1)
+            ON CONFLICT (key) DO UPDATE
+              SET value = EXCLUDED.value, updated_at = now()
+            """,
+            mode,
+        )
+        log.info(f"✅ auth_mode set to '{mode}' and persisted.")
+    except Exception as e:
+        log.error(f"Failed to persist auth_mode to DB: {str(e)}")
+        log.error(traceback.format_exc())
+        raise  # Re-raise so caller knows DB update failed
 
 
 def get_static_credentials(*, masked: bool = False) -> dict:
@@ -369,28 +407,34 @@ async def update_static_credentials(
     """Persist static IP credentials to DB and update cache.
     Phase 10: API secret is encrypted before storage.
     """
+    import traceback
     global _static_client_id, _static_api_key, _static_api_secret
     _static_client_id = static_client_id
     _static_api_key = api_key
     _static_api_secret = api_secret  # Stored plaintext in memory
     
-    # Encrypt secret before persisting to DB
-    encrypted_secret = _encrypt_secret(api_secret)
-    
-    pool = get_pool()
-    await pool.executemany(
-        "UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2",
-        [
-            (static_client_id, "dhan_static_client_id"),
-            (api_key, "dhan_api_key"),
-            (encrypted_secret, "dhan_api_secret"),  # Store encrypted
-        ],
-    )
-    log.info(
-        f"Static credentials updated: client_id={'set' if static_client_id else 'EMPTY'}, "
-        f"api_key={'set' if api_key else 'EMPTY'}, "
-        f"api_secret=encrypted({mask_secret(api_secret)})"
-    )
+    try:
+        # Encrypt secret before persisting to DB
+        encrypted_secret = _encrypt_secret(api_secret)
+        
+        pool = get_pool()
+        await pool.executemany(
+            "UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2",
+            [
+                (static_client_id, "dhan_static_client_id"),
+                (api_key, "dhan_api_key"),
+                (encrypted_secret, "dhan_api_secret"),  # Store encrypted
+            ],
+        )
+        log.info(
+            f"✅ Static credentials updated: client_id={'set' if static_client_id else 'EMPTY'}, "
+            f"api_key={'set' if api_key else 'EMPTY'}, "
+            f"api_secret=encrypted({mask_secret(api_secret)})"
+        )
+    except Exception as e:
+        log.error(f"Failed to persist static credentials to DB: {str(e)}")
+        log.error(traceback.format_exc())
+        raise  # Re-raise so caller knows DB update failed
 
 
 def get_ws_url(*, include_version: bool = True) -> str:

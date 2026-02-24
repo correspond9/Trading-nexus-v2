@@ -24,7 +24,7 @@ async def init_db() -> None:
         dsn=cfg.database_url,
         min_size=5,
         max_size=20,
-        command_timeout=30,
+        command_timeout=600,
     )
     await _run_migrations()
     log.info("PostgreSQL pool ready.")

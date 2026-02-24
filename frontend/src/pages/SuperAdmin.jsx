@@ -248,13 +248,33 @@ const SuperAdminDashboard = () => {
   };
 
   const handleBackdatePosition = async () => {
-    setBackdateLoading(true); setBackdateError(''); setBackdateMsg(''); setBackdateResult(null);
+    setBackdateLoading(true); 
+    setBackdateError(''); 
+    setBackdateMsg(''); 
+    setBackdateResult(null);
+    
     try {
-      const res = await req('/admin/backdate-position', { method: 'POST', body: JSON.stringify(backdateForm) });
+      // Convert date from YYYY-MM-DD to DD-MM-YYYY for backend
+      const formData = { ...backdateForm };
+      if (formData.trade_date) {
+        const [year, month, day] = formData.trade_date.split('-');
+        formData.trade_date = `${day}-${month}-${year}`;
+      }
+      
+      const res = await req('/admin/backdate-position', { 
+        method: 'POST', 
+        body: JSON.stringify(formData) 
+      });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) { setBackdateMsg(data.message || 'Position created.'); setBackdateResult(data); }
+      if (res.ok) { 
+        setBackdateMsg(data.message || 'Position created.'); 
+        setBackdateResult(data); 
+        // Clear form on success
+        setBackdateForm({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', instrument_type: 'EQ', exchange: 'NSE' });
+      }
       else setBackdateError(data.detail || 'Failed');
-    } catch (e) { setBackdateError(e?.message || 'Error'); } finally { setBackdateLoading(false); }
+    } catch (e) { setBackdateError(e?.message || 'Error'); } 
+    finally { setBackdateLoading(false); }
   };
 
   const handleForceExit = async () => {
@@ -585,30 +605,78 @@ const SuperAdminDashboard = () => {
           <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
             <h2 className="text-base font-semibold">Backdate Position</h2>
             <p className="text-xs text-gray-400">Manually add a historic trade position for any user.</p>
-            {['user_id', 'symbol', 'qty', 'price', 'trade_date'].map(field => (
-              <FormField key={field} label={field.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}>
-                <input
-                  className={inputCls}
-                  type={field === 'trade_date' ? 'date' : field === 'qty' || field === 'price' ? 'number' : 'text'}
-                  value={backdateForm[field]}
-                  onChange={e => {
-                    if (field === 'symbol') { searchInstrument(e.target.value); }
-                    setBackdateForm(f => ({ ...f, [field]: e.target.value }));
-                  }}
-                  list={field === 'symbol' ? 'symbolSuggestions' : undefined}
-                />
-              </FormField>
-            ))}
+            
+            <FormField label="User ID (Mobile or UUID)">
+              <input
+                className={inputCls}
+                type="text"
+                value={backdateForm.user_id}
+                onChange={e => setBackdateForm(f => ({ ...f, user_id: e.target.value }))}
+                placeholder="e.g., 9999999999 or UUID"
+              />
+            </FormField>
+            
+            <FormField label="Symbol">
+              <input
+                className={inputCls}
+                type="text"
+                value={backdateForm.symbol}
+                onChange={e => {
+                  searchInstrument(e.target.value);
+                  setBackdateForm(f => ({ ...f, symbol: e.target.value }));
+                }}
+                list="symbolSuggestions"
+                placeholder="e.g., LENSKART, RELIANCE"
+              />
+            </FormField>
+            
             {instrumentSuggestions.length > 0 && (
               <datalist id="symbolSuggestions">
                 {instrumentSuggestions.map((s, i) => <option key={i} value={s.trading_symbol || s.symbol} />)}
               </datalist>
             )}
+            
+            <FormField label="Quantity">
+              <input
+                className={inputCls}
+                type="number"
+                value={backdateForm.qty}
+                onChange={e => setBackdateForm(f => ({ ...f, qty: e.target.value }))}
+                placeholder="e.g., 380"
+                min="1"
+              />
+            </FormField>
+            
+            <FormField label="Price">
+              <input
+                className={inputCls}
+                type="number"
+                step="0.05"
+                value={backdateForm.price}
+                onChange={e => setBackdateForm(f => ({ ...f, price: e.target.value }))}
+                placeholder="e.g., 514.70"
+                min="0"
+              />
+            </FormField>
+            
+            <FormField label="Trade Date">
+              <input
+                className={inputCls}
+                type="date"
+                value={backdateForm.trade_date}
+                onChange={e => setBackdateForm(f => ({ ...f, trade_date: e.target.value }))}
+              />
+            </FormField>
+            
             <div className="grid grid-cols-2 gap-3">
               <FormField label="Instrument Type">
                 <select className={inputCls} value={backdateForm.instrument_type}
                   onChange={e => setBackdateForm(f => ({ ...f, instrument_type: e.target.value }))}>
-                  {['EQ', 'FUT', 'CE', 'PE'].map(t => <option key={t}>{t}</option>)}
+                  <option value="EQ">Equity (EQ)</option>
+                  <option value="FUTSTK">Stock Future (FUTSTK)</option>
+                  <option value="OPTSTK">Stock Option (OPTSTK)</option>
+                  <option value="FUTIDX">Index Future (FUTIDX)</option>
+                  <option value="OPTIDX">Index Option (OPTIDX)</option>
                 </select>
               </FormField>
               <FormField label="Exchange">
@@ -618,8 +686,9 @@ const SuperAdminDashboard = () => {
                 </select>
               </FormField>
             </div>
-            {backdateError && <p className="text-xs text-red-400">{backdateError}</p>}
-            {backdateMsg   && <p className="text-xs text-green-400">{backdateMsg}</p>}
+            
+            {backdateError && <p className="text-xs text-red-400">❌ {backdateError}</p>}
+            {backdateMsg   && <p className="text-xs text-green-400">✅ {backdateMsg}</p>}
             {backdateResult && (
               <pre className="rounded-lg p-3 text-xs overflow-auto max-h-40 bg-zinc-950 text-zinc-100">
                 {JSON.stringify(backdateResult, null, 2)}

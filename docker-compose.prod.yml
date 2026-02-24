@@ -4,9 +4,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)\" || exit 1"]
       interval: 30s
-      timeout: 10s
+      timeout: 15s
       retries: 5
-      start_period: 180s
+      start_period: 300s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.tradingbackend.rule=Host(`api.tradingnexus.pro`)"

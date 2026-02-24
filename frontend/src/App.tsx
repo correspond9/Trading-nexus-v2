@@ -19,56 +19,88 @@ const TradeHistory = lazy(() => import('./pages/HistoricOrders'));
 const Profile = lazy(() => import('./pages/Profile'));
 const SuperAdmin = lazy(() => import('./pages/SuperAdmin'));
 
+const LandingPage = lazy(() => import('./pages/nexus/LandingPage'));
+const SignupPage = lazy(() => import('./pages/nexus/SignupPage'));
+const Background = lazy(() => import('./components/nexus/Background'));
+
 const Loader = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0d1117', color: '#e6edf3', fontSize: '16px' }}>
     Loading...
   </div>
 );
 
+const NexusPortal = () => {
+  const [theme, setTheme] = React.useState(localStorage.getItem('theme') || 'dark');
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+
+  return (
+    <Suspense fallback={<Loader />}>
+      <Background />
+      <Routes>
+        <Route path="/" element={<LandingPage toggleTheme={toggleTheme} theme={theme} />} />
+        <Route path="/signup" element={<SignupPage theme={theme} />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
+  );
+};
+
 export default function App() {
+  const isEducationalPortal = window.location.hostname.startsWith('learn.');
+
   return (
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
           <AppProvider>
-            <Suspense fallback={<Loader />}>
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                  <Route index element={<Navigate to="/trade" replace />} />
-                  <Route path="/trade" element={<Trade />} />
-                  <Route path="/trade/all-positions" element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PositionsMIS /></ProtectedRoute>
-                  } />
-                  <Route path="/all-positions-normal" element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PositionsNormal /></ProtectedRoute>
-                  } />
-                  <Route path="/all-positions-userwise" element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PositionsUserwise /></ProtectedRoute>
-                  } />
-                  <Route path="/pandl" element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PandL /></ProtectedRoute>
-                  } />
-                  <Route path="/users" element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><Users /></ProtectedRoute>
-                  } />
-                  <Route path="/payouts" element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><Payouts /></ProtectedRoute>
-                  } />
-                  <Route path="/ledger" element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><Ledger /></ProtectedRoute>
-                  } />
-                  <Route path="/trade-history" element={
-                    <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><TradeHistory /></ProtectedRoute>
-                  } />
-                  <Route path="/profile" element={<Profile />} />
-                  <Route path="/dashboard" element={
-                    <ProtectedRoute requiredRoles={['SUPER_ADMIN']}><SuperAdmin /></ProtectedRoute>
-                  } />
-                </Route>
-                <Route path="*" element={<Navigate to="/trade" replace />} />
-              </Routes>
-            </Suspense>
+            {isEducationalPortal ? (
+              <NexusPortal />
+            ) : (
+              <Suspense fallback={<Loader />}>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+                    <Route index element={<Navigate to="/trade" replace />} />
+                    <Route path="/trade" element={<Trade />} />
+                    <Route path="/trade/all-positions" element={
+                      <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PositionsMIS /></ProtectedRoute>
+                    } />
+                    <Route path="/all-positions-normal" element={
+                      <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PositionsNormal /></ProtectedRoute>
+                    } />
+                    <Route path="/all-positions-userwise" element={
+                      <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PositionsUserwise /></ProtectedRoute>
+                    } />
+                    <Route path="/pandl" element={
+                      <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><PandL /></ProtectedRoute>
+                    } />
+                    <Route path="/users" element={
+                      <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><Users /></ProtectedRoute>
+                    } />
+                    <Route path="/payouts" element={
+                      <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><Payouts /></ProtectedRoute>
+                    } />
+                    <Route path="/ledger" element={
+                      <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><Ledger /></ProtectedRoute>
+                    } />
+                    <Route path="/trade-history" element={
+                      <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><TradeHistory /></ProtectedRoute>
+                    } />
+                    <Route path="/profile" element={<Profile />} />
+                    <Route path="/dashboard" element={
+                      <ProtectedRoute requiredRoles={['SUPER_ADMIN']}><SuperAdmin /></ProtectedRoute>
+                    } />
+                  </Route>
+                  <Route path="*" element={<Navigate to="/trade" replace />} />
+                </Routes>
+              </Suspense>
+            )}
           </AppProvider>
         </AuthProvider>
       </BrowserRouter>

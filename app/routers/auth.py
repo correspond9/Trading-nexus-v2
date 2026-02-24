@@ -1,11 +1,13 @@
 """
 app/routers/auth.py
-POST /auth/login  {mobile, password} → {access_token, token_type, user}
-POST /auth/logout {token}            → {success}
-GET  /auth/me                        → user from X-AUTH header
+POST /auth/login                    {mobile, password}                    → {access_token, token_type, user}
+POST /auth/logout                   {token}                              → {success}
+GET  /auth/me                                                            → user from X-AUTH header
+POST /auth/portal/signup            {name, email, experience_level}      → {success, message, user_id}
 """
 import logging
 from typing import Optional
+import re
 
 import bcrypt
 from fastapi  import APIRouter, Depends, HTTPException, Request
@@ -38,6 +40,12 @@ class LoginRequest(BaseModel):
 
 class LogoutRequest(BaseModel):
     token: Optional[str] = None
+
+
+class PortalSignupRequest(BaseModel):
+    name: str
+    email: str
+    experience_level: str
 
 
 @router.post("/login")
@@ -100,3 +108,76 @@ async def me(user: CurrentUser = Depends(get_current_user)):
         "mobile": user.mobile,
         "role":   user.role,
     }
+
+
+@router.post("/portal/signup")
+@router.post("/portal/signup/")
+async def portal_signup(body: PortalSignupRequest):
+    """
+    Register a new user for the educational portal.
+    
+    Validates:
+    - Email format
+    - Required fields (name, email, experience_level)
+    - Email uniqueness
+    
+    Returns:
+    - user_id: UUID of the created portal user
+    - message: Confirmation message
+    """
+    pool = get_pool()
+    
+    # Validate email format
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_pattern, body.email):
+        raise HTTPException(status_code=400, detail="Invalid email format")
+    
+    # Validate required fields
+    if not body.name or not body.name.strip():
+        raise HTTPException(status_code=400, detail="Name is required")
+    
+    if not body.experience_level or not body.experience_level.strip():
+        raise HTTPException(status_code=400, detail="Experience level is required")
+    
+    # Normalize inputs
+    email = body.email.strip().lower()
+    name = body.name.strip()
+    experience_level = body.experience_level.strip()
+    
+    try:
+        # Check if email already exists
+        existing = await pool.fetchrow(
+            "SELECT id FROM portal_users WHERE email=$1",
+            email
+        )
+        
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail="Email already registered for the educational portal"
+            )
+        
+        # Insert new portal user
+        user = await pool.fetchrow(
+            """
+            INSERT INTO portal_users (name, email, experience_level)
+            VALUES ($1, $2, $3)
+            RETURNING id, name, email, created_at
+            """,
+            name, email, experience_level
+        )
+        
+        log.info(f"New portal signup: {email}")
+        
+        return {
+            "success": True,
+            "message": f"Welcome {name}! You've been registered for the Trading Nexus educational portal.",
+            "user_id": str(user["id"]),
+            "email": user["email"],
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Portal signup error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create account. Please try again later.")

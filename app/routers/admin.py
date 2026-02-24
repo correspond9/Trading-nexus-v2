@@ -1386,9 +1386,170 @@ async def diagnose_login(request: Request):
 
 
 @router.post("/backdate-position")
-async def backdate_position(request: Request):
-    """Stub — backdated position creation not yet implemented."""
-    return {"success": False, "detail": "Backdate position not yet implemented."}
+async def backdate_position(
+    request: Request,
+    admin: CurrentUser = Depends(get_admin_user),
+):
+    """
+    Create a backdated position for a user in the paper trading account.
+    Requires ADMIN or SUPER_ADMIN role.
+    
+    Request body:
+    {
+      "user_id": "mobile_number_or_uuid",
+      "symbol": "LENSKART",
+      "qty": 380,
+      "price": 514.70,
+      "trade_date": "19-02-2026",  // DD-MM-YYYY format
+      "instrument_type": "EQ",     // EQ, FUTSTK, OPTSTK, etc.
+      "exchange": "NSE"            // NSE, BSE, MCX, NCDEX
+    }
+    """
+    import uuid
+    from app.database import get_pool as _get_pool
+    
+    try:
+        data = await request.json()
+        
+        # Extract and validate inputs
+        user_identifier = str(data.get("user_id", "")).strip()
+        symbol = data.get("symbol", "").strip().upper()
+        qty = int(data.get("qty", 0))
+        price = float(data.get("price", 0))
+        trade_date_str = data.get("trade_date", "").strip()
+        instrument_type = data.get("instrument_type", "EQ").strip().upper()
+        exchange = data.get("exchange", "NSE").strip().upper()
+        
+        # Validate required fields
+        if not user_identifier:
+            return {"success": False, "detail": "user_id is required"}
+        if not symbol:
+            return {"success": False, "detail": "symbol is required"}
+        if qty <= 0:
+            return {"success": False, "detail": "qty must be > 0"}
+        if price <= 0:
+            return {"success": False, "detail": "price must be > 0"}
+        if not trade_date_str:
+            return {"success": False, "detail": "trade_date is required (DD-MM-YYYY)"}
+        
+        # Parse trade_date from DD-MM-YYYY format
+        try:
+            trade_dt = datetime.strptime(trade_date_str, "%d-%m-%Y")
+            opened_at = trade_dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return {"success": False, "detail": "trade_date must be in DD-MM-YYYY format"}
+        
+        # Map instrument types to database values
+        inst_type_map = {
+            "EQ": "EQUITY",
+            "EQUITY": "EQUITY",
+            "FUTSTK": "FUTSTK",
+            "OPTSTK": "OPTSTK",
+            "FUTIDX": "FUTIDX",
+            "OPTIDX": "OPTIDX",
+        }
+        inst_type = inst_type_map.get(instrument_type, instrument_type)
+        
+        # Validate exchange
+        valid_exchanges = {"NSE", "BSE", "MCX", "NCDEX"}
+        if exchange not in valid_exchanges:
+            return {"success": False, "detail": f"Invalid exchange: {exchange}"}
+        
+        pool = _get_pool()
+        
+        # Lookup user by mobile or UUID
+        user_row = None
+        try:
+            # Try UUID first
+            user_uuid = uuid.UUID(user_identifier)
+            user_row = await pool.fetchrow(
+                "SELECT id FROM users WHERE id = $1",
+                user_uuid
+            )
+        except (ValueError, Exception):
+            # Try mobile
+            user_row = await pool.fetchrow(
+                "SELECT id FROM users WHERE mobile = $1",
+                user_identifier
+            )
+        
+        if not user_row:
+            return {"success": False, "detail": f"User not found: {user_identifier}"}
+        
+        target_user_id = user_row["id"]
+        
+        # Lookup instrument
+        inst_row = await pool.fetchrow(
+            """
+            SELECT instrument_token, symbol, exchange_segment
+            FROM instrument_master
+            WHERE symbol = $1 
+              AND exchange_segment = $2
+              AND instrument_type = $3
+            LIMIT 1
+            """,
+            symbol, exchange, inst_type
+        )
+        
+        if not inst_row:
+            return {"success": False, "detail": f"Instrument not found: {symbol} {exchange} {inst_type}"}
+        
+        instrument_token = inst_row["instrument_token"]
+        
+        # Check if user already has an OPEN position in this instrument
+        existing = await pool.fetchrow(
+            """
+            SELECT position_id FROM paper_positions
+            WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
+            """,
+            target_user_id, instrument_token
+        )
+        
+        if existing:
+            return {"success": False, "detail": f"User already has an OPEN position in {symbol}. Close it first."}
+        
+        # Create the backdated position
+        position_id = uuid.uuid4()
+        try:
+            await pool.execute(
+                """
+                INSERT INTO paper_positions
+                    (position_id, user_id, instrument_token, symbol, exchange_segment,
+                     quantity, avg_price, opened_at, product_type, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'MIS', 'OPEN')
+                """,
+                position_id,
+                target_user_id,
+                instrument_token,
+                symbol,
+                exchange,
+                qty,
+                price,
+                opened_at,
+            )
+        except Exception as e:
+            return {"success": False, "detail": f"Database error: {str(e)}"}
+        
+        return {
+            "success": True,
+            "message": f"Position created: {qty} {symbol} @ {price} on {trade_date_str}",
+            "position": {
+                "position_id": str(position_id),
+                "user_id": str(target_user_id),
+                "instrument_token": instrument_token,
+                "symbol": symbol,
+                "quantity": qty,
+                "avg_price": price,
+                "opened_at": opened_at.isoformat(),
+                "status": "OPEN"
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "detail": f"Error: {str(e)}"
+        }
 
 
 @router.post("/force-exit")

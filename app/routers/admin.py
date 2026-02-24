@@ -9,6 +9,7 @@ Admin Dashboard endpoints:
   - Rate-limit stats
 """
 import bcrypt as _bcrypt
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 import os
@@ -43,6 +44,7 @@ from app.execution_simulator.execution_engine import set_mock_mode, is_mock_mode
 import app.instruments.subscription_manager   as _sub_mgr
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+log = logging.getLogger(__name__)
 
 # ── User management constants ──────────────────────────────────────────────────
 _ALLOWED_STATUSES       = {"ACTIVE", "PENDING", "SUSPENDED", "BLOCKED"}

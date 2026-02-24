@@ -11,7 +11,7 @@ services:
       start_period: 300s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.tradingbackend.rule=Host(`api.tradingnexus.pro`) || PathPrefix(`/api`) || PathPrefix(`/health`)"
+      - "traefik.http.routers.tradingbackend.rule=PathPrefix(`/`)"
       - "traefik.http.routers.tradingbackend.service=tradingbackend"
       - "traefik.http.routers.tradingbackend.entrypoints=http,https"
       - "traefik.http.routers.tradingbackend.tls=true"

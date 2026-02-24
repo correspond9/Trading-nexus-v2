@@ -1486,7 +1486,7 @@ async def backdate_position(
         
         # Extract and validate inputs
         user_identifier = str(data.get("user_id", "")).strip()
-        symbol = data.get("symbol", "").strip().upper()
+        symbol = data.get("symbol", "").strip()  # Don't uppercase - DISPLAY_NAME has proper case
         qty = int(data.get("qty", 0))
         price = float(data.get("price", 0))
         trade_date_str = data.get("trade_date", "").strip()

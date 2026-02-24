@@ -7,7 +7,7 @@ import HistoricOrdersPage from './HistoricOrders';
 // ── helpers ──────────────────────────────────────────────────────────────────
 const API = '/api/v2';
 const req = (path, opts = {}) => {
-  const token = localStorage.getItem('auth_token');
+  const token = localStorage.getItem('authToken');
   const headers = {
     'Content-Type': 'application/json',
     ...(token && { 'X-AUTH': token }),
@@ -376,10 +376,14 @@ const SuperAdminDashboard = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 rounded-lg p-1 overflow-x-auto bg-gray-900 border border-gray-700">
+      <div className="flex gap-1 rounded-lg p-1 overflow-x-auto bg-gray-950 border border-gray-700">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
-            className={`flex-shrink-0 px-4 py-2 rounded text-sm font-medium transition-all ${activeTab === t.id ? 'bg-blue-600 text-white font-semibold' : 'text-gray-400 hover:text-white'}`}>
+            className={`flex-shrink-0 px-4 py-2 rounded text-sm font-medium transition-all ${
+              activeTab === t.id 
+                ? 'bg-blue-600 text-white font-semibold shadow-lg' 
+                : 'text-white bg-gray-800 hover:bg-gray-700'
+            }`}>
             {t.label}
           </button>
         ))}
@@ -612,7 +616,7 @@ const SuperAdminDashboard = () => {
       {activeTab === 'historic' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Backdate */}
-          <div className="rounded-xl p-5 space-y-4 bg-gray-800 border border-gray-700">
+          <div className="rounded-xl p-5 space-y-4 bg-gray-900 border border-gray-700">            <h2 className="text-base font-bold text-white">Backdate Position</h2>
             <h2 className="text-base font-semibold">Backdate Position</h2>
             <p className="text-xs text-gray-400">Manually add a historic trade position for any user.</p>
             
@@ -710,7 +714,7 @@ const SuperAdminDashboard = () => {
           </div>
 
           {/* Force Exit */}
-          <div className="rounded-xl p-5 space-y-4 bg-gray-800 border border-gray-700">
+          <div className="rounded-xl p-5 space-y-4 bg-gray-900 border border-gray-700">            <h2 className="text-base font-bold text-white">Force Exit Position</h2>
             <h2 className="text-base font-semibold">Force Exit Position</h2>
             <p className="text-xs text-gray-400">Manually close an open position at a specified price.</p>
             <FormField label="User ID">

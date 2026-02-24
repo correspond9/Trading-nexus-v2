@@ -1420,6 +1420,13 @@ async def backdate_position(
         instrument_type = data.get("instrument_type", "EQ").strip().upper()
         exchange = data.get("exchange", "NSE").strip().upper()
         
+        # Defensive: if symbol contains spaces, try to extract just the first word
+        # This handles cases where user types "RELIANCE NSE EQUITY" instead of just "RELIANCE"
+        if symbol and " " in symbol:
+            symbol_parts = symbol.split()
+            symbol = symbol_parts[0]  # Take first word as the symbol
+            log.warning(f"Symbol had spaces, extracted: {symbol}")
+        
         # Validate required fields
         if not user_identifier:
             return {"success": False, "detail": "user_id is required"}
@@ -1492,7 +1499,21 @@ async def backdate_position(
         )
         
         if not inst_row:
-            return {"success": False, "detail": f"Instrument not found: {symbol} {exchange} {inst_type}"}
+            # Try to find similar symbols to suggest
+            similar = await pool.fetch(
+                """
+                SELECT DISTINCT symbol FROM instrument_master
+                WHERE symbol LIKE $1 AND exchange_segment = $2
+                LIMIT 3
+                """,
+                f"{symbol}%", exchange
+            )
+            suggestions = [row["symbol"] for row in similar]
+            suggest_msg = f" Similar symbols: {', '.join(suggestions)}" if suggestions else ""
+            return {
+                "success": False, 
+                "detail": f"Instrument '{symbol}' not found in {exchange} {inst_type}.{suggest_msg} Use the search dropdown to find the correct symbol."
+            }
         
         instrument_token = inst_row["instrument_token"]
         

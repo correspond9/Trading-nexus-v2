@@ -265,8 +265,45 @@ const SuperAdminDashboard = () => {
     setBackdateResult(null);
     
     try {
+      // Validate required fields
+      if (!backdateForm.user_id.trim()) {
+        setBackdateError('User ID is required');
+        setBackdateLoading(false);
+        return;
+      }
+      if (!backdateForm.symbol.trim()) {
+        setBackdateError('Symbol is required - use the dropdown to search');
+        setBackdateLoading(false);
+        return;
+      }
+      if (!backdateForm.qty) {
+        setBackdateError('Quantity is required');
+        setBackdateLoading(false);
+        return;
+      }
+      if (!backdateForm.price) {
+        setBackdateError('Price is required');
+        setBackdateLoading(false);
+        return;
+      }
+      if (!backdateForm.trade_date) {
+        setBackdateError('Trade Date is required');
+        setBackdateLoading(false);
+        return;
+      }
+      
+      // Validate symbol - must not contain spaces (indicates user didn't use search dropdown)
+      if (backdateForm.symbol.includes(' ')) {
+        setBackdateError('Symbol must not contain spaces. Please use the search dropdown to select an instrument.');
+        setBackdateLoading(false);
+        return;
+      }
+      
       // Convert date from YYYY-MM-DD to DD-MM-YYYY for backend
       const formData = { ...backdateForm };
+      formData.symbol = formData.symbol.toUpperCase().trim();
+      formData.exchange = formData.exchange.toUpperCase().trim();
+      
       if (formData.trade_date) {
         const [year, month, day] = formData.trade_date.split('-');
         formData.trade_date = `${day}-${month}-${year}`;
@@ -638,18 +675,24 @@ const SuperAdminDashboard = () => {
             <FormField label="Symbol">
               <div className="relative">
                 <input
-                  className={inputCls}
+                  className={`${inputCls} ${backdateForm.symbol && !instrumentSuggestions.length && symbolInputBlur ? 'border-red-500 border-2' : ''}`}
                   type="text"
                   value={backdateForm.symbol}
                   onChange={e => {
-                    searchInstrument(e.target.value);
-                    setBackdateForm(f => ({ ...f, symbol: e.target.value }));
+                    const val = e.target.value;
+                    searchInstrument(val);
+                    setBackdateForm(f => ({ ...f, symbol: val }));
                   }}
                   onBlur={() => setTimeout(() => setSymbolInputBlur(true), 150)}
                   onFocus={() => setSymbolInputBlur(false)}
                   placeholder="Search stocks... (e.g., RELIANCE, INFY)"
                   autoComplete="off"
+                  maxLength="20"
                 />
+                
+                {backdateForm.symbol && symbolInputBlur && !instrumentSuggestions.length && (
+                  <p className="text-xs text-red-400 mt-1">⚠️ Please search and select from dropdown</p>
+                )}
                 
                 {instrumentSuggestions.length > 0 && !symbolInputBlur && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-64 overflow-y-auto z-10">

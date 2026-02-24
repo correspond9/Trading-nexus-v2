@@ -12,6 +12,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.tradingbackend.rule=Host(`api.tradingnexus.pro`)"
+      - "traefik.http.routers.tradingbackend.service=tradingbackend"
       - "traefik.http.routers.tradingbackend.entrypoints=http,https"
       - "traefik.http.routers.tradingbackend.tls=true"
       - "traefik.http.services.tradingbackend.loadbalancer.server.port=8000"

@@ -1814,8 +1814,6 @@ async def force_exit(request: Request):
         "exit_price": exit_price,
         "closed_at": closed_at.isoformat()
     }
-        "exit_price": exit_price
-    }
 
 
 @router.post("/upload-nse-files")

@@ -1482,7 +1482,7 @@ async def backdate_position(
     """
     import uuid
     from app.database import get_pool as _get_pool
-    from app.utils.market_hours import is_market_open
+    from app.market_hours import is_market_open
     from datetime import datetime, timezone
     
     try:

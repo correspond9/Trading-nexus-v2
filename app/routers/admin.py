@@ -2718,9 +2718,9 @@ async def delete_specific_user_positions(
     except (ValueError, TypeError) as e:
         return {"success": False, "detail": f"Invalid position ID format: {str(e)}"}
     
-    # Validate that positions belong to this user
+    # Validate that positions belong to this user and get their instrument_tokens
     existing = await pool.fetch(
-        "SELECT position_id FROM paper_positions WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
+        "SELECT position_id, instrument_token FROM paper_positions WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
         user_id_uuid,
         position_ids_uuid
     )
@@ -2732,31 +2732,30 @@ async def delete_specific_user_positions(
             "detail": f"Some positions not found or don't belong to this user: {list(missing)}"
         }
     
+    # Get instrument tokens for the positions to delete related records
+    instrument_tokens = [p['instrument_token'] for p in existing]
+    position_ids_str = [str(pid) for pid in position_ids_uuid]
+    
     # Delete in correct order - related records first
-    # 1. Delete related ledger entries
+    # 1. Delete related ledger entries (by ref_id matching position_id)
     await pool.execute(
-        """DELETE FROM ledger_entries 
-           WHERE user_id = $1 
-           AND (
-             trade_id IN (SELECT trade_id FROM paper_trades WHERE position_id = ANY($2::uuid[]))
-             OR order_id IN (SELECT order_id FROM paper_orders WHERE position_id = ANY($2::uuid[]))
-           )""",
+        "DELETE FROM ledger_entries WHERE user_id = $1 AND ref_id = ANY($2::text[])",
         user_id_uuid,
-        position_ids_uuid
+        position_ids_str
     )
     
-    # 2. Delete related trades
+    # 2. Delete related trades (by instrument_token)
     await pool.execute(
-        "DELETE FROM paper_trades WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
+        "DELETE FROM paper_trades WHERE user_id = $1 AND instrument_token = ANY($2::bigint[])",
         user_id_uuid,
-        position_ids_uuid
+        instrument_tokens
     )
     
-    # 3. Delete related orders
+    # 3. Delete related orders (by instrument_token)
     await pool.execute(
-        "DELETE FROM paper_orders WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
+        "DELETE FROM paper_orders WHERE user_id = $1 AND instrument_token = ANY($2::bigint[])",
         user_id_uuid,
-        position_ids_uuid
+        instrument_tokens
     )
     
     # 4. Delete positions

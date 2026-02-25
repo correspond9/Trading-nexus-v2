@@ -569,8 +569,8 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                       <ChevronDown size={14} />
                     </button>
 
-                    <button className="trade-btn buy" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, token: inst.token, exchange: inst.exchange }, 'BUY')}>BUY</button>
-                    <button className="trade-btn sell" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, token: inst.token, exchange: inst.exchange }, 'SELL')}>SELL</button>
+                    <button className="trade-btn buy" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, token: inst.token, exchange: inst.exchange, ltp: ltp }, 'BUY')}>BUY</button>
+                    <button className="trade-btn sell" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, token: inst.token, exchange: inst.exchange, ltp: ltp }, 'SELL')}>SELL</button>
                     <button style={removeBtn} onClick={() => handleRemoveInstrument(inst.token)} title="Remove"><X size={14} /></button>
                     </div>
 

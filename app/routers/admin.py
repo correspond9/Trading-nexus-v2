@@ -2646,11 +2646,23 @@ async def delete_specific_user_positions(
     from app.database import get_pool
     pool = get_pool()
     
-    # Resolve user_id
-    user = await pool.fetchrow(
-        "SELECT id, mobile, name FROM users WHERE id = $1::uuid OR mobile = $1",
-        user_id
-    )
+    # Resolve user_id (handle both mobile and UUID)
+    user = None
+    try:
+        # Try as UUID first
+        import uuid
+        uuid_val = uuid.UUID(user_id)
+        user = await pool.fetchrow(
+            "SELECT id, mobile, name FROM users WHERE id = $1",
+            user_id
+        )
+    except (ValueError, TypeError):
+        # Not a UUID, try as mobile
+        user = await pool.fetchrow(
+            "SELECT id, mobile, name FROM users WHERE mobile = $1",
+            user_id
+        )
+    
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -2775,11 +2787,23 @@ async def get_user_positions(
     from app.database import get_pool
     pool = get_pool()
     
-    # Resolve user_id
-    user = await pool.fetchrow(
-        "SELECT id, mobile, name FROM users WHERE id = $1::uuid OR mobile = $1",
-        user_id
-    )
+    # Resolve user_id (handle both mobile and UUID)
+    user = None
+    try:
+        # Try as UUID first
+        import uuid
+        uuid_val = uuid.UUID(user_id)
+        user = await pool.fetchrow(
+            "SELECT id, mobile, name FROM users WHERE id = $1",
+            user_id
+        )
+    except (ValueError, TypeError):
+        # Not a UUID, try as mobile
+        user = await pool.fetchrow(
+            "SELECT id, mobile, name FROM users WHERE mobile = $1",
+            user_id
+        )
+    
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     

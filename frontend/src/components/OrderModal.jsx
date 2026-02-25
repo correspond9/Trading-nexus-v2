@@ -94,14 +94,14 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
 
     const timer = setTimeout(async () => {
       try {
-        const perLegMargins = await Promise.all(legsToCalc.map((leg) => {
+          const perLegMargins = await Promise.all(legsToCalc.map((leg) => {
           const marketPriceHint = Number(leg?.ltp || 0);
           const legLotSize = Number(leg?.lotSize || lotSizePerLeg || 1);
           const qtyUnits = Math.max(0, Math.trunc(lots * legLotSize));
           const payload = {
             user_id: String(user?.id || ''),
             symbol: leg.symbol,
-            security_id: leg.security_id,
+              security_id: String(leg.security_id || leg.token || ''),
             exchange_segment: leg.exchange_segment || leg.exchange,
             transaction_type: leg.action || side,
             quantity: qtyUnits,
@@ -135,7 +135,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
 
       const qtyUnitsSingle = Math.max(0, Math.trunc(lots * lotSizePerLeg));
 
-      const primarySecurityId = isMultiLeg ? orderData?.legs?.[0]?.security_id : orderData?.security_id;
+      const primarySecurityId = isMultiLeg ? String(orderData?.legs?.[0]?.security_id || orderData?.legs?.[0]?.token || '') : String(orderData?.security_id || orderData?.token || '');
       const primaryExchange = isMultiLeg ? (orderData?.legs?.[0]?.exchange_segment || orderData?.legs?.[0]?.exchange) : (orderData?.exchange_segment || orderData?.exchange);
       const marketPriceHint = Number(orderData?.ltp || orderData?.legs?.[0]?.ltp || 0);
       const basePayload = {
@@ -157,7 +157,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
             const qtyUnits = Math.max(0, Math.trunc(lots * legLotSize));
             return {
               symbol: leg.symbol,
-              security_id: leg.security_id,
+              security_id: String(leg.security_id || leg.token || ''),
               exchange_segment: leg.exchange_segment || leg.exchange,
               transaction_type: leg.action || side,
               quantity: qtyUnits,

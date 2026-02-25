@@ -146,7 +146,7 @@ const Trade = () => {
 
       const normalizedLegs = legs.map((leg) => ({
         ...leg,
-        security_id: leg?.security_id || leg?.securityId || leg?.instrument_token || leg?.instrumentToken || leg?.token || null,
+        security_id: String(leg?.security_id || leg?.securityId || leg?.instrument_token || leg?.instrumentToken || leg?.token || ''),
         exchange_segment: leg?.exchange_segment || leg?.exchangeSegment || leg?.exchange || '',
         lotSize: leg?.lotSize || resolvedLot,
       }));
@@ -160,7 +160,7 @@ const Trade = () => {
         underlying: underlyingFromLeg,
         expiry: expiryIso,
         expiry_display: expiry,
-        security_id: resolvedSecurityId,
+        security_id: String(resolvedSecurityId || ''),
         exchange_segment: resolvedExchangeSegment,
         exchange: resolvedExchangeSegment,
         legs: normalizedLegs

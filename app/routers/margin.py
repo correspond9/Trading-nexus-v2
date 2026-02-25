@@ -94,7 +94,7 @@ class MarginCalcRequest(BaseModel):
     user_id:          Optional[str]   = None
     symbol:           Optional[str]   = None
     security_id:      Optional[str]   = None
-    exchange_segment: Optional[str]   = "NSE_FNO"
+    exchange_segment: Optional[str]   = ""
     transaction_type: Optional[str]   = "BUY"
     quantity:         Optional[int]   = 1
     order_type:       Optional[str]   = "MARKET"
@@ -125,8 +125,8 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
         if im:
             if not sym:
                 sym = (im.get("symbol") or "").strip()
-            # Always use exchange_segment from database for accurate instrument detection
-            if not seg:
+            # Prefer database exchange_segment for accurate instrument detection
+            if (not seg) or seg.upper() in {"NSE", "BSE", "MCX", "NSE_FNO"}:
                 seg = (im.get("exchange_segment") or "").strip()
 
     # ── Resolve LTP if price not supplied ────────────────────────────────────

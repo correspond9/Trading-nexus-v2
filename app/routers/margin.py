@@ -108,7 +108,7 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
     pool  = get_pool()
     price = body.price or 0.0
     sym   = (body.symbol or "").strip()
-    seg   = (body.exchange_segment or "NSE_FNO").strip()
+    seg   = (body.exchange_segment or "").strip()
 
     instrument_token: Optional[int] = None
     if body.security_id is not None:
@@ -125,9 +125,9 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
         if im:
             if not sym:
                 sym = (im.get("symbol") or "").strip()
-            seg_in = seg.upper() if seg else ""
-            if not seg_in or seg_in in {"NSE", "BSE", "MCX", "NSE_FNO"}:
-                seg = (im.get("exchange_segment") or seg).strip()
+            # Always use exchange_segment from database for accurate instrument detection
+            if not seg:
+                seg = (im.get("exchange_segment") or "").strip()
 
     # ── Resolve LTP if price not supplied ────────────────────────────────────
     if price == 0.0 and (instrument_token or sym):

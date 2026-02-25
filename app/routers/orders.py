@@ -125,7 +125,7 @@ class PlaceOrderRequest(BaseModel):
     symbol:           str             = ""
     security_id:      Optional[int]   = None
     instrument_token: Optional[int]   = None
-    exchange_segment: str             = "NSE_FNO"
+    exchange_segment: str             = ""
     transaction_type: Optional[str]   = None
     side:             Optional[str]   = None
     quantity:         int             = 1
@@ -181,8 +181,7 @@ async def place_paper_order(
         token = row["instrument_token"] if row else 0
 
     # ── Normalize/repair exchange_segment from instrument_master (robustness) ──
-    # Some frontend flows historically omitted exchange_segment; default is NSE_FNO.
-    # If we can resolve the instrument's true segment, prefer that for validations.
+    # Look up exchange_segment from instrument_master if not provided
     seg_in = (body.exchange_segment or "").strip().upper()
     if token:
         im_seg_row = await pool.fetchrow(
@@ -192,8 +191,8 @@ async def place_paper_order(
         im_seg = (im_seg_row["exchange_segment"] if im_seg_row else None) or None
         im_seg_u = str(im_seg).strip().upper() if im_seg else ""
 
-        # Repair when caller sent a generic/blank segment or the default NSE_FNO.
-        if (not seg_in) or seg_in in {"NSE", "BSE", "MCX", "NSE_FNO"}:
+        # Use database value if not provided or generic exchange name given
+        if (not seg_in) or seg_in in {"NSE", "BSE", "MCX"}:
             if im_seg_u:
                 body.exchange_segment = im_seg_u
 

@@ -2711,15 +2711,22 @@ async def delete_specific_user_positions(
     if len(position_ids) == 0:
         return {"success": False, "detail": "position_ids list cannot be empty"}
     
+    # Convert position_ids strings to UUIDs
+    import uuid as uuid_lib
+    try:
+        position_ids_uuid = [uuid_lib.UUID(str(pid)) for pid in position_ids]
+    except (ValueError, TypeError) as e:
+        return {"success": False, "detail": f"Invalid position ID format: {str(e)}"}
+    
     # Validate that positions belong to this user
     existing = await pool.fetch(
         "SELECT position_id FROM paper_positions WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
         user_id_uuid,
-        position_ids
+        position_ids_uuid
     )
     
-    if len(existing) != len(position_ids):
-        missing = set(position_ids) - {str(p['position_id']) for p in existing}
+    if len(existing) != len(position_ids_uuid):
+        missing = set(str(p) for p in position_ids_uuid) - {str(p['position_id']) for p in existing}
         return {
             "success": False,
             "detail": f"Some positions not found or don't belong to this user: {list(missing)}"
@@ -2735,31 +2742,31 @@ async def delete_specific_user_positions(
              OR order_id IN (SELECT order_id FROM paper_orders WHERE position_id = ANY($2::uuid[]))
            )""",
         user_id_uuid,
-        position_ids
+        position_ids_uuid
     )
     
     # 2. Delete related trades
     await pool.execute(
         "DELETE FROM paper_trades WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
         user_id_uuid,
-        position_ids
+        position_ids_uuid
     )
     
     # 3. Delete related orders
     await pool.execute(
         "DELETE FROM paper_orders WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
         user_id_uuid,
-        position_ids
+        position_ids_uuid
     )
     
     # 4. Delete positions
     result = await pool.execute(
         "DELETE FROM paper_positions WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
         user_id_uuid,
-        position_ids
+        position_ids_uuid
     )
     
-    deleted_count = len(position_ids)
+    deleted_count = len(position_ids_uuid)
     
     log.warning(
         f"SPECIFIC POSITIONS DELETED for user {user_display} "

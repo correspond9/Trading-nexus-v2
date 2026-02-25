@@ -94,7 +94,7 @@ const OrdersTab = () => {
     try {
       const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
       const params = {
-        ...(!isAdmin && user?.id ? { user_id: user.id } : {}),
+        ...(!isAdmin && user?.id ? { user_id: String(user.id) } : {}),
         current_session_only: false,
         from_date: fromDate,
         to_date: toDate

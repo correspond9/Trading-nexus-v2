@@ -9,7 +9,7 @@ const BasketsTab = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      const params = user?.id ? { user_id: user.id } : {};
+      const params = user?.id ? { user_id: String(user.id) } : {};
       const [basketsResponse, marginResponse] = await Promise.all([
         apiService.get('/trading/basket-orders', params),
         apiService.get('/margin/account', params),

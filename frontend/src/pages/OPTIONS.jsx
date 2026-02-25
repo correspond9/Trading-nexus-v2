@@ -137,7 +137,7 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
       if (!token) { setMessage({ type: 'error', text: 'Instrument token not available for this strike' }); return; }
       const optionSymbol = `${symbol} ${strikeData.strike} ${optionType}`;
       const exchange = resolveOptionSegment(symbol);
-      const payload = { user_id: user.id, token: String(token), symbol: optionSymbol, exchange };
+      const payload = { user_id: String(user.id), token: String(token), symbol: optionSymbol, exchange };
       await apiService.post('/watchlist/add', payload);
       setMessage({ type: 'success', text: `${optionSymbol} added to watchlist` });
       window.dispatchEvent(new CustomEvent('tn-watchlist-refresh'));

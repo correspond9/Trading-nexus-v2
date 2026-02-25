@@ -68,7 +68,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
       setSuccess("");
       setQuantity(1);
       // fetch baskets + margin
-      const params = user?.id ? { user_id: user.id } : {};
+      const params = user?.id ? { user_id: String(user.id) } : {};
       apiService.get('/trading/basket-orders', params).then(res => { if (res?.data) { setBaskets(res.data); if (res.data.length > 0) setSelectedBasketId(res.data[0].id); } }).catch(() => {});
       apiService.get('/margin/account', params).then(res => { setAvailableMargin(Number(res?.data?.available_margin ?? 0)); }).catch(() => {});
     }

@@ -14,7 +14,7 @@ const LedgerPage = () => {
   const fetchLedger = async () => {
     setLoading(true);
     try {
-      const params = user?.id ? { user_id: user.id, from_date: fromDate, to_date: toDate } : {};
+      const params = user?.id ? { user_id: String(user.id), from_date: fromDate, to_date: toDate } : {};
       const res = await apiService.get('/ledger', params);
       setEntries(res?.data || []);
     } catch (err) {

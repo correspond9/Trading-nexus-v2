@@ -126,7 +126,7 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
 
         if (toSync.length) {
           await Promise.allSettled(toSync.map(i => apiService.post('/watchlist/add', {
-            user_id: user?.id,
+            user_id: String(user?.id || ''),
             token: i.token,
             symbol: i.symbol,
             exchange: i.exchange,
@@ -331,7 +331,7 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
       return { ...tab, instruments: [...tab.instruments, instrument] };
     }));
     apiService.post('/watchlist/add', {
-      user_id: user?.id,
+      user_id: String(user?.id || ''),
       token: instrument.token,
       symbol: instrument.symbol,
       exchange: instrument.exchange,
@@ -366,7 +366,7 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
       if (tab.id !== activeTabId) return tab;
       return { ...tab, instruments: tab.instruments.filter(i => i.token !== token) };
     }));
-    apiService.post('/watchlist/remove', { user_id: user?.id, token }).catch(() => {});
+    apiService.post('/watchlist/remove', { user_id: String(user?.id || ''), token }).catch(() => {});
   };
 
   const getDisplayedPrice = (instrument) => {

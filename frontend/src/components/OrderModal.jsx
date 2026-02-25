@@ -99,7 +99,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
           const legLotSize = Number(leg?.lotSize || lotSizePerLeg || 1);
           const qtyUnits = Math.max(0, Math.trunc(lots * legLotSize));
           const payload = {
-            user_id: user?.id,
+            user_id: String(user?.id || ''),
             symbol: leg.symbol,
             security_id: leg.security_id,
             exchange_segment: leg.exchange_segment || leg.exchange,
@@ -139,7 +139,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
       const primaryExchange = isMultiLeg ? (orderData?.legs?.[0]?.exchange_segment || orderData?.legs?.[0]?.exchange) : (orderData?.exchange_segment || orderData?.exchange);
       const marketPriceHint = Number(orderData?.ltp || orderData?.legs?.[0]?.ltp || 0);
       const basePayload = {
-        user_id: user?.id,
+        user_id: String(user?.id || ''),
         symbol: orderData?.symbol,
         security_id: primarySecurityId,
         exchange_segment: primaryExchange,
@@ -194,7 +194,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
         } else {
           const name = newBasketName.trim() || `Basket ${Date.now()}`;
           await apiService.post('/trading/basket-orders', {
-            user_id: user?.id,
+            user_id: String(user?.id || ''),
             name,
             legs: legsToSave,
           });

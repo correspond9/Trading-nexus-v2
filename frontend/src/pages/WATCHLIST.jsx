@@ -375,6 +375,9 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     const p = prices ? (prices[token] ?? prices[instrument.symbol]) : null;
     if (p !== null && p !== undefined) return p;
 
+    const liveTick = tickByToken[String(instrument.token)];
+    if (liveTick?.ltp !== null && liveTick?.ltp !== undefined) return liveTick.ltp;
+
     const ex = String(instrument?.exchange || '').toUpperCase();
     const isCommodity = ex.includes('MCX') || ex.includes('COM');
     const marketActive = isCommodity
@@ -401,8 +404,8 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     return `${underlying} ${strikeTxt} ${String(opt).toUpperCase()} ${day} ${monthShort}`;
   };
 
-  const getChangePct = (instrument) => {
-    const ltp = instrument?.ltp;
+  const getChangePct = (instrument, ltpOverride = null) => {
+    const ltp = ltpOverride !== null && ltpOverride !== undefined ? ltpOverride : instrument?.ltp;
     const close = instrument?.close;
     if (typeof instrument?.change_pct === 'number') return instrument.change_pct;
     if (ltp == null || close == null || Number(close) === 0) return null;
@@ -545,7 +548,7 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                   symbol: inst.symbol,
                 });
                 const title = label || inst.symbol;
-                const pct = getChangePct(inst);
+                const pct = getChangePct(inst, ltp);
                 return (
                   <div key={inst.token} style={{ ...instrRow, flexDirection: 'column', alignItems: 'stretch' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

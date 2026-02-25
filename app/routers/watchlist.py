@@ -69,14 +69,12 @@ async def get_watchlist(user_id: str, request: Request):
     rows = await pool.fetch(
         """
         SELECT wi.instrument_token AS token,
-                             CASE
-                                 WHEN im.instrument_type = 'EQUITY' AND im.underlying IS NOT NULL AND im.underlying <> '' THEN im.underlying
-                                 ELSE COALESCE(wi.symbol, im.symbol)
-            if hdr:
-                return hdr
-            if current_user:
-                return str(current_user.id)
-            raise HTTPException(status_code=401, detail="Authentication required")
+               CASE
+                   WHEN im.instrument_type = 'EQUITY'
+                        AND im.underlying IS NOT NULL
+                        AND im.underlying <> '' THEN im.underlying
+                   ELSE COALESCE(wi.symbol, im.symbol)
+               END AS symbol,
                COALESCE(im.exchange_segment, 'NSE') AS exchange,
                COALESCE(im.instrument_type, 'EQ') AS instrument_type,
                im.underlying,

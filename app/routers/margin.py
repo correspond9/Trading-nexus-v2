@@ -110,17 +110,30 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
     sym   = (body.symbol or "").strip()
     seg   = (body.exchange_segment or "NSE_FNO").strip()
 
+    instrument_token: Optional[int] = None
+    if body.security_id is not None:
+        sid = str(body.security_id).strip()
+        if sid.isdigit():
+            instrument_token = int(sid)
+
+    # Normalize exchange segment and symbol using instrument_master when possible.
+    if instrument_token:
+        im = await pool.fetchrow(
+            "SELECT symbol, exchange_segment FROM instrument_master WHERE instrument_token=$1",
+            instrument_token,
+        )
+        if im:
+            if not sym:
+                sym = (im.get("symbol") or "").strip()
+            seg_in = seg.upper() if seg else ""
+            if not seg_in or seg_in in {"NSE", "BSE", "MCX", "NSE_FNO"}:
+                seg = (im.get("exchange_segment") or seg).strip()
+
     # ── Resolve LTP if price not supplied ────────────────────────────────────
-    if price == 0.0 and (body.security_id or sym):
+    if price == 0.0 and (instrument_token or sym):
         # IMPORTANT:
         # - The frontend sends `security_id` but it is actually the instrument_token.
         # - instrument_master does NOT have a `security_id` column.
-        instrument_token: Optional[int] = None
-        if body.security_id is not None:
-            sid = str(body.security_id).strip()
-            if sid.isdigit():
-                instrument_token = int(sid)
-
         if instrument_token is None and sym:
             instrument_token = await pool.fetchval(
                 "SELECT instrument_token FROM instrument_master WHERE symbol=$1 LIMIT 1",
@@ -142,6 +155,45 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
     tx_type  = (body.transaction_type or "BUY").upper()
 
     is_option, is_futures, is_commodity = _detect_instrument(sym, seg)
+    is_equity = not is_option and not is_futures and not is_commodity
+
+    # ── Cash equity margin (qty × price) ─────────────────────────────────────
+    if is_equity:
+        cash_required = round(price * qty, 2)
+        return {
+            "data": {
+                "required_margin": cash_required,
+                "span_margin":     0.0,
+                "exposure_margin": 0.0,
+                "premium":         cash_required,
+                "elm_pct":         0.0,
+                "price_used":      round(price, 2),
+                "quantity":        qty,
+                "underlying":      sym or None,
+                "span_source":     "cash",
+                "data_as_of":      None,
+                "error":           None,
+            }
+        }
+
+    # ── Option BUY margin (premium only) ────────────────────────────────────
+    if is_option and tx_type == "BUY":
+        premium = round(price * qty, 2)
+        return {
+            "data": {
+                "required_margin": premium,
+                "span_margin":     0.0,
+                "exposure_margin": 0.0,
+                "premium":         premium,
+                "elm_pct":         0.0,
+                "price_used":      round(price, 2),
+                "quantity":        qty,
+                "underlying":      _extract_underlying(sym),
+                "span_source":     "premium",
+                "data_as_of":      None,
+                "error":           None,
+            }
+        }
 
     # For SPAN lookup, use the underlying symbol (strip expiry/strike)
     underlying = _extract_underlying(sym)

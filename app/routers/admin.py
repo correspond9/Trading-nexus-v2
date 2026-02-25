@@ -1683,7 +1683,7 @@ async def backdate_position(
                 target_user_id,
                 instrument_token,
                 symbol,
-                exchange,
+                exchange_segment,
                 qty,
                 price,
                 opened_at,

@@ -77,8 +77,29 @@ def _calculate_required_margin(
         return {"total_margin": 0.0, "span_margin": 0.0, "exposure_margin": 0.0, "premium": 0.0}
     
     is_option, is_futures, is_commodity = _detect_instrument(symbol, exchange_segment)
+    is_equity = not is_option and not is_futures and not is_commodity
     underlying = _extract_underlying(symbol)
-    
+
+    # Cash equity margin: qty × price
+    if is_equity:
+        cash = round(float(price or 0) * int(qty), 2)
+        return {
+            "total_margin": cash,
+            "span_margin": 0.0,
+            "exposure_margin": 0.0,
+            "premium": cash,
+        }
+
+    # Option BUY margin: premium only
+    if is_option and transaction_type.upper() == "BUY":
+        premium = round(float(price or 0) * int(qty), 2)
+        return {
+            "total_margin": premium,
+            "span_margin": 0.0,
+            "exposure_margin": 0.0,
+            "premium": premium,
+        }
+
     breakdown = _nse_calculate_margin(
         symbol=underlying,
         transaction_type=transaction_type,
@@ -88,7 +109,7 @@ def _calculate_required_margin(
         is_futures=is_futures,
         is_commodity=is_commodity,
     )
-    
+
     return breakdown
 
 
@@ -221,7 +242,13 @@ async def place_paper_order(
                 margin_breakdown = _calculate_required_margin(
                     fill_price, qty, body.exchange_segment, prod, body.symbol, side
                 )
-                required = margin_breakdown["total_margin"]
+                required = margin_breakdown.get("total_margin")
+                if required is None:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=margin_breakdown.get("error")
+                        or "Margin data not available for this symbol right now.",
+                    )
 
                 # SELECT FOR UPDATE locks the row until transaction commits
                 margin_row = await conn.fetchrow(

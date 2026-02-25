@@ -2626,6 +2626,207 @@ async def delete_all_user_positions(
     }
 
 
+@router.post("/users/{user_id}/positions/delete-specific")
+async def delete_specific_user_positions(
+    user_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    """
+    Delete SPECIFIC positions for a user by position IDs.
+    
+    Request body:
+    {
+      "position_ids": ["uuid1", "uuid2", ...] or "all"
+    }
+    
+    If position_ids = "all", deletes all positions.
+    Otherwise, deletes only the specified positions.
+    """
+    from app.database import get_pool
+    pool = get_pool()
+    
+    # Resolve user_id
+    user = await pool.fetchrow(
+        "SELECT id, mobile, name FROM users WHERE id = $1::uuid OR mobile = $1",
+        user_id
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user_id_uuid = user['id']
+    user_display = user['mobile'] or user['name'] or str(user_id_uuid)
+    
+    # Parse request
+    try:
+        data = await request.json()
+        position_ids = data.get("position_ids", [])
+    except:
+        position_ids = []
+    
+    # Validate input
+    if not position_ids:
+        return {
+            "success": False,
+            "detail": "position_ids is required (list or 'all')"
+        }
+    
+    # If "all", use existing delete-all logic
+    if position_ids == "all":
+        # Count before deletion
+        pos_count = await pool.fetchval("SELECT COUNT(*) FROM paper_positions WHERE user_id = $1", user_id_uuid)
+        orders_count = await pool.fetchval("SELECT COUNT(*) FROM paper_orders WHERE user_id = $1", user_id_uuid)
+        trades_count = await pool.fetchval("SELECT COUNT(*) FROM paper_trades WHERE user_id = $1", user_id_uuid)
+        ledger_count = await pool.fetchval("SELECT COUNT(*) FROM ledger_entries WHERE user_id = $1", user_id_uuid)
+        
+        # Delete in correct order
+        await pool.execute("DELETE FROM ledger_entries WHERE user_id = $1", user_id_uuid)
+        await pool.execute("DELETE FROM paper_trades WHERE user_id = $1", user_id_uuid)
+        await pool.execute("DELETE FROM paper_orders WHERE user_id = $1", user_id_uuid)
+        await pool.execute("DELETE FROM paper_positions WHERE user_id = $1", user_id_uuid)
+        
+        return {
+            "success": True,
+            "message": f"All positions deleted for user {user_display}",
+            "user_id": str(user_id_uuid),
+            "deleted_count": pos_count or 0
+        }
+    
+    # Delete specific positions
+    if not isinstance(position_ids, list):
+        return {"success": False, "detail": "position_ids must be a list or 'all'"}
+    
+    if len(position_ids) == 0:
+        return {"success": False, "detail": "position_ids list cannot be empty"}
+    
+    # Validate that positions belong to this user
+    existing = await pool.fetch(
+        "SELECT position_id FROM paper_positions WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
+        user_id_uuid,
+        position_ids
+    )
+    
+    if len(existing) != len(position_ids):
+        missing = set(position_ids) - {str(p['position_id']) for p in existing}
+        return {
+            "success": False,
+            "detail": f"Some positions not found or don't belong to this user: {list(missing)}"
+        }
+    
+    # Delete in correct order - related records first
+    # 1. Delete related ledger entries
+    await pool.execute(
+        """DELETE FROM ledger_entries 
+           WHERE user_id = $1 
+           AND (
+             trade_id IN (SELECT trade_id FROM paper_trades WHERE position_id = ANY($2::uuid[]))
+             OR order_id IN (SELECT order_id FROM paper_orders WHERE position_id = ANY($2::uuid[]))
+           )""",
+        user_id_uuid,
+        position_ids
+    )
+    
+    # 2. Delete related trades
+    await pool.execute(
+        "DELETE FROM paper_trades WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
+        user_id_uuid,
+        position_ids
+    )
+    
+    # 3. Delete related orders
+    await pool.execute(
+        "DELETE FROM paper_orders WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
+        user_id_uuid,
+        position_ids
+    )
+    
+    # 4. Delete positions
+    result = await pool.execute(
+        "DELETE FROM paper_positions WHERE user_id = $1 AND position_id = ANY($2::uuid[])",
+        user_id_uuid,
+        position_ids
+    )
+    
+    deleted_count = len(position_ids)
+    
+    log.warning(
+        f"SPECIFIC POSITIONS DELETED for user {user_display} "
+        f"(ID: {user_id_uuid}). Deleted {deleted_count} positions: {position_ids}"
+    )
+    
+    return {
+        "success": True,
+        "message": f"Deleted {deleted_count} position(s) for user {user_display}",
+        "user_id": str(user_id_uuid),
+        "deleted_count": deleted_count,
+        "deleted_position_ids": position_ids
+    }
+
+
+@router.get("/users/{user_id}/positions")
+async def get_user_positions(
+    user_id: str,
+    current_user: CurrentUser = Depends(get_admin_user),
+):
+    """
+    Get all positions (OPEN and CLOSED) for a specific user.
+    Returns position list with IDs for selective deletion.
+    """
+    from app.database import get_pool
+    pool = get_pool()
+    
+    # Resolve user_id
+    user = await pool.fetchrow(
+        "SELECT id, mobile, name FROM users WHERE id = $1::uuid OR mobile = $1",
+        user_id
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user_id_uuid = user['id']
+    
+    # Get positions
+    positions = await pool.fetch(
+        """
+        SELECT
+            position_id,
+            symbol,
+            quantity,
+            avg_price,
+            status,
+            opened_at,
+            closed_at,
+            product_type,
+            exchange_segment,
+            instrument_token
+        FROM paper_positions
+        WHERE user_id = $1
+        ORDER BY opened_at DESC
+        """,
+        user_id_uuid
+    )
+    
+    result = []
+    for p in positions:
+        result.append({
+            "position_id": str(p["position_id"]),
+            "symbol": p["symbol"],
+            "quantity": p["quantity"],
+            "avg_price": float(p["avg_price"]) if p["avg_price"] else 0.0,
+            "status": p["status"],
+            "opened_at": p["opened_at"].isoformat() if p["opened_at"] else None,
+            "closed_at": p["closed_at"].isoformat() if p["closed_at"] else None,
+            "product_type": p["product_type"] or "MIS",
+            "exchange": p["exchange_segment"],
+        })
+    
+    return {
+        "user_id": str(user_id_uuid),
+        "display_name": user['mobile'] or user['name'],
+        "positions": result
+    }
+
+
 @router.get("/charge-calculation/status")
 async def charge_calculation_status(
     current_user: CurrentUser = Depends(get_admin_user),

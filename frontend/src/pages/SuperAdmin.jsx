@@ -90,6 +90,9 @@ const SuperAdminDashboard = () => {
   const [deletePositionsLoading, setDeletePositionsLoading] = useState(false);
   const [deletePositionsError, setDeletePositionsError] = useState('');
   const [deletePositionsMsg, setDeletePositionsMsg]   = useState('');
+  const [userPositionsList, setUserPositionsList] = useState(null);
+  const [selectedPositionIds, setSelectedPositionIds] = useState(new Set());
+  const [loadingUserPositions, setLoadingUserPositions] = useState(false);
 
   // ── Portal users ──
   const [portalUsers, setPortalUsers]             = useState([]);
@@ -351,10 +354,59 @@ const SuperAdminDashboard = () => {
       if (res.ok) {
         setDeletePositionsMsg(data.message || 'Positions deleted successfully');
         setDeletePositionsUserSelection('');
+        setUserPositionsList(null);
+        setSelectedPositionIds(new Set());
       } else {
         setDeletePositionsError(data.detail || 'Position deletion failed');
       }
     } catch (e) { setDeletePositionsError(e?.message || 'Error'); } finally { setDeletePositionsLoading(false); }
+  };
+
+  const handleLoadUserPositions = async () => {
+    if (!deletePositionsUserSelection) { setDeletePositionsError('Select a user.'); return; }
+    setLoadingUserPositions(true); setDeletePositionsError('');
+    try {
+      const res = await req(`/admin/users/${deletePositionsUserSelection}/positions`);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setUserPositionsList(data);
+        setSelectedPositionIds(new Set());
+      } else {
+        setDeletePositionsError(data.detail || 'Failed to load positions');
+      }
+    } catch (e) { setDeletePositionsError(e?.message || 'Error'); } finally { setLoadingUserPositions(false); }
+  };
+
+  const handleDeleteSpecificPositions = async () => {
+    if (selectedPositionIds.size === 0) { setDeletePositionsError('Select at least one position.'); return; }
+    if (!window.confirm(`⚠️ PERMANENT! Delete ${selectedPositionIds.size} selected position(s)?\n\nThis cannot be undone!\n\nContinue?`)) return;
+    
+    setDeletePositionsLoading(true); setDeletePositionsError(''); setDeletePositionsMsg('');
+    try {
+      const res = await req(`/admin/users/${deletePositionsUserSelection}/positions/delete-specific`, {
+        method: 'POST',
+        body: JSON.stringify({ position_ids: Array.from(selectedPositionIds) })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setDeletePositionsMsg(data.message || 'Positions deleted successfully');
+        setSelectedPositionIds(new Set());
+        // Reload positions
+        await handleLoadUserPositions();
+      } else {
+        setDeletePositionsError(data.detail || 'Position deletion failed');
+      }
+    } catch (e) { setDeletePositionsError(e?.message || 'Error'); } finally { setDeletePositionsLoading(false); }
+  };
+
+  const togglePositionSelection = (positionId) => {
+    const newSet = new Set(selectedPositionIds);
+    if (newSet.has(positionId)) {
+      newSet.delete(positionId);
+    } else {
+      newSet.add(positionId);
+    }
+    setSelectedPositionIds(newSet);
   };
 
   const handleBackdatePosition = async () => {
@@ -788,17 +840,72 @@ const SuperAdminDashboard = () => {
 
             {/* Delete User Positions */}
             <div className="rounded-xl p-5 space-y-4 bg-orange-950/30 border border-orange-700/50">
-              <h2 className="text-base font-semibold text-orange-300">Delete All Positions</h2>
-              <p className="text-xs text-gray-400">⚠️ PERMANENT: Removes ALL positions, orders, and ledger entries. For fixing wrong backdated orders.</p>
-              <FormField label="User (clear all positions)">
+              <h2 className="text-base font-semibold text-orange-300">Delete Positions</h2>
+              <p className="text-xs text-gray-400">⚠️ Delete specific or all positions, orders, and ledger entries.</p>
+              
+              <FormField label="User ID">
                 <input className={inputCls} value={deletePositionsUserSelection}
                   onChange={e => setDeletePositionsUserSelection(e.target.value)} placeholder="Mobile or User ID" />
               </FormField>
+              
+              <div className="flex gap-2">
+                <button onClick={handleLoadUserPositions} disabled={loadingUserPositions || !deletePositionsUserSelection} className={btnCls('blue')}>
+                  {loadingUserPositions ? 'Loading…' : 'View Positions'}
+                </button>
+                <button onClick={handleDeleteUserPositions} disabled={deletePositionsLoading || !deletePositionsUserSelection} className={btnCls('red')}>
+                  {deletePositionsLoading ? 'Deleting…' : '🔥 Delete ALL'}
+                </button>
+              </div>
+
+              {/* Position List */}
+              {userPositionsList && (
+                <div className="space-y-2 max-h-64 overflow-y-auto rounded-lg bg-zinc-900/50 p-3 border border-zinc-700">
+                  <div className="text-xs font-semibold text-gray-300 mb-2">
+                    Positions ({userPositionsList.positions.length})
+                    {selectedPositionIds.size > 0 && (
+                      <span className="ml-2 text-orange-400">
+                        {selectedPositionIds.size} selected
+                      </span>
+                    )}
+                  </div>
+                  
+                  {userPositionsList.positions.length === 0 ? (
+                    <p className="text-xs text-gray-500">No positions</p>
+                  ) : (
+                    userPositionsList.positions.map((pos) => (
+                      <label key={pos.position_id} className="flex items-start gap-2 p-2 hover:bg-zinc-800 rounded cursor-pointer text-xs">
+                        <input
+                          type="checkbox"
+                          checked={selectedPositionIds.has(pos.position_id)}
+                          onChange={() => togglePositionSelection(pos.position_id)}
+                          className="mt-0.5"
+                        />
+                        <span className="flex-1">
+                          <span className="font-semibold">{pos.symbol}</span>
+                          <span className="text-gray-400 ml-1">
+                            {pos.quantity} @ {pos.avg_price.toFixed(2)}
+                          </span>
+                          <span className="text-gray-500 ml-1">({pos.status})</span>
+                        </span>
+                      </label>
+                    ))
+                  )}
+                  
+                  {selectedPositionIds.size > 0 && (
+                    <button
+                      onClick={handleDeleteSpecificPositions}
+                      disabled={deletePositionsLoading}
+                      className={btnCls('red')}
+                      style={{ width: '100%' }}
+                    >
+                      {deletePositionsLoading ? 'Deleting…' : `Delete ${selectedPositionIds.size} Selected`}
+                    </button>
+                  )}
+                </div>
+              )}
+
               {deletePositionsError && <p className="text-xs text-orange-400">❌ {deletePositionsError}</p>}
               {deletePositionsMsg && <p className="text-xs text-green-400">✓ {deletePositionsMsg}</p>}
-              <button onClick={handleDeleteUserPositions} disabled={deletePositionsLoading} className={btnCls('red')}>
-                {deletePositionsLoading ? 'Deleting…' : '🔥 Delete ALL Positions'}
-              </button>
             </div>
           </div>
 

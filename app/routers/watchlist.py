@@ -122,7 +122,7 @@ async def add_to_watchlist(
     # If token not provided, look up by symbol
     if not token_val and symbol:
         row = await pool.fetchrow(
-            "SELECT instrument_token FROM instrument_master WHERE symbol=$1 LIMIT 1",
+            "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
             symbol,
         )
         if row:

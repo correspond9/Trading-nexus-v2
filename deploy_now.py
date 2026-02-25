@@ -7,8 +7,8 @@ import time
 import sys
 
 API_URL = "http://72.62.228.112:8000/api/v1"
-API_TOKEN = "2|7ZrALjw36qMZj0y5ukoLpgIAxibac5yvbNXolQKE0b2ae2f7"
-APP_UUID = "zccs8wko40occg44888kwooc"
+API_TOKEN = "1|GQq5Q1JESHaawnDJ5kvW0lFevUgU4o2abzcH27y2b3b38466"
+APP_UUID = "x8gg0og8440wkgc8ow0ococs"
 
 headers = {
     'Authorization': f'Bearer {API_TOKEN}',

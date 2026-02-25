@@ -175,7 +175,7 @@ async def place_paper_order(
 
     if not token:
         row = await pool.fetchrow(
-            "SELECT instrument_token FROM instrument_master WHERE symbol=$1 LIMIT 1",
+            "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
             body.symbol,
         )
         token = row["instrument_token"] if row else 0
@@ -254,26 +254,19 @@ async def place_paper_order(
                     """
                     SELECT
                         COALESCE(pa.margin_allotted, 0) AS margin_allotted,
-                        COALESCE(
-                            (
-                                SELECT SUM(
-                                    calculate_position_margin(
-                                        pp.instrument_token,
-                                        pp.symbol,
-                                        pp.exchange_segment,
-                                        pp.quantity,
-                                        pp.product_type
-                                    )
-                                )
-                                FROM paper_positions pp
-                                WHERE pp.user_id = pa.user_id
-                                  AND pp.status = 'OPEN'
-                                  AND pp.quantity != 0
-                            ),
-                            0
-                        ) AS used_margin
+                        COALESCE(SUM(
+                            calculate_position_margin(
+                                pp.instrument_token,
+                                pp.symbol,
+                                pp.exchange_segment,
+                                pp.quantity,
+                                pp.product_type
+                            )
+                        ) FILTER (WHERE pp.status='OPEN' AND pp.quantity != 0), 0) AS used_margin
                     FROM paper_accounts pa
+                    LEFT JOIN paper_positions pp ON pp.user_id = pa.user_id
                     WHERE pa.user_id = $1::uuid
+                    GROUP BY pa.margin_allotted
                     FOR UPDATE OF pa
                     """,
                     user_id,

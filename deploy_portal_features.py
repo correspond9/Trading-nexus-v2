@@ -13,7 +13,7 @@ from datetime import datetime
 # Coolify Configuration
 COOLIFY_HOST = "72.62.228.112"
 COOLIFY_API_BASE = "http://72.62.228.112:8000/api/v1"
-TOKEN = "2|7ZrALjw36qMZj0y5ukoLpgIAxibac5yvbNXolQKE0b2ae2f7"
+TOKEN = "1|GQq5Q1JESHaawnDJ5kvW0lFevUgU4o2abzcH27y2b3b38466"
 APP_UUID = "zccs8wko40occg44888kwooc"
 
 HEADERS = {

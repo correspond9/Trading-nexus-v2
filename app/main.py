@@ -8,9 +8,8 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 
 from app.config                               import get_settings
 from app.database                             import init_db, close_db, get_pool
@@ -306,17 +305,6 @@ def create_app() -> FastAPI:
         allow_methods     = ["*"],
         allow_headers     = ["*"],
     )
-
-    @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(request: Request, exc: RequestValidationError):
-        # Log request validation errors to help debug 422s from the frontend.
-        log.warning(
-            "Validation error on %s %s: %s",
-            request.method,
-            request.url.path,
-            exc.errors(),
-        )
-        return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
     V2 = "/api/v2"
     app.include_router(admin.router,        prefix=V2)

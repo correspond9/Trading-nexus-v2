@@ -314,7 +314,7 @@ async def execute_basket(
             )
         if not im_row and symbol:
             im_row = await pool.fetchrow(
-                "SELECT * FROM instrument_master WHERE symbol=$1 LIMIT 1", symbol
+                "SELECT * FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1", symbol
             )
 
         # If exchange segment wasn't supplied, fall back to instrument master.
@@ -455,7 +455,7 @@ async def calculate_basket_margin(basket_id: str = Path(...)):
                 )
             if not im_row and symbol:
                 im_row = await pool.fetchrow(
-                    "SELECT instrument_token FROM instrument_master WHERE symbol=$1 LIMIT 1", 
+                    "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1", 
                     symbol
                 )
             if im_row:

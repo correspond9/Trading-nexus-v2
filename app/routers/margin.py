@@ -134,9 +134,11 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
         # IMPORTANT:
         # - The frontend sends `security_id` but it is actually the instrument_token.
         # - instrument_master does NOT have a `security_id` column.
+        # - Search in both symbol (DISPLAY_NAME) and underlying (SYMBOL/ticker) columns
+        #   because symbol now contains full company names for searchability.
         if instrument_token is None and sym:
             instrument_token = await pool.fetchval(
-                "SELECT instrument_token FROM instrument_master WHERE symbol=$1 LIMIT 1",
+                "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
                 sym,
             )
 

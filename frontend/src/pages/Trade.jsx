@@ -138,18 +138,37 @@ const Trade = () => {
       const firstLeg = legs[0];
       const expiryIso = isoExpiry || expiry;
       const underlyingFromLeg = String(firstLeg?.underlying || '').trim() || normalizeUnderlying(selectedIndex);
-      const fallbackLot = getConfiguredLotSize(underlyingFromLeg);
-      const resolvedLot = Number(firstLeg?.lotSize || fallbackLot || 1);
+      const resolvedExchangeSegment = firstLeg?.exchange_segment || firstLeg?.exchangeSegment || firstLeg?.exchange || '';
+      
+      // Check if this is an equity instrument
+      const isEquity = resolvedExchangeSegment.toUpperCase().includes('_EQ') || 
+                       resolvedExchangeSegment.toUpperCase() === 'NSE' || 
+                       resolvedExchangeSegment.toUpperCase() === 'BSE';
+      
+      // For equity instruments, lot size is always 1 (1 quantity = 1 stock)
+      // For derivatives (options/futures), use the configured lot size
+      let resolvedLot;
+      if (isEquity) {
+        resolvedLot = 1;
+      } else {
+        const fallbackLot = getConfiguredLotSize(underlyingFromLeg);
+        resolvedLot = Number(firstLeg?.lotSize || fallbackLot || 1);
+      }
 
       const resolvedSecurityId = firstLeg?.security_id || firstLeg?.securityId || firstLeg?.instrument_token || firstLeg?.instrumentToken || firstLeg?.token || null;
-      const resolvedExchangeSegment = firstLeg?.exchange_segment || firstLeg?.exchangeSegment || firstLeg?.exchange || '';
 
-      const normalizedLegs = legs.map((leg) => ({
-        ...leg,
-        security_id: String(leg?.security_id || leg?.securityId || leg?.instrument_token || leg?.instrumentToken || leg?.token || ''),
-        exchange_segment: leg?.exchange_segment || leg?.exchangeSegment || leg?.exchange || '',
-        lotSize: leg?.lotSize || resolvedLot,
-      }));
+      const normalizedLegs = legs.map((leg) => {
+        const legExchange = (leg?.exchange_segment || leg?.exchangeSegment || leg?.exchange || '').toUpperCase();
+        const legIsEquity = legExchange.includes('_EQ') || legExchange === 'NSE' || legExchange === 'BSE';
+        const legLotSize = legIsEquity ? 1 : (leg?.lotSize || resolvedLot);
+        
+        return {
+          ...leg,
+          security_id: String(leg?.security_id || leg?.securityId || leg?.instrument_token || leg?.instrumentToken || leg?.token || ''),
+          exchange_segment: leg?.exchange_segment || leg?.exchangeSegment || leg?.exchange || '',
+          lotSize: legLotSize,
+        };
+      });
 
       setModalOrderData({
         symbol: firstLeg.symbol,
@@ -172,8 +191,22 @@ const Trade = () => {
 
   const handleOpenOrderModalFromWatchlist = (instrument, side) => {
     if (!instrument) return;
+    const exchange = String(instrument?.exchange || '').toUpperCase();
+    const isEquity = exchange.includes('_EQ') || exchange === 'NSE' || exchange === 'BSE';
+    
+    // For equity instruments, lot size is always 1 (1 quantity = 1 stock)
+    // For derivatives (options/futures), use the configured lot size
+    let resolvedLotSize;
+    if (isEquity) {
+      resolvedLotSize = 1;
+    } else {
+      const resolvedUnderlying = String(instrument?.underlying || '').trim() || normalizeUnderlying(selectedIndex);
+      const fallbackLot = getConfiguredLotSize(resolvedUnderlying);
+      resolvedLotSize = instrument.lotSize || fallbackLot || 1;
+    }
+
     const resolvedUnderlying = String(instrument?.underlying || '').trim() || normalizeUnderlying(selectedIndex);
-    const fallbackLot = getConfiguredLotSize(resolvedUnderlying);
+    
     handleOpenOrderModal([
       {
         symbol: instrument.symbol,
@@ -181,7 +214,7 @@ const Trade = () => {
         exchange_segment: instrument.exchange,
         exchange: instrument.exchange,
         underlying: resolvedUnderlying,
-        lotSize: instrument.lotSize || fallbackLot || 1,
+        lotSize: resolvedLotSize,
         action: side || 'BUY',
       },
     ]);

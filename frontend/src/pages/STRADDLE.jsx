@@ -50,33 +50,32 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     }
   }, [symbol]);
 
-  // STRADDLE ATM RULE:
-  // Prefer authoritative ATM from cache; fallback to min CE+PE when ATM is missing.
+  // ATM RULE (unified for both OPTIONS and STRADDLE):
+  // Real-time calculation: find strike with minimum CE+PE premium (dynamic, updates each tick)
+  // Fallback to cached ATM if real-time ticks unavailable
   const straddleAtmStrike = useMemo(() => {
-    if (chainData?.atm_strike) {
-      return chainData.atm_strike;
+    if (chainData?.strikes && Object.keys(chainData.strikes).length > 0) {
+      let bestStrike = null;
+      let bestPremium = null;
+
+      Object.entries(chainData.strikes).forEach(([strikeStr, strikeData]) => {
+        const strike = parseFloat(strikeStr);
+        const ce = strikeData.CE?.ltp || 0;
+        const pe = strikeData.PE?.ltp || 0;
+        if (strike <= 0 || ce <= 0 || pe <= 0) return;
+
+        const straddle = ce + pe;
+        if (bestPremium === null || straddle < bestPremium) {
+          bestPremium = straddle;
+          bestStrike = strike;
+        }
+      });
+
+      if (bestStrike !== null) return bestStrike;
     }
-    if (!chainData?.strikes) {
-      return null;
-    }
 
-    let bestStrike = null;
-    let bestPremium = null;
-
-    Object.entries(chainData.strikes).forEach(([strikeStr, strikeData]) => {
-      const strike = parseFloat(strikeStr);
-      const ce = strikeData.CE?.ltp || 0;
-      const pe = strikeData.PE?.ltp || 0;
-      if (strike <= 0 || ce <= 0 || pe <= 0) return;
-
-      const straddle = ce + pe;
-      if (bestPremium === null || straddle < bestPremium) {
-        bestPremium = straddle;
-        bestStrike = strike;
-      }
-    });
-
-    return bestStrike;
+    // Fallback to cached ATM from backend if real-time data unavailable
+    return chainData?.atm_strike || chainData?.atm || null;
   }, [chainData]);
 
   // Compute center strike from straddle ATM (exclusive logic for this tab)

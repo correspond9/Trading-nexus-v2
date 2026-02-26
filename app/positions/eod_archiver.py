@@ -40,6 +40,9 @@ class EodClosedPositionArchiver:
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
+        self.last_run_at: datetime | None = None
+        self.last_run_result: ArchiveResult | None = None
+        self.last_run_error: str | None = None
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -116,12 +119,17 @@ class EodClosedPositionArchiver:
 
             try:
                 res = await self.run_once()
+                self.last_run_at = datetime.now(IST)
+                self.last_run_result = res
+                self.last_run_error = None
                 log.info(
                     "EOD archiver: archived %s CLOSED position(s) and %s order(s).",
                     res.archived_positions,
                     res.archived_orders,
                 )
             except Exception as exc:
+                self.last_run_at = datetime.now(IST)
+                self.last_run_error = str(exc)
                 log.exception("EOD archiver failed: %s", exc)
 
 

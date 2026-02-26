@@ -42,11 +42,30 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
   }, [chainData?.underlying_ltp]);
 
   const effectiveAtmStrike = React.useMemo(() => {
-    const interval = Number(chainData?.strike_interval || 0);
-    const ltp = Number(underlyingPrice || 0);
-    if (interval > 0 && ltp > 0) return Math.round(ltp / interval) * interval;
-    return getATMStrike();
-  }, [chainData?.strike_interval, underlyingPrice, getATMStrike]);
+    // Real-time calculation: find strike with minimum CE+PE premium (dynamic, updates each tick)
+    if (chainData?.strikes && Object.keys(chainData.strikes).length > 0) {
+      let bestStrike = null;
+      let bestPremium = null;
+
+      Object.entries(chainData.strikes).forEach(([strikeStr, strikeData]) => {
+        const strike = parseFloat(strikeStr);
+        const ce = strikeData.CE?.ltp || 0;
+        const pe = strikeData.PE?.ltp || 0;
+        if (strike <= 0 || ce <= 0 || pe <= 0) return;
+
+        const straddle = ce + pe;
+        if (bestPremium === null || straddle < bestPremium) {
+          bestPremium = straddle;
+          bestStrike = strike;
+        }
+      });
+
+      if (bestStrike !== null) return bestStrike;
+    }
+
+    // Fallback to cached ATM from backend if real-time data unavailable
+    return chainData?.atm_strike || chainData?.atm || null;
+  }, [chainData]);
 
   const strikes = React.useMemo(() => {
     if (!chainData || !chainData.strikes) return [];

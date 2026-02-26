@@ -84,7 +84,10 @@ async def get_scheduler_snapshot() -> dict:
             "running": bool(getattr(scrip_scheduler, "_task", None) and not scrip_scheduler._task.done()),
             "override": "n/a",
             "actions": ["start", "stop", "refresh"],
-            "details": {},
+            "details": {
+                "last_run_at": scrip_scheduler.last_run_at.isoformat() if scrip_scheduler.last_run_at else None,
+                "last_error": scrip_scheduler.last_run_error,
+            },
         },
         {
             "id": "nse_margin_scheduler",
@@ -94,7 +97,11 @@ async def get_scheduler_snapshot() -> dict:
             "running": bool(getattr(nse_margin_scheduler, "_task", None) and not nse_margin_scheduler._task.done()),
             "override": "n/a",
             "actions": ["start", "stop", "refresh"],
-            "details": {},
+            "details": {
+                "last_run_at": nse_margin_scheduler.last_run_at.isoformat() if nse_margin_scheduler.last_run_at else None,
+                "last_run_success": nse_margin_scheduler.last_run_success,
+                "last_error": nse_margin_scheduler.last_run_error,
+            },
         },
         {
             "id": "eod_closed_position_archiver",
@@ -104,7 +111,12 @@ async def get_scheduler_snapshot() -> dict:
             "running": bool(getattr(eod_closed_position_archiver, "_task", None) and not eod_closed_position_archiver._task.done()),
             "override": "n/a",
             "actions": ["start", "stop", "refresh"],
-            "details": {},
+            "details": {
+                "last_run_at": eod_closed_position_archiver.last_run_at.isoformat() if eod_closed_position_archiver.last_run_at else None,
+                "last_archived_positions": eod_closed_position_archiver.last_run_result.archived_positions if eod_closed_position_archiver.last_run_result else None,
+                "last_archived_orders": eod_closed_position_archiver.last_run_result.archived_orders if eod_closed_position_archiver.last_run_result else None,
+                "last_error": eod_closed_position_archiver.last_run_error,
+            },
         },
         {
             "id": "holidays",

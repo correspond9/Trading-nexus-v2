@@ -1078,6 +1078,9 @@ class NseMarginScheduler:
 
     def __init__(self) -> None:
         self._task: Optional[asyncio.Task] = None
+        self.last_run_at: Optional[datetime] = None
+        self.last_run_error: Optional[str] = None
+        self.last_run_success: Optional[bool] = None
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -1115,6 +1118,9 @@ class NseMarginScheduler:
                     )
                     ok = await download_and_refresh()
                     if ok:
+                        self.last_run_at = datetime.now(IST)
+                        self.last_run_success = True
+                        self.last_run_error = None
                         break
                     if attempt < self.MAX_RETRIES:
                         log.warning(
@@ -1123,6 +1129,9 @@ class NseMarginScheduler:
                         )
                         await asyncio.sleep(self.RETRY_INTERVAL)
                 else:
+                    self.last_run_at = datetime.now(IST)
+                    self.last_run_success = False
+                    self.last_run_error = "All retry attempts exhausted"
                     log.error(
                         "All NSE margin refresh attempts failed today; "
                         "carrying forward previous data until tomorrow."
@@ -1131,6 +1140,9 @@ class NseMarginScheduler:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
+                self.last_run_at = datetime.now(IST)
+                self.last_run_success = False
+                self.last_run_error = str(exc)
                 log.exception(f"NseMarginScheduler error: {exc}. Retrying in 1 hour.")
                 await asyncio.sleep(3600)
 

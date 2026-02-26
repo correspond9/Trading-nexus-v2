@@ -19,23 +19,50 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/trading/orders", tags=["Orders"])
 
 
-def _detect_instrument(symbol: str, exchange_segment: str) -> tuple[bool, bool, bool]:
-    """Detect (is_option, is_futures, is_commodity) from symbol + segment."""
+def _detect_instrument(
+    symbol: str,
+    exchange_segment: str,
+    instrument_type: Optional[str] = None,
+    option_type: Optional[str] = None,
+) -> tuple[bool, bool, bool]:
+    """Detect (is_option, is_futures, is_commodity) from symbol + segment + metadata."""
     sym = (symbol or "").upper()
     seg = (exchange_segment or "").upper()
+    inst = (instrument_type or "").upper()
+    opt = (option_type or "").upper()
 
-    is_option  = (
-        "OPT" in seg
-        or sym.endswith("CE")
-        or sym.endswith("PE")
-        or "CE " in sym
-        or "PE " in sym
+    is_option = False
+    if opt in {"CE", "PE"}:
+        is_option = True
+    elif inst.startswith("OPT"):
+        is_option = True
+    elif "OPT" in seg:
+        is_option = True
+    else:
+        if sym.endswith(("CE", "PE", "CALL", "PUT")):
+            is_option = True
+        elif " CE " in sym or " PE " in sym or " CALL " in sym or " PUT " in sym:
+            is_option = True
+        else:
+            parts = sym.replace("-", " ").replace("/", " ").split()
+            if parts and parts[-1] in {"CE", "PE", "CALL", "PUT"}:
+                is_option = True
+
+    is_commodity = (
+        "MCX" in seg
+        or "COM" in seg
+        or inst.endswith("COM")
+        or inst.startswith("FUTCOM")
+        or inst.startswith("OPTFUT")
     )
     is_futures = (
         not is_option
-        and ("FUT" in seg or seg in ("NSE_FNO", "BSE_FNO", "MCX_FO", "NSE_COM"))
+        and (
+            inst.startswith("FUT")
+            or "FUT" in seg
+            or seg in ("NSE_FNO", "BSE_FNO", "MCX_FO", "NSE_COM")
+        )
     )
-    is_commodity = "MCX" in seg or "COM" in seg
 
     return is_option, is_futures, is_commodity
 
@@ -67,7 +94,9 @@ def _calculate_required_margin(
     exchange_segment: str, 
     product_type: str, 
     symbol: str,
-    transaction_type: str = "BUY"
+    transaction_type: str = "BUY",
+    instrument_type: Optional[str] = None,
+    option_type: Optional[str] = None,
 ) -> dict:
     """
     Calculate required margin using NSE SPAN + ELM data.
@@ -76,7 +105,12 @@ def _calculate_required_margin(
     if qty <= 0:
         return {"total_margin": 0.0, "span_margin": 0.0, "exposure_margin": 0.0, "premium": 0.0}
     
-    is_option, is_futures, is_commodity = _detect_instrument(symbol, exchange_segment)
+    is_option, is_futures, is_commodity = _detect_instrument(
+        symbol,
+        exchange_segment,
+        instrument_type=instrument_type,
+        option_type=option_type,
+    )
     is_equity = not is_option and not is_futures and not is_commodity
     underlying = _extract_underlying(symbol)
 
@@ -151,9 +185,19 @@ async def place_paper_order(
     pool      = get_pool()
 
     # ── User status enforcement ────────────────────────────────────────────
-    _status_row = await pool.fetchrow(
-        "SELECT status FROM users WHERE id=$1::uuid", user_id
-    )
+    try:
+        uuid.UUID(str(user_id))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    try:
+        _status_row = await pool.fetchrow(
+            "SELECT status FROM users WHERE id=$1::uuid", user_id
+        )
+    except Exception as exc:
+        log.warning("User status check skipped: %s", exc)
+        _status_row = None
+
     if _status_row:
         _us = _status_row["status"]
         if _us == "BLOCKED":
@@ -183,13 +227,22 @@ async def place_paper_order(
     # ── Normalize/repair exchange_segment from instrument_master (robustness) ──
     # Look up exchange_segment from instrument_master if not provided
     seg_in = (body.exchange_segment or "").strip().upper()
+    inst_type = None
+    opt_type = None
     if token:
         im_seg_row = await pool.fetchrow(
-            "SELECT exchange_segment FROM instrument_master WHERE instrument_token=$1",
+            """
+            SELECT exchange_segment, instrument_type, option_type
+            FROM instrument_master
+            WHERE instrument_token=$1
+            """,
             int(token),
         )
         im_seg = (im_seg_row["exchange_segment"] if im_seg_row else None) or None
         im_seg_u = str(im_seg).strip().upper() if im_seg else ""
+        if im_seg_row:
+            inst_type = im_seg_row.get("instrument_type")
+            opt_type = im_seg_row.get("option_type")
 
         # Use database value if not provided or generic exchange name given
         if (not seg_in) or seg_in in {"NSE", "BSE", "MCX"}:
@@ -239,7 +292,14 @@ async def place_paper_order(
             # Lock paper_accounts row to prevent concurrent order race condition
             if side == "BUY":
                 margin_breakdown = _calculate_required_margin(
-                    fill_price, qty, body.exchange_segment, prod, body.symbol, side
+                    fill_price,
+                    qty,
+                    body.exchange_segment,
+                    prod,
+                    body.symbol,
+                    side,
+                    instrument_type=inst_type,
+                    option_type=opt_type,
                 )
                 required = margin_breakdown.get("total_margin")
                 if required is None:
@@ -423,7 +483,7 @@ async def list_orders(
     if current_user.role not in ("ADMIN", "SUPER_ADMIN") and user_id and str(user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="You can only view your own orders")
     
-    q     = "SELECT * FROM paper_orders WHERE user_id=$1"
+    q     = "SELECT * FROM paper_orders WHERE user_id=$1 AND archived_at IS NULL"
     args  = [uid]
     
     # Filter by status if provided

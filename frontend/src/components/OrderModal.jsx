@@ -49,6 +49,10 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
 
   const isMultiLeg = Array.isArray(orderData?.legs) && orderData.legs.length > 1;
   const lotSizePerLeg = Number(orderData?.lot_size || orderData?.lotSize || (isMultiLeg ? orderData?.legs?.[0]?.lotSize : 1) || 1);
+  
+  // Detect if this is an equity instrument (NSE_EQ, BSE_EQ, or just NSE/BSE)
+  const exchangeSegment = String(orderData?.exchange_segment || orderData?.exchange || '').toUpperCase();
+  const isEquityInstrument = exchangeSegment.includes('_EQ') || exchangeSegment === 'NSE' || exchangeSegment === 'BSE';
 
   // reset on open
   useEffect(() => {
@@ -233,7 +237,8 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
         apiService.clearCacheEntry('/trading/orders');
         window.dispatchEvent(new CustomEvent('orders:updated'));
         window.dispatchEvent(new CustomEvent('positions:updated'));
-        setSuccess(isMultiLeg ? `Straddle order placed — ${side} ${lots} lot(s) ×2` : `Order placed — ${side} ${lots} lot(s) × ${orderData?.symbol || ''}`);
+        const quantityLabel = isEquityInstrument ? `${qtyUnitsSingle} stock(s)` : `${lots} lot(s)`;
+        setSuccess(isMultiLeg ? `Straddle order placed — ${side} ${lots} lot(s) ×2` : `Order placed — ${side} ${quantityLabel} × ${orderData?.symbol || ''}`);
       }
       setTimeout(() => { setSuccess(""); onClose?.(); }, 1500);
     } catch (err) {
@@ -319,13 +324,21 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
 
           {/* Quantity */}
           <div style={inputGroup}>
-            <label style={label}>Quantity (Lots per leg)</label>
+            <label style={label}>
+              {isEquityInstrument ? 'Quantity (Stocks)' : 'Quantity (Lots per leg)'}
+            </label>
             <input type="number" min="1" value={quantity} onChange={e => setQuantity(e.target.value)} style={input} />
           </div>
 
-          <div style={{ fontSize: '11px', color: '#a1a1aa', marginTop: '-6px', marginBottom: '10px' }}>
-            Lot size: {Number(lotSizePerLeg || 1)} (Qty = lots × lot size)
-          </div>
+          {isEquityInstrument ? (
+            <div style={{ fontSize: '11px', color: '#a1a1aa', marginTop: '-6px', marginBottom: '10px' }}>
+              For equity: 1 quantity = 1 stock
+            </div>
+          ) : (
+            <div style={{ fontSize: '11px', color: '#a1a1aa', marginTop: '-6px', marginBottom: '10px' }}>
+              Lot size: {Number(lotSizePerLeg || 1)} (Qty = lots × lot size)
+            </div>
+          )}
 
           {/* Limit price */}
           {priceType === "LIMIT" && (

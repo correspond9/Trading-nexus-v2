@@ -150,14 +150,22 @@ def _build_record(row: dict, tier: str) -> tuple:
     Returns a tuple in INSERT column order:
     (token, exchange_segment, symbol, underlying, itype, expiry, strike,
      opt_type, tick_size, lot_size, tier, ws_slot, isin, display_name, series)
+
+    CSV Column Mapping:
+      symbol DB field    ← DISPLAY_NAME (user-friendly searchable name, e.g. "MARUTI SUZUKI INDIA LTD")
+      underlying DB field ← UNDERLYING_SYMBOL (base asset, e.g. "MARUTI", "NIFTY")
+      display_name DB field ← SYMBOL_NAME (the trading ticker for reference, e.g. "MARUTI")
     """
     token    = int(row["SECURITY_ID"])
     exch_id  = (row.get("EXCH_ID") or "").strip().upper()
     seg_code = (row.get("SEGMENT") or "").strip().upper()
     segment  = _map_exchange_segment(exch_id, seg_code)
     # Use DISPLAY_NAME for searchable symbol field (user-friendly names like "MARUTI SUZUKI INDIA LTD")
+    # Fallback to SYMBOL_NAME if DISPLAY_NAME is missing (backward compatibility)
     symbol   = (row.get("DISPLAY_NAME") or row.get("SYMBOL_NAME") or "").strip()
-    under    = (row.get("UNDERLYING_SYMBOL") or row.get("SYMBOL_NAME") or symbol).strip().upper()
+    # Underlying symbol for options/futures. Use UNDERLYING_SYMBOL (e.g. "NIFTY")
+    # Fallback to symbol if UNDERLYING_SYMBOL is missing (for equities where underlying = symbol)
+    under    = (row.get("UNDERLYING_SYMBOL") or symbol).strip().upper()
     itype    = (row.get("INSTRUMENT") or "").strip().upper()
     expiry   = _parse_expiry(row.get("SM_EXPIRY_DATE", ""))
     strike_s = (row.get("STRIKE_PRICE") or "").strip()
@@ -168,8 +176,9 @@ def _build_record(row: dict, tier: str) -> tuple:
     lot_s    = (row.get("LOT_SIZE") or "1").strip()
     lot      = int(float(lot_s)) if lot_s else 1
     isin     = (row.get("ISIN") or "").strip() or None
-    # Store SYMBOL_NAME in display_name for reference (the actual ticker symbol)
-    display  = (row.get("SYMBOL_NAME") or "").strip() or None
+    # Store SYMBOL_NAME in display_name for reference (the actual trading ticker symbol)
+    # Fallback to DISPLAY_NAME if SYMBOL_NAME is missing for consistency
+    display  = (row.get("SYMBOL_NAME") or row.get("DISPLAY_NAME") or "").strip() or None
     series   = (row.get("SERIES") or "").strip() or None
     ws       = _ws_slot(token) if tier == "B" else None
 
@@ -245,7 +254,8 @@ async def seed_subscription_lists_if_empty() -> None:
 
     log.info("Seeding subscription lists from local CSV files…")
 
-    # Build display_name.upper() → UNDERLYING_SYMBOL from local master CSV
+    # Build DISPLAY_NAME.upper() → UNDERLYING_SYMBOL from local master CSV
+    # This maps user-friendly names to base asset symbols for subscription list matching
     display_to_symbol: dict[str, str] = {}
     with open(LOCAL_CSV, newline="", encoding="utf-8", errors="replace") as f:
         for row in csv.DictReader(f):
@@ -383,7 +393,8 @@ async def _refresh_from_content(content: str) -> None:
                 batch.clear()
 
         except Exception as exc:
-            log.debug(f"Skipping row {row.get('SYMBOL_NAME', '?')}: {exc}")
+            symbol_info = row.get('DISPLAY_NAME') or row.get('SYMBOL_NAME') or '?'
+            log.debug(f"Skipping row {symbol_info}: {exc}")
 
     if batch:
         await _upsert_batch(pool, batch)
@@ -554,6 +565,9 @@ class ScripMasterScheduler:
 
     def __init__(self) -> None:
         self._task: Optional[asyncio.Task] = None
+        self.last_run_at: Optional[datetime] = None
+        self.last_run_error: Optional[str] = None
+        self.last_instrument_count: Optional[int] = None
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -582,9 +596,13 @@ class ScripMasterScheduler:
                 await asyncio.sleep(seconds)
                 log.info("ScripMasterScheduler: triggering daily scrip master refresh…")
                 await refresh_instruments(download=True)
+                self.last_run_at = datetime.now(IST)
+                self.last_run_error = None
             except asyncio.CancelledError:
                 break
             except Exception as exc:
+                self.last_run_at = datetime.now(IST)
+                self.last_run_error = str(exc)
                 log.exception(f"ScripMasterScheduler error: {exc}. Retrying in 1 hour.")
                 await asyncio.sleep(3600)
 

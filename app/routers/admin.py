@@ -331,6 +331,26 @@ async def set_greeks_interval(req: GreeksIntervalRequest):
     return {"greeks_poll_seconds": req.seconds}
 
 
+@router.post("/close-price/rollover")
+@router.post("/close-price/rollover/")
+async def force_close_price_rollover(
+    caller: CurrentUser = Depends(get_super_admin_user),
+):
+    """
+    Force immediate close price rollover (SUPER_ADMIN only).
+    Updates market_data.close = LTP for all instruments.
+    """
+    from app.market_data.close_price_rollover import close_price_rollover
+    
+    result = await close_price_rollover.force_rollover()
+    return {
+        "status": "completed",
+        "rollover_date": str(result["rollover_date"]),
+        "updated_count": result["updated_count"],
+        "skipped_count": result["skipped_count"],
+    }
+
+
 @router.get("/users")
 @router.get("/users/")
 async def list_users(

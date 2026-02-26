@@ -21,6 +21,7 @@ from app.database                 import get_pool
 from app.market_data.rate_limiter import dhan_client
 from app.market_hours             import is_market_open, is_equity_window_active
 from app.instruments.atm_calculator import update_atm, get_atm
+from app.market_data.close_price_validator import validate_close_price
 
 log = logging.getLogger(__name__)
 cfg = get_settings()
@@ -296,6 +297,29 @@ class _GreeksPoller:
 
         pool = get_pool()
         allowed = await self._allowed_strikes_from_master(underlying, expiry_date)
+        
+        # Fetch existing prev_close values for validation
+        tokens_to_fetch = []
+        for strike_str, strikes_data in oc.items():
+            for opt_type, opt_data in strikes_data.items():
+                sec_id = opt_data.get("security_id")
+                if sec_id:
+                    tokens_to_fetch.append(int(sec_id))
+        
+        existing_prev_close = {}
+        if tokens_to_fetch:
+            existing_rows = await pool.fetch(
+                "SELECT instrument_token, prev_close FROM option_chain_data "
+                "WHERE instrument_token = ANY($1::bigint[])",
+                tokens_to_fetch,
+            )
+            existing_prev_close = {
+                r["instrument_token"]: float(r["prev_close"]) if r["prev_close"] else None
+                for r in existing_rows
+            }
+        
+        is_market_active = is_equity_window_active()
+        
         rows = []
         for strike_str, strikes_data in oc.items():
             try:
@@ -312,8 +336,34 @@ class _GreeksPoller:
                 if not sec_id:
                     continue
 
+                sec_id_int = int(sec_id)
+                prev_close = opt_data.get("previous_close_price")
+                
+                # Validate prev_close before storing
+                if prev_close is not None:
+                    symbol = f"{underlying} {strike}{opt_type.upper()}"
+                    existing = existing_prev_close.get(sec_id_int)
+                    ltp = opt_data.get("last_price")
+                    
+                    is_valid, reason = validate_close_price(
+                        close_price=prev_close,
+                        instrument_token=sec_id_int,
+                        prev_close=existing,
+                        ltp=ltp,
+                        is_market_open=is_market_active,
+                        symbol=symbol
+                    )
+                    
+                    # If validation fails, skip this prev_close
+                    if not is_valid:
+                        prev_close = None
+                        log.warning(
+                            f"[GREEKS] Rejected prev_close for {symbol} "
+                            f"({sec_id_int}): {reason}"
+                        )
+
                 rows.append((
-                    int(sec_id),
+                    sec_id_int,
                     underlying,
                     expiry_date,
                     strike,
@@ -323,12 +373,29 @@ class _GreeksPoller:
                     greeks.get("theta"),
                     greeks.get("gamma"),
                     greeks.get("vega"),
-                    opt_data.get("previous_close_price"),
+                    prev_close,  # Validated prev_close (or None if invalid)
                     opt_data.get("previous_oi"),
                 ))
 
                 # Also seed market_data with last_price if not yet present
+                # Validate close price here too
                 if opt_data.get("last_price") is not None:
+                    close_for_market_data = opt_data.get("previous_close_price")
+                    
+                    # Validate before seeding market_data
+                    if close_for_market_data is not None:
+                        symbol = f"{underlying} {strike}{opt_type.upper()}"
+                        is_valid, _ = validate_close_price(
+                            close_price=close_for_market_data,
+                            instrument_token=sec_id_int,
+                            prev_close=None,  # New seed, no previous
+                            ltp=opt_data.get("last_price"),
+                            is_market_open=is_market_active,
+                            symbol=symbol
+                        )
+                        if not is_valid:
+                            close_for_market_data = None
+                    
                     seg = "NSE_FNO"
                     if underlying in ("SENSEX", "BANKEX"):
                         seg = "BSE_FNO"
@@ -339,10 +406,10 @@ class _GreeksPoller:
                         VALUES ($1, $2, $3, $4, now())
                         ON CONFLICT (instrument_token) DO NOTHING
                         """,
-                        int(sec_id),
+                        sec_id_int,
                         seg,
                         opt_data["last_price"],
-                        opt_data.get("previous_close_price"),
+                        close_for_market_data,
                     )
 
         if not rows:

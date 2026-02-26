@@ -47,23 +47,50 @@ def _uid(request: Request, user_id_param, current_user: Optional[CurrentUser] = 
     raise HTTPException(status_code=401, detail="Authentication required")
 
 
-def _detect_instrument(symbol: str, exchange_segment: str) -> tuple[bool, bool, bool]:
-    """Detect (is_option, is_futures, is_commodity) from symbol + segment."""
+def _detect_instrument(
+    symbol: str,
+    exchange_segment: str,
+    instrument_type: Optional[str] = None,
+    option_type: Optional[str] = None,
+) -> tuple[bool, bool, bool]:
+    """Detect (is_option, is_futures, is_commodity) from symbol + segment + metadata."""
     sym = (symbol or "").upper()
     seg = (exchange_segment or "").upper()
+    inst = (instrument_type or "").upper()
+    opt = (option_type or "").upper()
 
-    is_option  = (
-        "OPT" in seg
-        or sym.endswith("CE")
-        or sym.endswith("PE")
-        or "CE " in sym
-        or "PE " in sym
+    is_option = False
+    if opt in {"CE", "PE"}:
+        is_option = True
+    elif inst.startswith("OPT"):
+        is_option = True
+    elif "OPT" in seg:
+        is_option = True
+    else:
+        if sym.endswith(("CE", "PE", "CALL", "PUT")):
+            is_option = True
+        elif " CE " in sym or " PE " in sym or " CALL " in sym or " PUT " in sym:
+            is_option = True
+        else:
+            parts = sym.replace("-", " ").replace("/", " ").split()
+            if parts and parts[-1] in {"CE", "PE", "CALL", "PUT"}:
+                is_option = True
+
+    is_commodity = (
+        "MCX" in seg
+        or "COM" in seg
+        or inst.endswith("COM")
+        or inst.startswith("FUTCOM")
+        or inst.startswith("OPTFUT")
     )
     is_futures = (
         not is_option
-        and ("FUT" in seg or seg in ("NSE_FNO", "BSE_FNO", "MCX_FO", "NSE_COM"))
+        and (
+            inst.startswith("FUT")
+            or "FUT" in seg
+            or seg in ("NSE_FNO", "BSE_FNO", "MCX_FO", "NSE_COM")
+        )
     )
-    is_commodity = "MCX" in seg or "COM" in seg
 
     return is_option, is_futures, is_commodity
 
@@ -109,6 +136,8 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
     price = body.price or 0.0
     sym   = (body.symbol or "").strip()
     seg   = (body.exchange_segment or "").strip()
+    inst_type = None
+    opt_type = None
 
     instrument_token: Optional[int] = None
     if body.security_id is not None:
@@ -119,7 +148,11 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
     # Normalize exchange segment and symbol using instrument_master when possible.
     if instrument_token:
         im = await pool.fetchrow(
-            "SELECT symbol, exchange_segment FROM instrument_master WHERE instrument_token=$1",
+            """
+            SELECT symbol, exchange_segment, instrument_type, option_type
+            FROM instrument_master
+            WHERE instrument_token=$1
+            """,
             instrument_token,
         )
         if im:
@@ -128,6 +161,8 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
             # Prefer database exchange_segment for accurate instrument detection
             if (not seg) or seg.upper() in {"NSE", "BSE", "MCX", "NSE_FNO"}:
                 seg = (im.get("exchange_segment") or "").strip()
+            inst_type = im.get("instrument_type")
+            opt_type = im.get("option_type")
 
     # ── Resolve LTP if price not supplied ────────────────────────────────────
     if price == 0.0 and (instrument_token or sym):
@@ -156,7 +191,12 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
     qty      = int(body.quantity or 1)
     tx_type  = (body.transaction_type or "BUY").upper()
 
-    is_option, is_futures, is_commodity = _detect_instrument(sym, seg)
+    is_option, is_futures, is_commodity = _detect_instrument(
+        sym,
+        seg,
+        instrument_type=inst_type,
+        option_type=opt_type,
+    )
     is_equity = not is_option and not is_futures and not is_commodity
 
     # ── Cash equity margin (qty × price) ─────────────────────────────────────

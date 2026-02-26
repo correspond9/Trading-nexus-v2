@@ -16,6 +16,8 @@ from collections import defaultdict
 from app.database import get_pool
 from app.config   import get_settings
 from app.runtime.notifications import add_notification
+from app.market_data.close_price_validator import validate_close_price
+from app.market_hours import is_equity_window_active
 
 log = logging.getLogger(__name__)
 cfg = get_settings()
@@ -122,12 +124,60 @@ class _TickProcessor:
         )
         meta = {r["instrument_token"]: r for r in meta_rows}
 
+        # Fetch existing close prices for validation
+        existing_rows = await pool.fetch(
+            "SELECT instrument_token, close, ltp "
+            "FROM market_data WHERE instrument_token = ANY($1::bigint[])",
+            tokens,
+        )
+        existing_data = {
+            r["instrument_token"]: {
+                "prev_close": float(r["close"]) if r["close"] else None,
+                "prev_ltp": float(r["ltp"]) if r["ltp"] else None,
+            }
+            for r in existing_rows
+        }
+
+        is_market_active = is_equity_window_active()
+
         rows = []
         for tick in batch:
             t   = tick["instrument_token"]
             m   = meta.get(t, {})
             sym = m.get("symbol") or tick.get("symbol")
             seg = m.get("exchange_segment") or tick.get("exchange_segment", "NSE_FNO")
+
+            # Validate close price before storing
+            close_price = tick.get("close")
+            if close_price is not None:
+                existing = existing_data.get(t, {})
+                prev_close = existing.get("prev_close")
+                current_ltp = tick.get("ltp")
+                
+                is_valid, reason = validate_close_price(
+                    close_price=close_price,
+                    instrument_token=t,
+                    prev_close=prev_close,
+                    ltp=current_ltp,
+                    is_market_open=is_market_active,
+                    symbol=sym or "UNKNOWN"
+                )
+                
+                # If validation fails, skip this close price (set to None)
+                if not is_valid:
+                    close_price = None
+                    # Optionally log to notifications for admin visibility
+                    try:
+                        await add_notification(
+                            category="close_price_validation",
+                            severity="warning",
+                            title=f"Invalid close price rejected: {sym}",
+                            message=reason or "Unknown validation error",
+                            dedupe_key=f"close-invalid-{t}",
+                            dedupe_ttl_seconds=3600,
+                        )
+                    except Exception:
+                        pass
 
             bid = json.dumps(tick.get("bid_depth")) if tick.get("bid_depth") else None
             ask = json.dumps(tick.get("ask_depth")) if tick.get("ask_depth") else None
@@ -140,7 +190,7 @@ class _TickProcessor:
                 tick.get("open"),
                 tick.get("high"),
                 tick.get("low"),
-                tick.get("close"),
+                close_price,  # Validated close price (or None if invalid)
                 bid,
                 ask,
                 tick.get("ltt"),

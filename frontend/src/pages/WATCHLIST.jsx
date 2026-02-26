@@ -71,6 +71,9 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     strikePrice: item.strike_price ?? null,
     optionType: item.option_type ?? null,
     change_pct: item.change_pct ?? null,
+    tier: item.tier || 'B',  // 'A' = on-demand, 'B' = always subscribed
+    hasPosition: item.has_position ?? false,  // whether in open positions
+    addedAt: item.added_at ?? null,  // timestamp when added to watchlist
   }));
 
   const hydrateFromServer = useCallback(async () => {
@@ -555,6 +558,32 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span style={symbolStyle}>{title}</span>
+                        {/* Tier indicator badge */}
+                        <span style={{ 
+                          fontSize: '10px', 
+                          padding: '2px 6px', 
+                          borderRadius: '3px',
+                          backgroundColor: inst.tier === 'A' ? 'rgba(255,165,0,0.2)' : 'rgba(76,175,80,0.2)',
+                          color: inst.tier === 'A' ? '#FFA500' : '#4CAF50',
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {inst.tier === 'A' ? 'Tier-A' : 'Tier-B'}
+                        </span>
+                        {/* Position indicator */}
+                        {inst.tier === 'A' && (
+                          <span style={{
+                            fontSize: '10px',
+                            padding: '2px 6px',
+                            borderRadius: '3px',
+                            backgroundColor: inst.hasPosition ? 'rgba(76,175,80,0.2)' : 'rgba(244,67,54,0.2)',
+                            color: inst.hasPosition ? '#4CAF50' : '#F44336',
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap'
+                          }}>
+                            {inst.hasPosition ? '✓ Position' : '⊘ No Position'}
+                          </span>
+                        )}
                       </div>
                       <span style={exStyle}>{inst.exchange}</span>
                     </div>

@@ -36,6 +36,7 @@ def serialize_tick(row: dict[str, Any], segment: str = "NSE_EQ", symbol: str = "
     out: dict[str, Any] = {
         "instrument_token": row.get("instrument_token"),
         "ltp":              _f(ltp),
+        "close":            _f(close),  # ✅ ALWAYS include close price
         "change_pct":       change_pct,
         "ltt":              _dt(row.get("ltt")),
         "updated_at":       _dt(updated),
@@ -43,12 +44,11 @@ def serialize_tick(row: dict[str, Any], segment: str = "NSE_EQ", symbol: str = "
         "is_stale":         is_stale(updated, segment),
     }
 
-    # OHLC — only during OPEN and POST_CLOSE
+    # OHLC — only open/high/low during OPEN and POST_CLOSE
     if state in (MarketState.OPEN, MarketState.POST_CLOSE):
         out["open"]  = _f(row.get("open"))
         out["high"]  = _f(row.get("high"))
         out["low"]   = _f(row.get("low"))
-        out["close"] = _f(close)
 
     # Depth — only during OPEN
     if state == MarketState.OPEN:

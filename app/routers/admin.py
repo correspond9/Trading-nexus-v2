@@ -2955,7 +2955,7 @@ async def get_logo():
 
 @router.delete("/logo")
 async def delete_logo(current_user: CurrentUser = Depends(get_super_admin_user)):
-    """Delete the current logo (SUPER_ADMIN only)."""
+    """Delete current logo (SUPER_ADMIN only)."""
     from app.database import get_pool
     pool = get_pool()
     await pool.execute(

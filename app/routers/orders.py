@@ -258,7 +258,14 @@ async def place_paper_order(
                 "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
                 body.symbol.strip(),
             )
-            token = row["instrument_token"] if row else 0
+            if row:
+                token = row["instrument_token"]
+            else:
+                log.error(f"Order placement failed: Symbol '{body.symbol}' not found in instrument_master")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Instrument not found: {body.symbol}"
+                )
         else:
             log.error(f"Order placement failed: No instrument identifier provided (no token and no symbol)")
             raise HTTPException(

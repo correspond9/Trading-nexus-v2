@@ -2358,7 +2358,7 @@ async def delete_brokerage_plan(
 ):
     """
     Delete (deactivate) a brokerage plan (SUPER_ADMIN only).
-    Doesn't actually delete, just marks as inactive.
+    Does not actually delete, just marks as inactive.
     """
     from app.database import get_pool
     pool = get_pool()
@@ -2551,14 +2551,14 @@ async def delete_all_user_positions(
     current_user: CurrentUser = Depends(get_super_admin_user),
 ):
     """
-    COMPLETELY DELETE ALL DATA related to a user's positions:
+    Delete ALL DATA related to user positions:
     - paper_positions (all)
     - paper_orders (all)
     - paper_trades (all)
     - ledger_entries (all)
     - trade_history (all)
     
-    This is irreversible! Used for clearing wrong backdated entries.
+    This is IRREVERSIBLE. Used for clearing wrong backdated entries.
     """
     from app.database import get_pool
     pool = get_pool()

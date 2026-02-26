@@ -6,7 +6,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 from app.database                              import get_pool
 from app.dependencies                          import CurrentUser, get_current_user
@@ -156,10 +156,10 @@ def _uid(request: Request, user_id_param) -> str:
 
 class PlaceOrderRequest(BaseModel):
     user_id:          Optional[str]   = None
-    symbol:           str             = ""
+    symbol:           Optional[str]   = None
     security_id:      Optional[int]   = None
     instrument_token: Optional[int]   = None
-    exchange_segment: str             = ""
+    exchange_segment: Optional[str]   = None
     transaction_type: Optional[str]   = None
     side:             Optional[str]   = None
     quantity:         int             = 1
@@ -172,6 +172,26 @@ class PlaceOrderRequest(BaseModel):
     target_price:     Optional[float] = None
     stop_loss_price:  Optional[float] = None
     trailing_jump:    Optional[float] = None
+
+    @validator('symbol', 'exchange_segment', pre=True)
+    def empty_str_to_none(cls, v):
+        if v == "" or v is None:
+            return ""
+        return str(v).strip()
+
+    @validator('quantity', pre=True)
+    def coerce_quantity(cls, v):
+        if v is None or v == "":
+            return 1
+        return int(v)
+
+    @validator('is_super', pre=True)
+    def coerce_bool(cls, v):
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ('true', '1', 'yes')
+        return bool(v)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -190,6 +210,8 @@ async def place_paper_order(
     
     user_id   = body.user_id or current_user.id
     pool      = get_pool()
+    
+    log.info(f"Order placement attempt - User: {current_user.id} (role: {current_user.role}), Target: {user_id}, Symbol: {body.symbol}, Side: {body.side or body.transaction_type}")
 
     # ── User status enforcement ────────────────────────────────────────────
     try:
@@ -225,11 +247,18 @@ async def place_paper_order(
     token     = body.security_id or body.instrument_token
 
     if not token:
-        row = await pool.fetchrow(
-            "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
-            body.symbol,
-        )
-        token = row["instrument_token"] if row else 0
+        if body.symbol and body.symbol.strip():
+            row = await pool.fetchrow(
+                "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
+                body.symbol.strip(),
+            )
+            token = row["instrument_token"] if row else 0
+        else:
+            log.error(f"Order placement failed: No instrument identifier provided (no token and no symbol)")
+            raise HTTPException(
+                status_code=400,
+                detail="Either security_id/instrument_token or symbol must be provided"
+            )
 
     # ── Normalize/repair exchange_segment from instrument_master (robustness) ──
     # Look up exchange_segment from instrument_master if not provided

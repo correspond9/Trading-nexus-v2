@@ -255,10 +255,37 @@ async def place_paper_order(
 
         if not token:
             if body.symbol and body.symbol.strip():
+                symbol_clean = body.symbol.strip()
+                
+                # Try exact match first
                 row = await pool.fetchrow(
-                    "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
-                    body.symbol.strip(),
+                    "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR display_name ILIKE $1 LIMIT 1",
+                    symbol_clean,
                 )
+                
+                # If no match, try parsing option format "NIFTY 25500 CE" and construct display_name pattern
+                if not row and (" CE" in symbol_clean.upper() or " PE" in symbol_clean.upper()):
+                    import re
+                    # Parse "NIFTY 25500 CE" format
+                    match = re.match(r"(\w+)\s+(\d+)\s+(CE|PE)", symbol_clean, re.IGNORECASE)
+                    if match:
+                        underlying_sym, strike, opt_type = match.groups()
+                        # Try display_name pattern like "NIFTY-Mar2026-25500-CE"
+                        row = await pool.fetchrow(
+                            """
+                            SELECT instrument_token FROM instrument_master 
+                            WHERE underlying = $1 
+                              AND strike_price = $2 
+                              AND option_type = $3
+                              AND expiry_date >= CURRENT_DATE
+                            ORDER BY expiry_date ASC
+                            LIMIT 1
+                            """,
+                            underlying_sym.upper(),
+                            float(strike),
+                            opt_type.upper(),
+                        )
+                
                 if row:
                     token = row["instrument_token"]
                 else:

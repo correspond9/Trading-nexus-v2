@@ -7,6 +7,7 @@ POST /watchlist/remove             → {user_id, token}
 import logging
 import uuid
 from typing import Optional
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi import Depends
@@ -51,9 +52,75 @@ class RemoveItemRequest(BaseModel):
     token:   Optional[str] = None
 
 
+# ── Helper functions ──────────────────────────────────────────────────────────
+
+async def _auto_clean_tier_a(pool, watchlist_id: str) -> None:
+    """
+    Remove Tier-A watchlist items that have NO open position.
+    
+    Cleanup Schedule:
+    - Every day after 4 PM IST (16:00), all Tier-A items without positions are removed
+    - This happens automatically when user refreshes watchlist after 4 PM
+    - Prevents clutter from expired options and one-time trades
+    
+    Tier-B items are NEVER removed automatically.
+    """
+    # Get current time in IST (UTC+5:30)
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(ist_tz)
+    
+    # Check if current time is >= 4 PM (16:00) IST
+    is_cleanup_time = now_ist.hour >= 16
+    
+    if is_cleanup_time:
+        # Find Tier-A items with no open position
+        old_tier_a = await pool.fetch(
+            """
+            SELECT wi.instrument_token
+            FROM watchlist_items wi
+            LEFT JOIN instrument_master im ON im.instrument_token = wi.instrument_token
+            WHERE wi.watchlist_id = $1
+              AND im.tier = 'A'
+              AND NOT EXISTS (
+                  SELECT 1 FROM paper_positions pp
+                  WHERE pp.instrument_token = wi.instrument_token
+                  AND pp.quantity != 0
+              )
+            """,
+            watchlist_id,
+        )
+        
+        # Delete them
+        if old_tier_a:
+            tokens_to_delete = [row["instrument_token"] for row in old_tier_a]
+            await pool.execute(
+                "DELETE FROM watchlist_items WHERE watchlist_id = $1 AND instrument_token = ANY($2::bigint[])",
+                watchlist_id,
+                tokens_to_delete,
+            )
+            log.info(
+                f"Auto-cleaned {len(old_tier_a)} Tier-A items (no position) from watchlist {watchlist_id} at {now_ist.strftime('%H:%M')} IST"
+            )
+    else:
+        # Before 4 PM - keep all Tier-A items (even without position)
+        log.debug(f"Not cleanup time yet (current IST: {now_ist.strftime('%H:%M')}). Keeping all Tier-A items.")
+
+
 @router.get("/{user_id}")
 async def get_watchlist(user_id: str, request: Request):
-    """Return flat list of all watchlist instruments for a user."""
+    """Return flat list of all watchlist instruments for a user.
+    
+    Behavior:
+    - Tier-B (subscribed) items: Always returned (keep permanently)
+    - Tier-A (on-demand) items: 
+      a) Returned if they have an open position, OR
+      b) Returned if current time is before 4 PM IST, OR
+      c) Removed if after 4 PM IST and no open position
+    
+    Auto-cleaning: 
+    - After 4 PM IST daily, all Tier-A items with no position are removed from watchlist
+    - This cleanup happens automatically when user refreshes watchlist after 4 PM
+    """
     user_id = _require_uuid(user_id)
     pool = get_pool()
 
@@ -66,6 +133,10 @@ async def get_watchlist(user_id: str, request: Request):
         # No watchlist yet — return empty list
         return {"data": []}
 
+    # Auto-clean Tier-A items with no position (older than 1 hour)
+    await _auto_clean_tier_a(pool, wl["watchlist_id"])
+
+    # Fetch watchlist items with tier and position info
     rows = await pool.fetch(
         """
         SELECT wi.instrument_token AS token,
@@ -81,8 +152,15 @@ async def get_watchlist(user_id: str, request: Request):
                im.expiry_date,
                im.strike_price,
                im.option_type,
+               im.tier,
                md.ltp,
-               md.close
+               md.close,
+               wi.added_at,
+               CASE WHEN EXISTS(
+                   SELECT 1 FROM paper_positions pp 
+                   WHERE pp.instrument_token = wi.instrument_token 
+                   AND pp.quantity != 0
+               ) THEN true ELSE false END as has_position
         FROM watchlist_items wi
         LEFT JOIN instrument_master im ON im.instrument_token = wi.instrument_token
         LEFT JOIN market_data md ON md.instrument_token = wi.instrument_token
@@ -101,6 +179,9 @@ async def get_watchlist(user_id: str, request: Request):
         if item.get("expiry_date"):
             item["expiry_date"] = str(item["expiry_date"])
         item["strike_price"] = float(item["strike_price"]) if item.get("strike_price") is not None else None
+        item["tier"] = item.get("tier") or "B"
+        item["added_at"] = item["added_at"].isoformat() if item.get("added_at") else None
+        item["has_position"] = bool(item.get("has_position"))
         result.append(item)
 
     return {"data": result}

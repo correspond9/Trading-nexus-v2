@@ -73,13 +73,9 @@ const PositionsTab = () => {
       setSelectedOpenIds(new Set());
     } catch (err) {
       console.error('Error exiting positions:', err);
-      setPositions((prev) => prev.map((p) => {
-        if (!idsSet.has(p.id) || p.status !== "OPEN") return p;
-        const exitPrice = parseFloat(p.currentLtp);
-        const entry = parseFloat(p.avgEntry);
-        const realized = p.side === "BUY" ? p.qty * (exitPrice - entry) : p.qty * (entry - exitPrice);
-        return { ...p, status: "CLOSED", exitPrice: exitPrice.toFixed(2), exitTime: new Date().toLocaleTimeString("en-IN", { hour12: true }), realizedPnl: realized };
-      }));
+      const errorMsg = err?.data?.detail || err?.message || 'Failed to close position';
+      alert(`❌ Position Exit Failed\n\n${errorMsg}\n\nPlease try again or contact support if the issue persists.`);
+      await fetchPositions(); // Refresh to show actual state
       setSelectedOpenIds(new Set());
     }
   };

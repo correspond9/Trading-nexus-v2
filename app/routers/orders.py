@@ -175,7 +175,6 @@ class PlaceOrderRequest(BaseModel):
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-@router.post("/", status_code=status.HTTP_201_CREATED)
 async def place_paper_order(
     body: PlaceOrderRequest,
     request: Request,

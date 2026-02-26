@@ -95,25 +95,20 @@ async def close_position(
                 detail="Your account is blocked. You can only submit payout requests.",
             )
 
-        # position_id is a UUID string
+        # position_id is the instrument_token (sent as id from frontend)
+        try:
+            token = int(position_id)
+        except (ValueError, TypeError):
+            log.error(f"Invalid position_id format: {position_id}")
+            raise HTTPException(status_code=400, detail="Invalid position ID format")
+
         row = await pool.fetchrow(
-            "SELECT * FROM paper_positions WHERE user_id=$1::uuid AND id=$2::uuid",
-            uid, position_id,
+            "SELECT * FROM paper_positions WHERE user_id=$1::uuid AND instrument_token=$2",
+            uid, token,
         )
 
         if not row:
-            # Try as instrument_token (old format)
-            try:
-                token = int(position_id)
-                row = await pool.fetchrow(
-                    "SELECT * FROM paper_positions WHERE user_id=$1::uuid AND instrument_token=$2",
-                    uid, token,
-                )
-            except (ValueError, TypeError):
-                pass
-
-        if not row:
-            log.warning(f"Close position failed: Position {position_id} not found for user {uid}")
+            log.warning(f"Close position failed: Position {position_id} (token={token}) not found for user {uid}")
             raise HTTPException(status_code=404, detail="Position not found")
 
         # Extract position details
@@ -181,16 +176,17 @@ async def close_position(
             order_id, qty
         )
         
+        # Update position using primary key (user_id, instrument_token)
         await pool.execute(
             """
             UPDATE paper_positions
             SET quantity = 0, status = 'CLOSED', realized_pnl = $1, closed_at = NOW()
-            WHERE id = $2
+            WHERE user_id = $2::uuid AND instrument_token = $3
             """,
-            realized, position_id,
+            realized, uid, instrument_token,
         )
         
-        log.info(f"Position closed successfully: {position_id}, realized_pnl: {realized}")
+        log.info(f"Position closed successfully: token={instrument_token}, user={uid}, realized_pnl={realized}")
         return {"success": True, "realized_pnl": realized, "order_id": order_id}
     
     except HTTPException:

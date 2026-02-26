@@ -179,6 +179,12 @@ class PlaceOrderRequest(BaseModel):
             return ""
         return str(v).strip()
 
+    @validator('security_id', 'instrument_token', pre=True)
+    def empty_int_to_none(cls, v):
+        if v == "" or v is None:
+            return None
+        return int(v)
+
     @validator('quantity', pre=True)
     def coerce_quantity(cls, v):
         if v is None or v == "":

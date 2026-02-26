@@ -324,18 +324,17 @@ async def margin_account(
     margin_allotted = float(row["margin_allotted"] or 0)
     used_margin     = float(row["used_margin"]     or 0)
 
-    # If no explicit margin is allotted, default margin to wallet balance.
-    # This matches how most users expect to trade in paper mode.
-    effective_allotted = margin_allotted if margin_allotted > 0 else wallet_balance
-    available = effective_allotted - used_margin
+    # Calculate available margin consistently with order placement logic
+    # Available Margin = Allotted Margin - Used Margin (no wallet fallback)
+    available = margin_allotted - used_margin
 
     return {
         "data": {
             "available_margin": round(available, 2),
             "used_margin":      round(used_margin, 2),
-            # Backward compatibility: older UI called this total_balance
-            "total_balance":    round(effective_allotted, 2),
-            "allotted_margin":  round(effective_allotted, 2),
+            # total_balance now reflects actual allotted margin (for backward compatibility)
+            "total_balance":    round(margin_allotted, 2),
+            "allotted_margin":  round(margin_allotted, 2),
             "wallet_balance":   round(wallet_balance, 2),
         }
     }

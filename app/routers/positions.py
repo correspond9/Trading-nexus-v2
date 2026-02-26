@@ -81,115 +81,127 @@ async def close_position(
     user_id:     Optional[str] = Query(None),  # admin can pass target user_id
 ):
     """Mark a specific position as closed (paper mode flat). Logs order for audit trail."""
-    uid  = _uid(request, user_id, current_user)
-    pool = get_pool()
-
-    # BLOCKED users cannot exit positions
-    _status_row = await pool.fetchrow(
-        "SELECT status FROM users WHERE id=$1::uuid", uid
-    )
-    if _status_row and _status_row["status"] == "BLOCKED":
-        raise HTTPException(
-            status_code=403,
-            detail="Your account is blocked. You can only submit payout requests.",
-        )
-
-    # position_id may be instrument_token (int) or a UUID-style string
     try:
-        token = int(position_id)
-        row = await pool.fetchrow(
-            "SELECT * FROM paper_positions WHERE user_id=$1 AND instrument_token=$2",
-            uid, token,
+        uid  = _uid(request, user_id, current_user)
+        pool = get_pool()
+
+        # BLOCKED users cannot exit positions
+        _status_row = await pool.fetchrow(
+            "SELECT status FROM users WHERE id=$1::uuid", uid
         )
-    except ValueError:
+        if _status_row and _status_row["status"] == "BLOCKED":
+            raise HTTPException(
+                status_code=403,
+                detail="Your account is blocked. You can only submit payout requests.",
+            )
+
+        # position_id is a UUID string
         row = await pool.fetchrow(
-            "SELECT * FROM paper_positions WHERE user_id=$1 AND id=$2::uuid",
+            "SELECT * FROM paper_positions WHERE user_id=$1::uuid AND id=$2::uuid",
             uid, position_id,
         )
 
-    if not row:
-        # Try as instrument_token from any user (admin close)
-        try:
-            token = int(position_id)
-            row = await pool.fetchrow(
-                "SELECT * FROM paper_positions WHERE instrument_token=$1 LIMIT 1", token
-            )
-        except ValueError:
-            pass
+        if not row:
+            # Try as instrument_token (old format)
+            try:
+                token = int(position_id)
+                row = await pool.fetchrow(
+                    "SELECT * FROM paper_positions WHERE user_id=$1::uuid AND instrument_token=$2",
+                    uid, token,
+                )
+            except (ValueError, TypeError):
+                pass
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Position not found")
+        if not row:
+            log.warning(f"Close position failed: Position {position_id} not found for user {uid}")
+            raise HTTPException(status_code=404, detail="Position not found")
 
-    # Extract position details
-    exchange_segment = row.get("exchange_segment") or "NSE_EQ"
-    symbol = row.get("symbol") or ""
-    instrument_token = row["instrument_token"]
-    qty = int(row.get("quantity") or row.get("net_qty") or 0)
-    avg = float(row.get("avg_price") or row.get("avg_cost") or 0)
-    product_type = row.get("product_type") or "MIS"
-    
-    # Get current LTP for fill price
-    ltp_row = await pool.fetchrow(
-        "SELECT ltp FROM market_data WHERE instrument_token=$1",
-        instrument_token,
-    )
-    ltp = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else avg
-    
-    # Generate order ID
-    order_id = str(uuid.uuid4())
-    
-    # ── CRITICAL: Log the exit order FIRST (audit trail) ──────────────────
-    # This ensures ALL exit attempts are recorded, even if rejected
-    await pool.execute(
-        """
-        INSERT INTO paper_orders
-            (order_id, user_id, instrument_token, symbol, exchange_segment,
-             side, order_type, quantity, fill_price, filled_qty,
-             status, product_type, placed_at)
-        VALUES ($1, $2, $3, $4, $5, 'SELL', 'MARKET', $6, $7, 0, 'PENDING', $8, NOW())
-        """,
-        order_id, uid, instrument_token, symbol, exchange_segment,
-        qty, ltp, product_type
-    )
-    
-    # ── Market hours validation ────────────────────────────────────────
-    if not is_market_open(exchange_segment, symbol):
-        market_state = get_market_state(exchange_segment, symbol)
+        # Extract position details
+        exchange_segment = row.get("exchange_segment") or "NSE_EQ"
+        symbol = row.get("symbol") or ""
+        instrument_token = row["instrument_token"]
+        qty = int(row.get("quantity") or row.get("net_qty") or 0)
+        avg = float(row.get("avg_price") or row.get("avg_cost") or 0)
+        product_type = row.get("product_type") or "MIS"
         
-        # Update order status to REJECTED
+        if qty == 0:
+            log.warning(f"Close position failed: Position {position_id} already has zero quantity")
+            raise HTTPException(status_code=400, detail="Position already closed or has zero quantity")
+        
+        # Get current LTP for fill price
+        ltp_row = await pool.fetchrow(
+            "SELECT ltp FROM market_data WHERE instrument_token=$1",
+            instrument_token,
+        )
+        ltp = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else avg
+        
+        # Generate order ID
+        order_id = str(uuid.uuid4())
+        
+        # ── CRITICAL: Log the exit order FIRST (audit trail) ──────────────────
+        # This ensures ALL exit attempts are recorded, even if rejected
         await pool.execute(
-            "UPDATE paper_orders SET status = 'REJECTED' WHERE order_id = $1",
-            order_id
+            """
+            INSERT INTO paper_orders
+                (order_id, user_id, instrument_token, symbol, exchange_segment,
+                 side, order_type, quantity, fill_price, filled_qty,
+                 status, product_type, placed_at)
+            VALUES ($1, $2, $3, $4, $5, 'SELL', 'MARKET', $6, $7, 0, 'PENDING', $8, NOW())
+            """,
+            order_id, uid, instrument_token, symbol, exchange_segment,
+            qty, ltp, product_type
         )
         
-        raise HTTPException(
-            status_code=403,
-            detail=f"Market is {market_state.value}. Positions can only be closed during market hours."
-        )
-    
-    # Calculate realized P&L
-    realized = round((ltp - avg) * qty, 2)
+        # ── Market hours validation ────────────────────────────────────────
+        if not is_market_open(exchange_segment, symbol):
+            market_state = get_market_state(exchange_segment, symbol)
+            
+            # Update order status to REJECTED
+            await pool.execute(
+                "UPDATE paper_orders SET status = 'REJECTED' WHERE order_id = $1",
+                order_id
+            )
+            
+            log.warning(f"Close position rejected: Market is {market_state.value}")
+            raise HTTPException(
+                status_code=403,
+                detail=f"Market is {market_state.value}. Positions can only be closed during market hours."
+            )
+        
+        # Calculate realized P&L
+        realized = round((ltp - avg) * qty, 2)
 
-    # Update order to FILLED and close position
-    await pool.execute(
-        """
-        UPDATE paper_orders 
-        SET status = 'FILLED', filled_qty = $2, filled_at = NOW()
-        WHERE order_id = $1
-        """,
-        order_id, qty
-    )
+        # Update order to FILLED and close position
+        await pool.execute(
+            """
+            UPDATE paper_orders 
+            SET status = 'FILLED', filled_qty = $2, filled_at = NOW()
+            WHERE order_id = $1
+            """,
+            order_id, qty
+        )
+        
+        await pool.execute(
+            """
+            UPDATE paper_positions
+            SET quantity = 0, status = 'CLOSED', realized_pnl = $1, closed_at = NOW()
+            WHERE id = $2
+            """,
+            realized, position_id,
+        )
+        
+        log.info(f"Position closed successfully: {position_id}, realized_pnl: {realized}")
+        return {"success": True, "realized_pnl": realized, "order_id": order_id}
     
-    await pool.execute(
-        """
-        UPDATE paper_positions
-        SET quantity = 0, status = 'CLOSED', realized_pnl = $1, closed_at = NOW()
-        WHERE instrument_token = $2 AND user_id = $3
-        """,
-        realized, instrument_token, str(row["user_id"]),
-    )
-    
-    return {"success": True, "realized_pnl": realized, "order_id": order_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"CRITICAL CLOSE POSITION ERROR - User: {current_user.id}, Position: {position_id}", exc_info=True)
+        log.error(f"Exception type: {type(e).__name__}, Message: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Position close failed: {type(e).__name__}: {str(e)}"
+        )
 
 
 @router.get("/pnl/summary")

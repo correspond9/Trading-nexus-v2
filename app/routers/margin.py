@@ -130,7 +130,6 @@ class MarginCalcRequest(BaseModel):
 
 
 @router.post("/calculate")
-@router.post("/calculate/")
 async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
     pool  = get_pool()
     price = body.price or 0.0
@@ -276,7 +275,6 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
 
 
 @router.get("/account")
-@router.get("/account/")
 async def margin_account(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
@@ -346,7 +344,6 @@ async def margin_account(
 # ── Admin / Debug endpoints ───────────────────────────────────────────────────
 
 @router.get("/span-data")
-@router.get("/span-data/")
 async def get_span_data_endpoint(symbol: Optional[str] = Query(None)):
     """
     Return the cached SPAN® data for one or all symbols.

@@ -50,7 +50,6 @@ class PortalSignupRequest(BaseModel):
 
 
 @router.post("/login")
-@router.post("/login/")
 async def login(body: LoginRequest):
     pool = get_pool()
 
@@ -90,7 +89,6 @@ async def login(body: LoginRequest):
 
 
 @router.post("/logout")
-@router.post("/logout/")
 async def logout(body: LogoutRequest, request: Request):
     token = body.token or request.headers.get("X-AUTH")
     if not token:
@@ -101,7 +99,6 @@ async def logout(body: LogoutRequest, request: Request):
 
 
 @router.get("/me")
-@router.get("/me/")
 async def me(user: CurrentUser = Depends(get_current_user)):
     return {
         "id":     user.id,
@@ -112,7 +109,6 @@ async def me(user: CurrentUser = Depends(get_current_user)):
 
 
 @router.post("/portal/signup")
-@router.post("/portal/signup/")
 async def portal_signup(body: PortalSignupRequest):
     """
     Register a new user for the educational portal.
@@ -185,7 +181,6 @@ async def portal_signup(body: PortalSignupRequest):
 
 
 @router.get("/portal/users")
-@router.get("/portal/users/")
 async def get_portal_users(user: CurrentUser = Depends(get_current_user)):
     """
     Retrieve all portal signup registrations.

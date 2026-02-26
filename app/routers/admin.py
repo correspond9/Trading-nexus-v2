@@ -141,7 +141,6 @@ async def rotate_access_token(req: TokenRotateRequest):
 
 
 @router.get("/credentials")
-@router.get("/credentials/")
 async def get_credentials():
     """Return current client_id (token masked for safety)."""
     token = get_access_token()
@@ -238,7 +237,6 @@ async def switch_auth_mode(req: AuthModeRequest):
 # ── Token status & TOTP force-refresh ───────────────────────────────────
 
 @router.get("/token/status")
-@router.get("/token/status/")
 async def token_status():
     """Show the current token's expiry, time remaining, and active auth mode."""
     expiry = get_token_expiry()
@@ -285,7 +283,6 @@ async def force_token_refresh():
 
 
 @router.get("/ws/status")
-@router.get("/ws/status/")
 async def ws_status():
     """Current WebSocket slot health summary."""
     live_feed_status = ws_manager.get_status()
@@ -313,13 +310,11 @@ async def toggle_mode(req: ModeToggleRequest):
 
 
 @router.get("/mode")
-@router.get("/mode/")
 async def get_mode():
     return {"paper_mode": is_mock_mode()}
 
 
 @router.post("/greeks/interval")
-@router.post("/greeks/interval/")
 async def set_greeks_interval(req: GreeksIntervalRequest):
     """Override the Greeks poll interval at runtime (min 15s)."""
     if req.seconds < 15:
@@ -332,7 +327,6 @@ async def set_greeks_interval(req: GreeksIntervalRequest):
 
 
 @router.post("/close-price/rollover")
-@router.post("/close-price/rollover/")
 async def force_close_price_rollover(
     caller: CurrentUser = Depends(get_super_admin_user),
 ):
@@ -352,7 +346,6 @@ async def force_close_price_rollover(
 
 
 @router.get("/users")
-@router.get("/users/")
 async def list_users(
     caller: CurrentUser = Depends(get_admin_user),
 ):
@@ -427,7 +420,6 @@ async def control_scheduler(
 
 
 @router.get("/users/{user_id}")
-@router.get("/users/{user_id}/")
 async def get_user(
     user_id: str,
     caller:  CurrentUser = Depends(get_admin_user),
@@ -464,7 +456,6 @@ async def get_user(
 
 
 @router.post("/users", status_code=201)
-@router.post("/users/", status_code=201)
 async def create_user(
     req:    CreateUserRequest,
     caller: CurrentUser = Depends(get_admin_user),
@@ -655,7 +646,6 @@ async def create_user(
 
 
 @router.patch("/users/{user_id}")
-@router.patch("/users/{user_id}/")
 async def update_user(
     user_id: str,
     req:     UpdateUserRequest,
@@ -829,7 +819,6 @@ async def update_user(
 
 
 @router.post("/users/{user_id}/funds")
-@router.post("/users/{user_id}/funds/")
 async def add_funds(
     user_id: str,
     req:     AddFundsRequest,

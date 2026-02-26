@@ -125,7 +125,6 @@ async def _fetch_basket_with_legs(pool, basket_id: str) -> Optional[dict]:
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 @router.get("")
-@router.get("/")
 async def list_baskets(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
@@ -145,7 +144,6 @@ async def list_baskets(
 
 
 @router.post("")
-@router.post("/")
 async def create_basket(
     body: CreateBasketRequest,
     request: Request,
@@ -177,7 +175,6 @@ async def create_basket(
 
 
 @router.post("/execute")
-@router.post("/execute/")
 async def execute_basket(
     body: ExecuteBasketRequest,
     request: Request,
@@ -372,7 +369,6 @@ async def execute_basket(
 
 
 @router.delete("/{basket_id}")
-@router.delete("/{basket_id}/")
 async def delete_basket(basket_id: str = Path(...)):
     pool = get_pool()
     await pool.execute(

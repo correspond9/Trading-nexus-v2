@@ -180,6 +180,14 @@ async def place_paper_order(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
 ):
+    # Authorization: Only ADMIN/SUPER_ADMIN can place orders for other users
+    if body.user_id and str(body.user_id) != str(current_user.id):
+        if current_user.role not in ("ADMIN", "SUPER_ADMIN"):
+            raise HTTPException(
+                status_code=403,
+                detail="You can only place orders for yourself. Admin access required to place orders for other users."
+            )
+    
     user_id   = body.user_id or current_user.id
     pool      = get_pool()
 
@@ -458,7 +466,6 @@ async def place_paper_order(
 
 
 @router.get("")
-@router.get("/")
 async def list_orders(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
@@ -506,25 +513,6 @@ async def list_orders(
     q += " ORDER BY placed_at DESC LIMIT 500"
     rows = await pool.fetch(q, *args)
     return {"data": [_fmt(r) for r in rows]}
-
-
-@router.get("/{order_id}")
-async def get_order(order_id: str = Path(...)):
-    pool = get_pool()
-    row  = await pool.fetchrow("SELECT * FROM paper_orders WHERE order_id=$1", order_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Order not found")
-    return _fmt(row)
-
-
-@router.delete("/{order_id}")
-async def cancel_order(order_id: str = Path(...)):
-    pool = get_pool()
-    n = await pool.execute(
-        "UPDATE paper_orders SET status='CANCELLED' WHERE order_id=$1 AND status='PENDING'",
-        order_id,
-    )
-    return {"success": True, "order_id": order_id}
 
 
 @router.get("/historic/orders")
@@ -582,6 +570,56 @@ async def get_historic_orders(
     
     rows = await pool.fetch(q, *args)
     return {"data": [_fmt(r) for r in rows]}
+
+
+@router.get("/{order_id}")
+async def get_order(
+    order_id: str = Path(...),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    pool = get_pool()
+    row  = await pool.fetchrow("SELECT * FROM paper_orders WHERE order_id=$1", order_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Authorization: Users can only view their own orders (except admins)
+    if current_user.role not in ("ADMIN", "SUPER_ADMIN") and str(row["user_id"]) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="You can only view your own orders")
+    
+    return _fmt(row)
+
+
+@router.delete("/{order_id}")
+async def cancel_order(
+    order_id: str = Path(...),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    pool = get_pool()
+    
+    # First check if order exists and belongs to the user
+    row = await pool.fetchrow(
+        "SELECT user_id, status FROM paper_orders WHERE order_id=$1",
+        order_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Authorization: Users can only cancel their own orders (except admins)
+    if current_user.role not in ("ADMIN", "SUPER_ADMIN") and str(row["user_id"]) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="You can only cancel your own orders")
+    
+    # Check if order can be cancelled
+    if row["status"] != "PENDING":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel order with status {row['status']}. Only PENDING orders can be cancelled."
+        )
+    
+    n = await pool.execute(
+        "UPDATE paper_orders SET status='CANCELLED' WHERE order_id=$1",
+        order_id,
+    )
+    return {"success": True, "order_id": order_id}
 
 
 def _fmt(r) -> dict:

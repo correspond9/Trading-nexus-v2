@@ -21,7 +21,6 @@ router = APIRouter(prefix="/ledger", tags=["Ledger"])
 
 
 @router.get("")
-@router.get("/")
 async def get_ledger(
     current_user: CurrentUser = Depends(get_current_user),
     user_id: Optional[str] = Query(None, description="Admin override: target user UUID"),

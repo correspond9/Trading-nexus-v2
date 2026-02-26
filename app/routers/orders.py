@@ -206,305 +206,319 @@ async def place_paper_order(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    # Authorization: Only ADMIN/SUPER_ADMIN can place orders for other users
-    if body.user_id and str(body.user_id) != str(current_user.id):
-        if current_user.role not in ("ADMIN", "SUPER_ADMIN"):
-            raise HTTPException(
-                status_code=403,
-                detail="You can only place orders for yourself. Admin access required to place orders for other users."
-            )
-    
-    user_id   = body.user_id or current_user.id
-    pool      = get_pool()
-    
-    log.info(f"Order placement attempt - User: {current_user.id} (role: {current_user.role}), Target: {user_id}, Symbol: {body.symbol}, Side: {body.side or body.transaction_type}")
-
-    # ── User status enforcement ────────────────────────────────────────────
     try:
-        uuid.UUID(str(user_id))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid user_id")
-
-    try:
-        _status_row = await pool.fetchrow(
-            "SELECT status FROM users WHERE id=$1::uuid", user_id
-        )
-    except Exception as exc:
-        log.warning("User status check skipped: %s", exc)
-        _status_row = None
-
-    if _status_row:
-        _us = _status_row["status"]
-        if _us == "BLOCKED":
-            raise HTTPException(
-                status_code=403,
-                detail="Your account is blocked. You can only submit payout requests.",
-            )
-        if _us == "SUSPENDED":
-            raise HTTPException(
-                status_code=403,
-                detail="Your account is suspended. You can only exit existing positions.",
-            )
-        if _us == "PENDING":
-            raise HTTPException(
-                status_code=403,
-                detail="Your account is pending activation. Please contact your admin.",
-            )
-    token     = body.security_id or body.instrument_token
-
-    if not token:
-        if body.symbol and body.symbol.strip():
-            row = await pool.fetchrow(
-                "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
-                body.symbol.strip(),
-            )
-            if row:
-                token = row["instrument_token"]
-            else:
-                log.error(f"Order placement failed: Symbol '{body.symbol}' not found in instrument_master")
+        # Authorization: Only ADMIN/SUPER_ADMIN can place orders for other users
+        if body.user_id and str(body.user_id) != str(current_user.id):
+            if current_user.role not in ("ADMIN", "SUPER_ADMIN"):
                 raise HTTPException(
-                    status_code=404,
-                    detail=f"Instrument not found: {body.symbol}"
+                    status_code=403,
+                    detail="You can only place orders for yourself. Admin access required to place orders for other users."
                 )
-        else:
-            log.error(f"Order placement failed: No instrument identifier provided (no token and no symbol)")
-            raise HTTPException(
-                status_code=400,
-                detail="Either security_id/instrument_token or symbol must be provided"
+        
+        user_id   = body.user_id or current_user.id
+        pool      = get_pool()
+        
+        log.info(f"Order placement attempt - User: {current_user.id} (role: {current_user.role}), Target: {user_id}, Symbol: {body.symbol}, Side: {body.side or body.transaction_type}")
+
+        # ── User status enforcement ────────────────────────────────────────────
+        try:
+            uuid.UUID(str(user_id))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid user_id")
+
+        try:
+            _status_row = await pool.fetchrow(
+                "SELECT status FROM users WHERE id=$1::uuid", user_id
             )
+        except Exception as exc:
+            log.warning("User status check skipped: %s", exc)
+            _status_row = None
 
-    # ── Normalize/repair exchange_segment from instrument_master (robustness) ──
-    # Look up exchange_segment from instrument_master if not provided
-    seg_in = (body.exchange_segment or "").strip().upper()
-    inst_type = None
-    opt_type = None
-    if token and token != 0:
-        im_seg_row = await pool.fetchrow(
-            """
-            SELECT exchange_segment, instrument_type, option_type
-            FROM instrument_master
-            WHERE instrument_token=$1
-            """,
-            int(token),
-        )
-        im_seg = (im_seg_row["exchange_segment"] if im_seg_row else None) or None
-        im_seg_u = str(im_seg).strip().upper() if im_seg else ""
-        if im_seg_row:
-            inst_type = im_seg_row.get("instrument_type")
-            opt_type = im_seg_row.get("option_type")
-
-        # Use database value if not provided or generic exchange name given
-        if (not seg_in) or seg_in in {"NSE", "BSE", "MCX"}:
-            if im_seg_u:
-                body.exchange_segment = im_seg_u
-
-    # Get LTP for fill simulation
-    ltp_row = await pool.fetchrow(
-        "SELECT ltp FROM market_data WHERE instrument_token=$1", token
-    ) if token else None
-    fill_price = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) \
-                 else (body.price or body.limit_price or 100.0)
-
-    side     = (body.transaction_type or body.side or "BUY").upper()
-    qty      = body.quantity
-    ord_type = body.order_type.upper()
-    prod     = body.product_type.upper()
-    lp       = body.limit_price or body.price
-
-    order_id = str(uuid.uuid4())
-
-    # ── Market hours validation ────────────────────────────────────────────
-    if not is_market_open(body.exchange_segment, body.symbol):
-        market_state = get_market_state(body.exchange_segment, body.symbol)
-        
-        # Log REJECTED order for audit trail
-        await pool.execute(
-            """
-            INSERT INTO paper_orders
-                (order_id, user_id, instrument_token, symbol, exchange_segment,
-                 side, order_type, quantity, limit_price, fill_price, filled_qty,
-                 status, product_type, security_id, placed_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 'REJECTED', $11, $12, NOW())
-            """,
-            order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-            side, ord_type, qty, lp, fill_price, prod, token or 0
-        )
-        
-        raise HTTPException(
-            status_code=403,
-            detail=f"Market is {market_state.value}. Orders can only be placed during market hours."
-        )
-
-    # ── Margin enforcement & Order placement in transaction (prevents race condition) ──
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            # Lock paper_accounts row to prevent concurrent order race condition
-            if side == "BUY":
-                margin_breakdown = _calculate_required_margin(
-                    fill_price,
-                    qty,
-                    body.exchange_segment,
-                    prod,
-                    body.symbol,
-                    side,
-                    instrument_type=inst_type,
-                    option_type=opt_type,
+        if _status_row:
+            _us = _status_row["status"]
+            if _us == "BLOCKED":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Your account is blocked. You can only submit payout requests.",
                 )
-                required = margin_breakdown.get("total_margin")
-                if required is None:
-                    raise HTTPException(
-                        status_code=503,
-                        detail=margin_breakdown.get("error")
-                        or "Margin data not available for this symbol right now.",
-                    )
-
-                # SELECT FOR UPDATE locks the row until transaction commits
-                margin_row = await conn.fetchrow(
-                    """
-                    SELECT
-                        COALESCE(pa.margin_allotted, 0) AS margin_allotted,
-                        COALESCE(SUM(
-                            calculate_position_margin(
-                                pp.instrument_token,
-                                pp.symbol,
-                                pp.exchange_segment,
-                                pp.quantity,
-                                pp.product_type
-                            )
-                        ) FILTER (WHERE pp.status='OPEN' AND pp.quantity != 0), 0) AS used_margin
-                    FROM paper_accounts pa
-                    LEFT JOIN paper_positions pp ON pp.user_id = pa.user_id
-                    WHERE pa.user_id = $1::uuid
-                    GROUP BY pa.margin_allotted
-                    FOR UPDATE OF pa
-                    """,
-                    user_id,
+            if _us == "SUSPENDED":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Your account is suspended. You can only exit existing positions.",
                 )
-                if not margin_row:
-                    raise HTTPException(status_code=403, detail="No margin account found for this user.")
+            if _us == "PENDING":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Your account is pending activation. Please contact your admin.",
+                )
+        token     = body.security_id or body.instrument_token
 
-                allotted = float(margin_row["margin_allotted"] or 0)
-                used = float(margin_row["used_margin"] or 0)
-                available = allotted - used
-
-                if allotted <= 0:
-                    raise HTTPException(status_code=403, detail="No margin allotted. Please contact your admin.")
-                if required > available + 1e-6:
+        if not token:
+            if body.symbol and body.symbol.strip():
+                row = await pool.fetchrow(
+                    "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
+                    body.symbol.strip(),
+                )
+                if row:
+                    token = row["instrument_token"]
+                else:
+                    log.error(f"Order placement failed: Symbol '{body.symbol}' not found in instrument_master")
                     raise HTTPException(
-                        status_code=403,
-                        detail=(
-                            f"Insufficient margin. Required {required:.2f}, available {available:.2f}."
-                        ),
+                        status_code=404,
+                        detail=f"Instrument not found: {body.symbol}"
                     )
+            else:
+                log.error(f"Order placement failed: No instrument identifier provided (no token and no symbol)")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Either security_id/instrument_token or symbol must be provided"
+                )
 
-            # Insert order record
-            await conn.execute(
+        # ── Normalize/repair exchange_segment from instrument_master (robustness) ──
+        # Look up exchange_segment from instrument_master if not provided
+        seg_in = (body.exchange_segment or "").strip().upper()
+        inst_type = None
+        opt_type = None
+        if token and token != 0:
+            im_seg_row = await pool.fetchrow(
+                """
+                SELECT exchange_segment, instrument_type, option_type
+                FROM instrument_master
+                WHERE instrument_token=$1
+                """,
+                int(token),
+            )
+            im_seg = (im_seg_row["exchange_segment"] if im_seg_row else None) or None
+            im_seg_u = str(im_seg).strip().upper() if im_seg else ""
+            if im_seg_row:
+                inst_type = im_seg_row.get("instrument_type")
+                opt_type = im_seg_row.get("option_type")
+
+            # Use database value if not provided or generic exchange name given
+            if (not seg_in) or seg_in in {"NSE", "BSE", "MCX"}:
+                if im_seg_u:
+                    body.exchange_segment = im_seg_u
+
+        # Get LTP for fill simulation
+        ltp_row = await pool.fetchrow(
+            "SELECT ltp FROM market_data WHERE instrument_token=$1", token
+        ) if token else None
+        fill_price = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) \
+                     else (body.price or body.limit_price or 100.0)
+
+        side     = (body.transaction_type or body.side or "BUY").upper()
+        qty      = body.quantity
+        ord_type = body.order_type.upper()
+        prod     = body.product_type.upper()
+        lp       = body.limit_price or body.price
+
+        order_id = str(uuid.uuid4())
+
+        # ── Market hours validation ────────────────────────────────────────────
+        if not is_market_open(body.exchange_segment, body.symbol):
+            market_state = get_market_state(body.exchange_segment, body.symbol)
+            
+            # Log REJECTED order for audit trail
+            await pool.execute(
                 """
                 INSERT INTO paper_orders
                     (order_id, user_id, instrument_token, symbol, exchange_segment,
                      side, order_type, quantity, limit_price, fill_price, filled_qty,
-                     status, product_type, security_id,
-                     is_super, target_price, stop_loss_price, trailing_jump)
-                VALUES
-                    ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'FILLED',$12,$13,$14,$15,$16,$17)
+                     status, product_type, security_id, placed_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 'REJECTED', $11, $12, NOW())
                 """,
                 order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                side, ord_type, qty, lp, fill_price, qty,
-                prod, token or 0,
-                body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
+                side, ord_type, qty, lp, fill_price, prod, token or 0
+            )
+            
+            raise HTTPException(
+                status_code=403,
+                detail=f"Market is {market_state.value}. Orders can only be placed during market hours."
             )
 
-            # Update or create position (fixed for same-day re-entry)
-            if side == "BUY":
-                # Check if an OPEN position exists
-                open_pos = await conn.fetchrow(
-                    """
-                    SELECT position_id, quantity, avg_price
-                    FROM paper_positions
-                    WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
-                    """,
-                    user_id, token or 0
-                )
-
-                if open_pos:
-                    # Update existing OPEN position
-                    new_qty = open_pos["quantity"] + qty
-                    new_avg = (
-                        (open_pos["avg_price"] * open_pos["quantity"] + fill_price * qty) / new_qty
+        # ── Margin enforcement & Order placement in transaction (prevents race condition) ──
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                # Lock paper_accounts row to prevent concurrent order race condition
+                if side == "BUY":
+                    margin_breakdown = _calculate_required_margin(
+                        fill_price,
+                        qty,
+                        body.exchange_segment,
+                        prod,
+                        body.symbol,
+                        side,
+                        instrument_type=inst_type,
+                        option_type=opt_type,
                     )
-                    await conn.execute(
-                        """
-                        UPDATE paper_positions
-                        SET quantity = $1, avg_price = $2
-                        WHERE position_id = $3
-                        """,
-                        new_qty, new_avg, open_pos["position_id"]
-                    )
-                else:
-                    # Insert new position (allows multiple CLOSED positions for same instrument)
-                    await conn.execute(
-                        """
-                        INSERT INTO paper_positions
-                            (user_id, instrument_token, symbol, exchange_segment,
-                             quantity, avg_price, product_type, status)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
-                        """,
-                        user_id, token or 0, body.symbol, body.exchange_segment,
-                        qty, fill_price, prod,
-                    )
-            else:
-                # SELL: reduce or close existing OPEN position
-                open_pos = await conn.fetchrow(
-                    """
-                    SELECT position_id, quantity, avg_price
-                    FROM paper_positions
-                    WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
-                    """,
-                    user_id, token or 0
-                )
-
-                if open_pos:
-                    new_qty = max(0, open_pos["quantity"] - qty)
-                    if new_qty == 0:
-                        # Position fully closed
-                        realized_pnl = (fill_price - open_pos["avg_price"]) * open_pos["quantity"]
-                        await conn.execute(
-                            """
-                            UPDATE paper_positions
-                            SET quantity = 0, status = 'CLOSED', 
-                                realized_pnl = $1, closed_at = NOW()
-                            WHERE position_id = $2
-                            """,
-                            realized_pnl, open_pos["position_id"]
+                    required = margin_breakdown.get("total_margin")
+                    if required is None:
+                        raise HTTPException(
+                            status_code=503,
+                            detail=margin_breakdown.get("error")
+                            or "Margin data not available for this symbol right now.",
                         )
-                    else:
-                        # Partial close
-                        realized_pnl = (fill_price - open_pos["avg_price"]) * qty
+
+                    # SELECT FOR UPDATE locks the row until transaction commits
+                    margin_row = await conn.fetchrow(
+                        """
+                        SELECT
+                            COALESCE(pa.margin_allotted, 0) AS margin_allotted,
+                            COALESCE(SUM(
+                                calculate_position_margin(
+                                    pp.instrument_token,
+                                    pp.symbol,
+                                    pp.symbol,
+                                    pp.exchange_segment,
+                                    pp.quantity,
+                                    pp.product_type
+                                )
+                            ) FILTER (WHERE pp.status='OPEN' AND pp.quantity != 0), 0) AS used_margin
+                        FROM paper_accounts pa
+                        LEFT JOIN paper_positions pp ON pp.user_id = pa.user_id
+                        WHERE pa.user_id = $1::uuid
+                        GROUP BY pa.margin_allotted
+                        FOR UPDATE OF pa
+                        """,
+                        user_id,
+                    )
+                    if not margin_row:
+                        raise HTTPException(status_code=403, detail="No margin account found for this user.")
+
+                    allotted = float(margin_row["margin_allotted"] or 0)
+                    used = float(margin_row["used_margin"] or 0)
+                    available = allotted - used
+
+                    if allotted <= 0:
+                        raise HTTPException(status_code=403, detail="No margin allotted. Please contact your admin.")
+                    if required > available + 1e-6:
+                        raise HTTPException(
+                            status_code=403,
+                            detail=(
+                                f"Insufficient margin. Required {required:.2f}, available {available:.2f}."
+                            ),
+                        )
+
+                # Insert order record
+                await conn.execute(
+                    """
+                    INSERT INTO paper_orders
+                        (order_id, user_id, instrument_token, symbol, exchange_segment,
+                         side, order_type, quantity, limit_price, fill_price, filled_qty,
+                         status, product_type, security_id,
+                         is_super, target_price, stop_loss_price, trailing_jump)
+                    VALUES
+                        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'FILLED',$12,$13,$14,$15,$16,$17)
+                    """,
+                    order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+                    side, ord_type, qty, lp, fill_price, qty,
+                    prod, token or 0,
+                    body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
+                )
+
+                # Update or create position (fixed for same-day re-entry)
+                if side == "BUY":
+                    # Check if an OPEN position exists
+                    open_pos = await conn.fetchrow(
+                        """
+                        SELECT position_id, quantity, avg_price
+                        FROM paper_positions
+                        WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
+                        """,
+                        user_id, token or 0
+                    )
+
+                    if open_pos:
+                        # Update existing OPEN position
+                        new_qty = open_pos["quantity"] + qty
+                        new_avg = (
+                            (open_pos["avg_price"] * open_pos["quantity"] + fill_price * qty) / new_qty
+                        )
                         await conn.execute(
                             """
                             UPDATE paper_positions
-                            SET quantity = $1,
-                                realized_pnl = COALESCE(realized_pnl, 0) + $2
+                            SET quantity = $1, avg_price = $2
                             WHERE position_id = $3
                             """,
-                            new_qty, realized_pnl, open_pos["position_id"]
+                            new_qty, new_avg, open_pos["position_id"]
+                        )
+                    else:
+                        # Insert new position (allows multiple CLOSED positions for same instrument)
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_positions
+                                (user_id, instrument_token, symbol, exchange_segment,
+                                 quantity, avg_price, product_type, status)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
+                            """,
+                            user_id, token or 0, body.symbol, body.exchange_segment,
+                            qty, fill_price, prod,
                         )
                 else:
-                    # No open position to close (short selling or error)
-                    # Create short position
-                    await conn.execute(
+                    # SELL: reduce or close existing OPEN position
+                    open_pos = await conn.fetchrow(
                         """
-                        INSERT INTO paper_positions
-                            (user_id, instrument_token, symbol, exchange_segment,
-                             quantity, avg_price, product_type, status)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
+                        SELECT position_id, quantity, avg_price
+                        FROM paper_positions
+                        WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
                         """,
-                        user_id, token or 0, body.symbol, body.exchange_segment,
-                        -qty, fill_price, prod,
+                        user_id, token or 0
                     )
 
-    return {"order_id": order_id, "status": "FILLED",
-            "fill_price": fill_price, "filled_qty": qty}
+                    if open_pos:
+                        new_qty = max(0, open_pos["quantity"] - qty)
+                        if new_qty == 0:
+                            # Position fully closed
+                            realized_pnl = (fill_price - open_pos["avg_price"]) * open_pos["quantity"]
+                            await conn.execute(
+                                """
+                                UPDATE paper_positions
+                                SET quantity = 0, status = 'CLOSED', 
+                                    realized_pnl = $1, closed_at = NOW()
+                                WHERE position_id = $2
+                                """,
+                                realized_pnl, open_pos["position_id"]
+                            )
+                        else:
+                            # Partial close
+                            realized_pnl = (fill_price - open_pos["avg_price"]) * qty
+                            await conn.execute(
+                                """
+                                UPDATE paper_positions
+                                SET quantity = $1,
+                                    realized_pnl = COALESCE(realized_pnl, 0) + $2
+                                WHERE position_id = $3
+                                """,
+                                new_qty, realized_pnl, open_pos["position_id"]
+                            )
+                    else:
+                        # No open position to close (short selling or error)
+                        # Create short position
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_positions
+                                (user_id, instrument_token, symbol, exchange_segment,
+                                 quantity, avg_price, product_type, status)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
+                            """,
+                            user_id, token or 0, body.symbol, body.exchange_segment,
+                            -qty, fill_price, prod,
+                        )
+
+        return {"order_id": order_id, "status": "FILLED",
+                "fill_price": fill_price, "filled_qty": qty}
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        # Log the actual exception with full traceback
+        log.error(f"CRITICAL ORDER PLACEMENT ERROR - User: {current_user.id}, Symbol: {body.symbol}", exc_info=True)
+        log.error(f"Exception type: {type(e).__name__}, Message: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Order placement failed: {type(e).__name__}: {str(e)}"
+        )
 
 
 @router.get("")

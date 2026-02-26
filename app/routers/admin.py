@@ -2129,7 +2129,7 @@ async def positions_userwise(
         LEFT JOIN filtered_pos   fp  ON fp.user_id  = u.id
         GROUP BY u.id, u.user_no, u.name, u.first_name, u.last_name, u.mobile, pa.balance, pa.margin_allotted
         ORDER BY u.user_no NULLS LAST
-        ""
+        """
     )
 
     result = []
@@ -2358,7 +2358,7 @@ async def delete_brokerage_plan(
 ):
     """
     Delete (deactivate) a brokerage plan (SUPER_ADMIN only).
-    Does not actually delete, just marks as inactive.
+    Doesn't actually delete, just marks as inactive.
     """
     from app.database import get_pool
     pool = get_pool()
@@ -2551,14 +2551,14 @@ async def delete_all_user_positions(
     current_user: CurrentUser = Depends(get_super_admin_user),
 ):
     """
-    Delete ALL DATA related to user positions:
+    COMPLETELY DELETE ALL DATA related to a user's positions:
     - paper_positions (all)
     - paper_orders (all)
     - paper_trades (all)
     - ledger_entries (all)
     - trade_history (all)
     
-    This is IRREVERSIBLE. Used for clearing wrong backdated entries.
+    This is irreversible! Used for clearing wrong backdated entries.
     """
     from app.database import get_pool
     pool = get_pool()
@@ -2955,7 +2955,7 @@ async def get_logo():
 
 @router.delete("/logo")
 async def delete_logo(current_user: CurrentUser = Depends(get_super_admin_user)):
-    """Delete current logo (SUPER_ADMIN only)."""
+    """Delete the current logo (SUPER_ADMIN only)."""
     from app.database import get_pool
     pool = get_pool()
     await pool.execute(

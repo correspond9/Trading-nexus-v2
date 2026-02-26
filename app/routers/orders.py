@@ -395,7 +395,6 @@ async def place_paper_order(
                                 calculate_position_margin(
                                     pp.instrument_token,
                                     pp.symbol,
-                                    pp.symbol,
                                     pp.exchange_segment,
                                     pp.quantity,
                                     pp.product_type

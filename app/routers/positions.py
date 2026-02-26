@@ -123,6 +123,9 @@ async def close_position(
             log.warning(f"Close position failed: Position {position_id} already has zero quantity")
             raise HTTPException(status_code=400, detail="Position already closed or has zero quantity")
         
+        # For short positions, qty is negative. Use absolute value for order quantity.
+        order_qty = abs(qty)
+        
         # Get current LTP for fill price
         ltp_row = await pool.fetchrow(
             "SELECT ltp FROM market_data WHERE instrument_token=$1",
@@ -144,7 +147,7 @@ async def close_position(
             VALUES ($1, $2, $3, $4, $5, 'SELL', 'MARKET', $6, $7, 0, 'PENDING', $8, NOW())
             """,
             order_id, uid, instrument_token, symbol, exchange_segment,
-            qty, ltp, product_type
+            order_qty, ltp, product_type
         )
         
         # ── Market hours validation ────────────────────────────────────────
@@ -173,7 +176,7 @@ async def close_position(
             SET status = 'FILLED', filled_qty = $2, filled_at = NOW()
             WHERE order_id = $1
             """,
-            order_id, qty
+            order_id, order_qty
         )
         
         # Update position using primary key (user_id, instrument_token)

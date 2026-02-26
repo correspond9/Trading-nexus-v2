@@ -2129,7 +2129,7 @@ async def positions_userwise(
         LEFT JOIN filtered_pos   fp  ON fp.user_id  = u.id
         GROUP BY u.id, u.user_no, u.name, u.first_name, u.last_name, u.mobile, pa.balance, pa.margin_allotted
         ORDER BY u.user_no NULLS LAST
-        """
+        ""
     )
 
     result = []

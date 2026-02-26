@@ -271,7 +271,7 @@ async def place_paper_order(
     seg_in = (body.exchange_segment or "").strip().upper()
     inst_type = None
     opt_type = None
-    if token:
+    if token and token != 0:
         im_seg_row = await pool.fetchrow(
             """
             SELECT exchange_segment, instrument_type, option_type

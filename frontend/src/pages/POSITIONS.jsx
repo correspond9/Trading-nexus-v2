@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { apiService } from '../services/apiService';
 import { useMarketPulse } from '../hooks/useMarketPulse';
+import { useAuth } from '../contexts/AuthContext';
 
 const isDerivativePosition = (position = {}) => {
   const exchange = String(position.exchange || '').toUpperCase();
@@ -27,14 +28,28 @@ const isDerivativePosition = (position = {}) => {
 };
 
 const PositionsTab = ({ productFilter = "MIS" }) => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
   const { pulse, marketActive } = useMarketPulse();
   const [positions, setPositions] = useState([]);
   const [selectedOpenIds, setSelectedOpenIds] = useState(new Set());
 
   const fetchPositions = useCallback(async () => {
     try {
-      const res = await apiService.get('/admin/positions/userwise');
-      const users = res?.data?.data || res?.data || [];
+      let users = [];
+      if (isAdmin) {
+        const res = await apiService.get('/admin/positions/userwise');
+        users = res?.data?.data || res?.data || [];
+      } else {
+        const res = await apiService.get('/portfolio/positions');
+        const ownPositions = Array.isArray(res?.data) ? res.data : [];
+        users = [{
+          user_id: String(user?.id || ''),
+          user_no: user?.mobile || '—',
+          display_name: user?.name || user?.mobile || 'Trader',
+          positions: ownPositions,
+        }];
+      }
 
       const normalizedFilter = String(productFilter || 'MIS').toUpperCase();
       const mapped = [];
@@ -78,7 +93,7 @@ const PositionsTab = ({ productFilter = "MIS" }) => {
 
         setPositions(mapped);
     } catch (err) { console.error('Error fetching positions:', err); }
-  }, [productFilter]);
+  }, [isAdmin, productFilter, user?.id, user?.mobile, user?.name]);
 
   useEffect(() => { fetchPositions(); }, [fetchPositions]);
 

@@ -142,6 +142,38 @@ async def _resolve_exchange(pool, raw_exchange: Optional[str], symbol: Optional[
     return "NSE_FNO"
 
 
+async def _resolve_instrument_row(pool, raw_security_id: Optional[str], symbol: Optional[str]):
+    """Resolve instrument row safely without crashing when security_id column is unavailable."""
+    sid = str(raw_security_id or "").strip()
+    if sid.isdigit():
+        sid_int = int(sid)
+        try:
+            row = await pool.fetchrow(
+                "SELECT * FROM instrument_master WHERE security_id=$1 LIMIT 1",
+                sid_int,
+            )
+            if row:
+                return row
+        except Exception:
+            pass
+
+        row = await pool.fetchrow(
+            "SELECT * FROM instrument_master WHERE instrument_token=$1 LIMIT 1",
+            sid_int,
+        )
+        if row:
+            return row
+
+    sym = (symbol or "").strip()
+    if not sym:
+        return None
+
+    return await pool.fetchrow(
+        "SELECT * FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
+        sym,
+    )
+
+
 def _detect_instrument(symbol: str, exchange_segment: str) -> tuple[bool, bool, bool]:
     """Detect (is_option, is_futures, is_commodity) from symbol + segment."""
     sym = (symbol or "").upper()
@@ -315,53 +347,87 @@ async def execute_basket(
         raise HTTPException(status_code=400, detail="Provide basket_id or orders")
 
     uid = _uid(request, None, current_user)
-    
-    # ── Calculate total required margin for all basket legs (BUY only) ────────
+
+    resolved_legs: List[dict] = []
     total_required_margin = 0.0
+
     for leg in legs_to_execute:
-        symbol = leg.get("symbol") or ""
-        exchange = leg.get("exchange") or "NSE_FNO"
-        side = (leg.get("side") or leg.get("transaction_type") or "BUY").upper()
+        security_id = leg.get("security_id") or leg.get("securityId") or ""
+        symbol_raw = (leg.get("symbol") or "").strip()
+        exchange = leg.get("exchange") or leg.get("exchange_segment") or leg.get("exchangeSegment") or ""
+        side_u = (leg.get("side") or leg.get("transaction_type") or "BUY").upper()
         qty = int(leg.get("qty") or leg.get("quantity") or 1)
+        product_u = str(leg.get("product_type") or leg.get("productType") or "MIS").upper()
         price = float(leg.get("price") or 0)
-        
-        # Get LTP if price not available
-        if price == 0:
-            security_id = leg.get("security_id") or leg.get("securityId") or ""
-            im_row = None
-            if security_id and str(security_id).isdigit():
-                im_row = await pool.fetchrow(
-                    "SELECT instrument_token FROM instrument_master WHERE security_id=$1 LIMIT 1",
-                    str(security_id),
-                )
-            if not im_row and symbol:
-                im_row = await pool.fetchrow(
-                    "SELECT instrument_token FROM instrument_master WHERE symbol=$1 LIMIT 1", 
-                    symbol
-                )
-            if im_row:
-                ltp_row = await pool.fetchrow(
-                    "SELECT ltp FROM market_data WHERE instrument_token=$1",
-                    im_row["instrument_token"],
-                )
-                if ltp_row and ltp_row["ltp"]:
-                    price = float(ltp_row["ltp"])
-        
-        # Calculate margin using SPAN (only for BUY orders)
-        if side == "BUY" and price > 0 and qty > 0:
+        order_type_u = str(leg.get("order_type") or "MARKET").upper()
+
+        if qty <= 0:
+            raise HTTPException(status_code=422, detail="Order quantity must be greater than 0")
+        if side_u not in {"BUY", "SELL"}:
+            raise HTTPException(status_code=422, detail=f"Invalid side: {side_u}")
+
+        im_row = await _resolve_instrument_row(pool, security_id, symbol_raw)
+        if not im_row:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Instrument not found for leg: {symbol_raw or security_id}",
+            )
+
+        token = int(im_row["instrument_token"])
+        symbol = symbol_raw or str(im_row.get("symbol") or im_row.get("underlying") or token)
+
+        if (not exchange) and im_row.get("exchange_segment"):
+            exchange = str(im_row["exchange_segment"]).strip().upper()
+        if not exchange:
+            exchange = "NSE_FNO"
+
+        if not is_market_open(exchange, symbol):
+            market_state = get_market_state(exchange, symbol)
+            raise HTTPException(
+                status_code=403,
+                detail=f"Market is {market_state.value}. Orders can only be placed during market hours.",
+            )
+
+        ltp_row = await pool.fetchrow(
+            "SELECT ltp FROM market_data WHERE instrument_token=$1",
+            token,
+        )
+        fill_price = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else (price or 100.0)
+
+        security_id_value = im_row.get("security_id")
+        if security_id_value is None and str(security_id).isdigit():
+            security_id_value = int(security_id)
+        if security_id_value is None:
+            security_id_value = token
+
+        if side_u == "BUY":
             is_option, is_futures, is_commodity = _detect_instrument(symbol, exchange)
             underlying = _extract_underlying(symbol)
-            
             margin_breakdown = _nse_calculate_margin(
                 symbol=underlying,
-                transaction_type=side,
+                transaction_type=side_u,
                 quantity=qty,
-                ltp=price,
+                ltp=fill_price,
                 is_option=is_option,
                 is_futures=is_futures,
                 is_commodity=is_commodity,
             )
-            total_required_margin += margin_breakdown["total_margin"]
+            total_required_margin += float(margin_breakdown.get("total_margin") or 0.0)
+
+        resolved_legs.append(
+            {
+                "symbol": symbol,
+                "token": token,
+                "exchange": exchange,
+                "side": side_u,
+                "qty": qty,
+                "product": product_u,
+                "order_type": order_type_u,
+                "fill_price": fill_price,
+                "limit_price": float(price) if order_type_u == "LIMIT" and float(price) > 0 else None,
+                "security_id": int(security_id_value),
+            }
+        )
     
     # ── Check available margin before execution ───────────────────────────────
     if total_required_margin > 0:
@@ -400,80 +466,141 @@ async def execute_basket(
             )
 
     results = []
-    uid = _uid(request, None, current_user)
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            for leg in resolved_legs:
+                symbol = leg["symbol"]
+                token = leg["token"]
+                exchange = leg["exchange"]
+                side_u = leg["side"]
+                qty = leg["qty"]
+                product = leg["product"]
+                order_type_u = leg["order_type"]
+                fill_price = leg["fill_price"]
+                limit_price = leg["limit_price"]
+                security_id = leg["security_id"]
 
-    for leg in legs_to_execute:
-        symbol      = leg.get("symbol")      or ""
-        security_id = leg.get("security_id") or leg.get("securityId") or ""
-        exchange    = leg.get("exchange")    or leg.get("exchange_segment") or leg.get("exchangeSegment") or ""
-        side        = leg.get("side")       or leg.get("transaction_type") or "BUY"
-        qty         = int(leg.get("qty") or leg.get("quantity") or 1)
-        product     = leg.get("product_type") or leg.get("productType") or "INTRADAY"
-        price       = float(leg.get("price") or 0)
-        order_type  = leg.get("order_type")  or "MARKET"
+                order_id = str(uuid.uuid4())
+                await conn.execute(
+                    """
+                    INSERT INTO paper_orders
+                        (order_id, user_id, instrument_token, symbol, exchange_segment,
+                         side, order_type, quantity, trigger_price, limit_price,
+                         fill_price, filled_qty, status, product_type, security_id)
+                    VALUES
+                        ($1,$2,$3,$4,$5,$6,$7,$8,NULL,$9,$10,$11,'FILLED',$12,$13)
+                    """,
+                    order_id,
+                    uid,
+                    int(token),
+                    symbol,
+                    exchange,
+                    side_u,
+                    order_type_u,
+                    int(qty),
+                    limit_price,
+                    float(fill_price),
+                    int(qty),
+                    product,
+                    int(security_id),
+                )
 
-        # Look up instrument token
-        im_row = None
-        if security_id and str(security_id).isdigit():
-            im_row = await pool.fetchrow(
-                "SELECT * FROM instrument_master WHERE security_id=$1 LIMIT 1",
-                str(security_id),
-            )
-        if not im_row and symbol:
-            im_row = await pool.fetchrow(
-                "SELECT * FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1", symbol
-            )
+                if side_u == "BUY":
+                    open_pos = await conn.fetchrow(
+                        """
+                        SELECT position_id, quantity, avg_price
+                        FROM paper_positions
+                        WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
+                        """,
+                        uid,
+                        token,
+                    )
+                    if open_pos:
+                        new_qty = open_pos["quantity"] + qty
+                        new_avg = (
+                            (open_pos["avg_price"] * open_pos["quantity"] + fill_price * qty) / new_qty
+                        )
+                        await conn.execute(
+                            """
+                            UPDATE paper_positions
+                            SET quantity = $1, avg_price = $2
+                            WHERE position_id = $3
+                            """,
+                            new_qty,
+                            new_avg,
+                            open_pos["position_id"],
+                        )
+                    else:
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_positions
+                                (user_id, instrument_token, symbol, exchange_segment,
+                                 quantity, avg_price, product_type, status)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
+                            """,
+                            uid,
+                            token,
+                            symbol,
+                            exchange,
+                            qty,
+                            fill_price,
+                            product,
+                        )
+                else:
+                    open_pos = await conn.fetchrow(
+                        """
+                        SELECT position_id, quantity, avg_price
+                        FROM paper_positions
+                        WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
+                        """,
+                        uid,
+                        token,
+                    )
+                    if open_pos:
+                        new_qty = max(0, open_pos["quantity"] - qty)
+                        if new_qty == 0:
+                            realized_pnl = (fill_price - open_pos["avg_price"]) * open_pos["quantity"]
+                            await conn.execute(
+                                """
+                                UPDATE paper_positions
+                                SET quantity = 0, status = 'CLOSED',
+                                    realized_pnl = $1, closed_at = NOW()
+                                WHERE position_id = $2
+                                """,
+                                realized_pnl,
+                                open_pos["position_id"],
+                            )
+                        else:
+                            realized_pnl = (fill_price - open_pos["avg_price"]) * qty
+                            await conn.execute(
+                                """
+                                UPDATE paper_positions
+                                SET quantity = $1,
+                                    realized_pnl = COALESCE(realized_pnl, 0) + $2
+                                WHERE position_id = $3
+                                """,
+                                new_qty,
+                                realized_pnl,
+                                open_pos["position_id"],
+                            )
+                    else:
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_positions
+                                (user_id, instrument_token, symbol, exchange_segment,
+                                 quantity, avg_price, product_type, status)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
+                            """,
+                            uid,
+                            token,
+                            symbol,
+                            exchange,
+                            -qty,
+                            fill_price,
+                            product,
+                        )
 
-        # If exchange segment wasn't supplied, fall back to instrument master.
-        if (not exchange) and im_row and im_row.get("exchange_segment"):
-            exchange = str(im_row["exchange_segment"]).strip().upper()
-        if not exchange:
-            exchange = "NSE_FNO"
-
-        # ── Market hours validation (match single-order behaviour) ─────────
-        if not is_market_open(exchange, symbol):
-            market_state = get_market_state(exchange, symbol)
-            raise HTTPException(
-                status_code=403,
-                detail=f"Market is {market_state.value}. Orders can only be placed during market hours.",
-            )
-
-        token = im_row["instrument_token"] if im_row else 0
-        ltp_row = await pool.fetchrow(
-            "SELECT ltp FROM market_data WHERE instrument_token=$1", token
-        ) if token else None
-        fill_price = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else price or 100.0
-
-        order_type_u = (order_type or "MARKET").upper()
-        side_u = (side or "BUY").upper()
-        limit_price = float(price) if order_type_u == "LIMIT" and float(price) > 0 else None
-        order_id = str(uuid.uuid4())
-
-        await pool.execute(
-            """
-            INSERT INTO paper_orders
-                (order_id, user_id, instrument_token, symbol, exchange_segment,
-                 side, order_type, quantity, trigger_price, limit_price,
-                 fill_price, filled_qty, status, product_type, security_id)
-            VALUES
-                ($1,$2,$3,$4,$5,$6,$7,$8,NULL,$9,$10,$11,'FILLED',$12,$13)
-            """,
-            order_id,
-            uid,
-            int(token or 0),
-            symbol,
-            exchange,
-            side_u,
-            order_type_u,
-            int(qty),
-            limit_price,
-            float(fill_price),
-            int(qty),
-            str(product or "MIS").upper(),
-            int(security_id) if str(security_id).isdigit() else None,
-        )
-
-        results.append({"symbol": symbol, "status": "FILLED", "order_id": order_id})
+                results.append({"symbol": symbol, "status": "FILLED", "order_id": order_id})
 
     return {"success": True, "results": results}
 

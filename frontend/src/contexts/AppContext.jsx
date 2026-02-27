@@ -6,6 +6,7 @@ const AppContext = createContext(null);
 
 export const AppProvider = ({ children }) => {
   const { isAuthenticated, user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
 
   const [users, setUsers]             = useState([]);
   const [orders, setOrders]           = useState([]);
@@ -14,7 +15,10 @@ export const AppProvider = ({ children }) => {
   const [loadingUsers, setLoadingUsers] = useState(false);
 
   const loadUsers = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !isAdmin) {
+      setUsers([]);
+      return;
+    }
     setLoadingUsers(true);
     try {
       const data = await apiService.get('/admin/users');
@@ -26,7 +30,7 @@ export const AppProvider = ({ children }) => {
     } finally {
       setLoadingUsers(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isAdmin]);
 
   useEffect(() => {
     if (isAuthenticated) loadUsers();

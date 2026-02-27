@@ -12,6 +12,7 @@ import bcrypt as _bcrypt
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+import json
 import os
 import re
 import base64
@@ -2137,6 +2138,18 @@ async def positions_userwise(
         pandl = float(r["pandl"] or 0)
         fund  = float(r["fund"]  or 0)
         pandl_pct = round(pandl / abs(fund) * 100, 2) if fund else 0.0
+        raw_positions = r["positions"]
+        if isinstance(raw_positions, list):
+            positions = raw_positions
+        elif isinstance(raw_positions, str):
+            try:
+                parsed = json.loads(raw_positions)
+                positions = parsed if isinstance(parsed, list) else []
+            except (json.JSONDecodeError, TypeError):
+                positions = []
+        else:
+            positions = []
+
         result.append({
             "user_id":             r["user_id"],
             "user_no":             r["user_no"],
@@ -2152,7 +2165,7 @@ async def positions_userwise(
             "current_margin_usage":float(r["current_margin_usage"] or 0),
             "pandl":               pandl,
             "pandl_pct":           pandl_pct,
-            "positions":           r["positions"] if isinstance(r["positions"], list) else [],
+            "positions":           positions,
         })
     return {"data": result}
 

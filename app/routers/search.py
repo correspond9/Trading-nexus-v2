@@ -46,19 +46,30 @@ async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
     pool = get_pool()
     sql  = f"""
      SELECT instrument_token, symbol, exchange_segment,
+         display_name, trading_symbol,
          underlying, instrument_type, expiry_date, strike_price, option_type,
          md.ltp, md.close
         FROM instrument_master im
         LEFT JOIN market_data md ON md.instrument_token = im.instrument_token
-     WHERE (symbol ILIKE $1 OR underlying ILIKE $1)
+     WHERE (
+            symbol ILIKE $1
+         OR underlying ILIKE $1
+         OR COALESCE(display_name, '') ILIKE $1
+         OR COALESCE(trading_symbol, '') ILIKE $1
+     )
         {extra_filter}
         ORDER BY
             CASE
                 WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
+                WHEN upper(COALESCE(display_name, '')) = $2 OR upper(COALESCE(trading_symbol, '')) = $2 THEN 0
                 WHEN upper(symbol) LIKE ($2 || '%') THEN 1
                 WHEN upper(COALESCE(underlying, '')) LIKE ($2 || '%') THEN 2
+                WHEN upper(COALESCE(display_name, '')) LIKE ($2 || '%') THEN 2
+                WHEN upper(COALESCE(trading_symbol, '')) LIKE ($2 || '%') THEN 2
                 WHEN upper(symbol) LIKE ('%' || $2 || '%') THEN 3
                 WHEN upper(COALESCE(underlying, '')) LIKE ('%' || $2 || '%') THEN 4
+                WHEN upper(COALESCE(display_name, '')) LIKE ('%' || $2 || '%') THEN 4
+                WHEN upper(COALESCE(trading_symbol, '')) LIKE ('%' || $2 || '%') THEN 4
                 ELSE 5
             END,
             symbol
@@ -74,18 +85,29 @@ async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
         # Fallback: retry without market_data join for any failure.
         fallback_sql = f"""
          SELECT instrument_token, symbol, exchange_segment,
+             display_name, trading_symbol,
              underlying, instrument_type, expiry_date, strike_price, option_type,
              NULL::numeric AS ltp, NULL::numeric AS close
             FROM instrument_master
-         WHERE (symbol ILIKE $1 OR underlying ILIKE $1)
+         WHERE (
+                symbol ILIKE $1
+             OR underlying ILIKE $1
+             OR COALESCE(display_name, '') ILIKE $1
+             OR COALESCE(trading_symbol, '') ILIKE $1
+         )
             {extra_filter}
             ORDER BY
                 CASE
                     WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
+                    WHEN upper(COALESCE(display_name, '')) = $2 OR upper(COALESCE(trading_symbol, '')) = $2 THEN 0
                     WHEN upper(symbol) LIKE ($2 || '%') THEN 1
                     WHEN upper(COALESCE(underlying, '')) LIKE ($2 || '%') THEN 2
+                    WHEN upper(COALESCE(display_name, '')) LIKE ($2 || '%') THEN 2
+                    WHEN upper(COALESCE(trading_symbol, '')) LIKE ($2 || '%') THEN 2
                     WHEN upper(symbol) LIKE ('%' || $2 || '%') THEN 3
                     WHEN upper(COALESCE(underlying, '')) LIKE ('%' || $2 || '%') THEN 4
+                    WHEN upper(COALESCE(display_name, '')) LIKE ('%' || $2 || '%') THEN 4
+                    WHEN upper(COALESCE(trading_symbol, '')) LIKE ('%' || $2 || '%') THEN 4
                     ELSE 5
                 END,
                 symbol
@@ -96,7 +118,36 @@ async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
             return [_fmt_instrument(r) for r in rows]
         except Exception as fallback_exc:
             log.error("Instrument search fallback failed: %s", fallback_exc)
-            return []
+            # Final fallback: schema-safe query (does not require optional columns).
+            minimal_sql = f"""
+             SELECT instrument_token, symbol, exchange_segment,
+                 NULL::text AS display_name, NULL::text AS trading_symbol,
+                 underlying, instrument_type, expiry_date, strike_price, option_type,
+                 NULL::numeric AS ltp, NULL::numeric AS close
+                FROM instrument_master
+             WHERE (
+                    symbol ILIKE $1
+                 OR COALESCE(underlying, '') ILIKE $1
+             )
+                {extra_filter}
+                ORDER BY
+                    CASE
+                        WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
+                        WHEN upper(symbol) LIKE ($2 || '%') THEN 1
+                        WHEN upper(COALESCE(underlying, '')) LIKE ($2 || '%') THEN 2
+                        WHEN upper(symbol) LIKE ('%' || $2 || '%') THEN 3
+                        WHEN upper(COALESCE(underlying, '')) LIKE ('%' || $2 || '%') THEN 4
+                        ELSE 5
+                    END,
+                    symbol
+                LIMIT {limit}
+            """
+            try:
+                rows = await pool.fetch(minimal_sql, f"%{q}%", q_exact)
+                return [_fmt_instrument(r) for r in rows]
+            except Exception as minimal_exc:
+                log.error("Instrument search minimal fallback failed: %s", minimal_exc)
+                return []
 
 
 # ── Subscriptions / tiers ─────────────────────────────────────────────────
@@ -117,52 +168,133 @@ async def subscriptions_search(
     if tier:
         tier_letter = tier.replace("TIER_", "").strip().upper()
 
-    if tier_letter:
-        sql = """
-             SELECT im.instrument_token, im.symbol, im.exchange_segment,
-                 im.underlying, im.instrument_type, im.expiry_date, im.strike_price, im.option_type,
-                 md.ltp, md.close
-            FROM instrument_master im
-            LEFT JOIN market_data md ON md.instrument_token = im.instrument_token
-             WHERE (im.symbol ILIKE $1 OR im.underlying ILIKE $1)
-              AND im.tier = $2
-            ORDER BY
-                CASE
-                    WHEN upper(im.symbol) = $3 OR upper(COALESCE(im.underlying, '')) = $3 THEN 0
-                    WHEN upper(im.symbol) LIKE ($3 || '%') THEN 1
-                    WHEN upper(COALESCE(im.underlying, '')) LIKE ($3 || '%') THEN 2
-                    WHEN upper(im.symbol) LIKE ('%' || $3 || '%') THEN 3
-                    WHEN upper(COALESCE(im.underlying, '')) LIKE ('%' || $3 || '%') THEN 4
-                    ELSE 5
-                END,
-                im.symbol
-            LIMIT 100
-        """
-        rows = await pool.fetch(sql, f"%{q}%", tier_letter, (q or "").strip().upper())
-    else:
-        rows = await pool.fetch(
+    try:
+        if tier_letter:
+            sql = """
+                 SELECT im.instrument_token, im.symbol, im.exchange_segment,
+                     im.display_name, im.trading_symbol,
+                     im.underlying, im.instrument_type, im.expiry_date, im.strike_price, im.option_type,
+                     md.ltp, md.close
+                FROM instrument_master im
+                LEFT JOIN market_data md ON md.instrument_token = im.instrument_token
+                 WHERE (
+                        im.symbol ILIKE $1
+                     OR im.underlying ILIKE $1
+                     OR COALESCE(im.display_name, '') ILIKE $1
+                     OR COALESCE(im.trading_symbol, '') ILIKE $1
+                 )
+                  AND im.tier = $2
+                ORDER BY
+                    CASE
+                        WHEN upper(im.symbol) = $3 OR upper(COALESCE(im.underlying, '')) = $3 THEN 0
+                        WHEN upper(COALESCE(im.display_name, '')) = $3 OR upper(COALESCE(im.trading_symbol, '')) = $3 THEN 0
+                        WHEN upper(im.symbol) LIKE ($3 || '%') THEN 1
+                        WHEN upper(COALESCE(im.underlying, '')) LIKE ($3 || '%') THEN 2
+                        WHEN upper(COALESCE(im.display_name, '')) LIKE ($3 || '%') THEN 2
+                        WHEN upper(COALESCE(im.trading_symbol, '')) LIKE ($3 || '%') THEN 2
+                        WHEN upper(im.symbol) LIKE ('%' || $3 || '%') THEN 3
+                        WHEN upper(COALESCE(im.underlying, '')) LIKE ('%' || $3 || '%') THEN 4
+                        WHEN upper(COALESCE(im.display_name, '')) LIKE ('%' || $3 || '%') THEN 4
+                        WHEN upper(COALESCE(im.trading_symbol, '')) LIKE ('%' || $3 || '%') THEN 4
+                        ELSE 5
+                    END,
+                    im.symbol
+                LIMIT 100
             """
-             SELECT im.instrument_token, im.symbol, im.exchange_segment,
-                 im.underlying, im.instrument_type, im.expiry_date, im.strike_price, im.option_type,
-                 md.ltp, md.close
-            FROM instrument_master im
-            LEFT JOIN market_data md ON md.instrument_token = im.instrument_token
-             WHERE (im.symbol ILIKE $1 OR im.underlying ILIKE $1)
-            ORDER BY
-                CASE
-                    WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
-                    WHEN upper(symbol) LIKE ($2 || '%') THEN 1
-                    WHEN upper(COALESCE(underlying, '')) LIKE ($2 || '%') THEN 2
-                    WHEN upper(symbol) LIKE ('%' || $2 || '%') THEN 3
-                    WHEN upper(COALESCE(underlying, '')) LIKE ('%' || $2 || '%') THEN 4
-                    ELSE 5
-                END,
-                symbol
-            LIMIT 100
-            """,
-            f"%{q}%",
-            (q or "").strip().upper(),
-        )
+            rows = await pool.fetch(sql, f"%{q}%", tier_letter, (q or "").strip().upper())
+        else:
+            rows = await pool.fetch(
+                """
+                 SELECT im.instrument_token, im.symbol, im.exchange_segment,
+                     im.display_name, im.trading_symbol,
+                     im.underlying, im.instrument_type, im.expiry_date, im.strike_price, im.option_type,
+                     md.ltp, md.close
+                FROM instrument_master im
+                LEFT JOIN market_data md ON md.instrument_token = im.instrument_token
+                 WHERE (
+                        im.symbol ILIKE $1
+                     OR im.underlying ILIKE $1
+                     OR COALESCE(im.display_name, '') ILIKE $1
+                     OR COALESCE(im.trading_symbol, '') ILIKE $1
+                 )
+                ORDER BY
+                    CASE
+                        WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
+                        WHEN upper(COALESCE(display_name, '')) = $2 OR upper(COALESCE(trading_symbol, '')) = $2 THEN 0
+                        WHEN upper(symbol) LIKE ($2 || '%') THEN 1
+                        WHEN upper(COALESCE(underlying, '')) LIKE ($2 || '%') THEN 2
+                        WHEN upper(COALESCE(display_name, '')) LIKE ($2 || '%') THEN 2
+                        WHEN upper(COALESCE(trading_symbol, '')) LIKE ($2 || '%') THEN 2
+                        WHEN upper(symbol) LIKE ('%' || $2 || '%') THEN 3
+                        WHEN upper(COALESCE(underlying, '')) LIKE ('%' || $2 || '%') THEN 4
+                        WHEN upper(COALESCE(display_name, '')) LIKE ('%' || $2 || '%') THEN 4
+                        WHEN upper(COALESCE(trading_symbol, '')) LIKE ('%' || $2 || '%') THEN 4
+                        ELSE 5
+                    END,
+                    symbol
+                LIMIT 100
+                """,
+                f"%{q}%",
+                (q or "").strip().upper(),
+            )
+    except Exception as exc:
+        log.error("Subscription search failed: %s", exc)
+        if tier_letter:
+            rows = await pool.fetch(
+                """
+                 SELECT im.instrument_token, im.symbol, im.exchange_segment,
+                     NULL::text AS display_name, NULL::text AS trading_symbol,
+                     im.underlying, im.instrument_type, im.expiry_date, im.strike_price, im.option_type,
+                     NULL::numeric AS ltp, NULL::numeric AS close
+                FROM instrument_master im
+                 WHERE (
+                        im.symbol ILIKE $1
+                     OR COALESCE(im.underlying, '') ILIKE $1
+                 )
+                  AND im.tier = $2
+                ORDER BY
+                    CASE
+                        WHEN upper(im.symbol) = $3 OR upper(COALESCE(im.underlying, '')) = $3 THEN 0
+                        WHEN upper(im.symbol) LIKE ($3 || '%') THEN 1
+                        WHEN upper(COALESCE(im.underlying, '')) LIKE ($3 || '%') THEN 2
+                        WHEN upper(im.symbol) LIKE ('%' || $3 || '%') THEN 3
+                        WHEN upper(COALESCE(im.underlying, '')) LIKE ('%' || $3 || '%') THEN 4
+                        ELSE 5
+                    END,
+                    im.symbol
+                LIMIT 100
+                """,
+                f"%{q}%",
+                tier_letter,
+                (q or "").strip().upper(),
+            )
+        else:
+            rows = await pool.fetch(
+                """
+                 SELECT im.instrument_token, im.symbol, im.exchange_segment,
+                     NULL::text AS display_name, NULL::text AS trading_symbol,
+                     im.underlying, im.instrument_type, im.expiry_date, im.strike_price, im.option_type,
+                     NULL::numeric AS ltp, NULL::numeric AS close
+                FROM instrument_master im
+                 WHERE (
+                        im.symbol ILIKE $1
+                     OR COALESCE(im.underlying, '') ILIKE $1
+                 )
+                ORDER BY
+                    CASE
+                        WHEN upper(im.symbol) = $2 OR upper(COALESCE(im.underlying, '')) = $2 THEN 0
+                        WHEN upper(im.symbol) LIKE ($2 || '%') THEN 1
+                        WHEN upper(COALESCE(im.underlying, '')) LIKE ($2 || '%') THEN 2
+                        WHEN upper(im.symbol) LIKE ('%' || $2 || '%') THEN 3
+                        WHEN upper(COALESCE(im.underlying, '')) LIKE ('%' || $2 || '%') THEN 4
+                        ELSE 5
+                    END,
+                    im.symbol
+                LIMIT 100
+                """,
+                f"%{q}%",
+                (q or "").strip().upper(),
+            )
 
     return {"data": [_fmt_instrument(r) for r in rows]}
 

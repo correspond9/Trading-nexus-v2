@@ -34,6 +34,14 @@ const PositionsTab = ({ productFilter = null }) => {
   const { pulse, marketActive } = useMarketPulse();
   const [positions, setPositions] = useState([]);
   const [selectedOpenIds, setSelectedOpenIds] = useState(new Set());
+  const [exitModalOpen, setExitModalOpen] = useState(false);
+  const [exitRow, setExitRow] = useState(null);
+  const [exitQty, setExitQty] = useState('');
+  const [exitOrderType, setExitOrderType] = useState('MARKET');
+  const [exitLimitPrice, setExitLimitPrice] = useState('');
+  const [exitTriggerPrice, setExitTriggerPrice] = useState('');
+  const [exitSubmitting, setExitSubmitting] = useState(false);
+  const [exitError, setExitError] = useState('');
 
   const fetchPositions = useCallback(async () => {
     try {
@@ -65,10 +73,12 @@ const PositionsTab = ({ productFilter = null }) => {
             mapped.push({
               id: `${userId}:${token}:${position.opened_at || index}:${status}`,
               closeId: token,
+              instrumentToken: token,
               userId,
               userNo,
               userName,
               productType: positionProduct,
+              exchangeSegment: position.exchange_segment || '',
               symbol: position.symbol || '—',
               qty,
               avgEntry: avgEntry.toFixed ? avgEntry.toFixed(2) : avgEntry,
@@ -96,10 +106,12 @@ const PositionsTab = ({ productFilter = null }) => {
           return {
             id: `${position.id || index}:${status}`,
             closeId: position.id,
+            instrumentToken: Number(position.instrument_token || 0),
             userId: String(user?.id || ''),
             userNo: user?.mobile || '—',
             userName: user?.name || user?.mobile || 'Trader',
             productType,
+            exchangeSegment: position.exchange_segment || '',
             symbol: position.symbol || '—',
             qty,
             avgEntry: avgEntry.toFixed ? avgEntry.toFixed(2) : avgEntry,
@@ -139,8 +151,93 @@ const PositionsTab = ({ productFilter = null }) => {
   const toggleSelectAllOpen = () => {
     setSelectedOpenIds((prev) => prev.size === openPositions.length ? new Set() : new Set(openPositions.map((p) => p.id)));
   };
-  const handleExitOne = (id) => exitPositions(new Set([id]));
+  const openExitModal = (row) => {
+    const maxQty = Math.max(1, Math.abs(Number(row?.qty || 0)));
+    setExitRow(row);
+    setExitQty(String(maxQty));
+    setExitOrderType('MARKET');
+    setExitLimitPrice('');
+    setExitTriggerPrice('');
+    setExitError('');
+    setExitModalOpen(true);
+  };
+  const closeExitModal = () => {
+    if (exitSubmitting) return;
+    setExitModalOpen(false);
+    setExitRow(null);
+    setExitError('');
+  };
+  const handleExitOne = (id) => {
+    const row = openPositions.find((p) => p.id === id);
+    if (!row) return;
+    openExitModal(row);
+  };
   const handleExitSelected = () => { if (!selectedOpenIds.size) return; exitPositions(selectedOpenIds); };
+
+  const submitExitOrder = async () => {
+    if (!exitRow || exitSubmitting) return;
+
+    const maxQty = Math.max(1, Math.abs(Number(exitRow.qty || 0)));
+    const qtyNum = Number(exitQty);
+    const orderType = String(exitOrderType || 'MARKET').toUpperCase();
+
+    if (!Number.isInteger(qtyNum) || qtyNum <= 0 || qtyNum > maxQty) {
+      setExitError(`Qty must be an integer between 1 and ${maxQty}`);
+      return;
+    }
+
+    if ((orderType === 'LIMIT' || orderType === 'SLL') && (!exitLimitPrice || Number(exitLimitPrice) <= 0)) {
+      setExitError('Valid limit price is required');
+      return;
+    }
+
+    if ((orderType === 'SLM' || orderType === 'SLL') && (!exitTriggerPrice || Number(exitTriggerPrice) <= 0)) {
+      setExitError('Valid trigger price is required');
+      return;
+    }
+
+    setExitSubmitting(true);
+    setExitError('');
+    try {
+      const isLong = Number(exitRow.qty || 0) >= 0;
+      const payload = {
+        user_id: isAdminScopedView ? String(exitRow.userId || '') : String(user?.id || ''),
+        symbol: exitRow.symbol,
+        security_id: Number(exitRow.instrumentToken || 0) || undefined,
+        instrument_token: Number(exitRow.instrumentToken || 0) || undefined,
+        exchange_segment: exitRow.exchangeSegment || 'NSE_EQ',
+        transaction_type: isLong ? 'SELL' : 'BUY',
+        quantity: qtyNum,
+        order_type: orderType,
+        product_type: String(exitRow.productType || 'MIS').toUpperCase(),
+      };
+
+      if (orderType === 'LIMIT') {
+        payload.limit_price = Number(exitLimitPrice);
+        payload.price = Number(exitLimitPrice);
+      }
+      if (orderType === 'SLM') {
+        payload.trigger_price = Number(exitTriggerPrice);
+      }
+      if (orderType === 'SLL') {
+        payload.trigger_price = Number(exitTriggerPrice);
+        payload.limit_price = Number(exitLimitPrice);
+        payload.price = Number(exitLimitPrice);
+      }
+
+      await apiService.post('/trading/orders', payload);
+      window.dispatchEvent(new CustomEvent('orders:updated'));
+      window.dispatchEvent(new CustomEvent('positions:updated'));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await fetchPositions();
+      setSelectedOpenIds(new Set());
+      closeExitModal();
+    } catch (err) {
+      setExitError(err?.data?.detail || err?.message || 'Failed to place exit order');
+    } finally {
+      setExitSubmitting(false);
+    }
+  };
 
   const exitPositions = async (idsSet) => {
     try {
@@ -189,6 +286,12 @@ const PositionsTab = ({ productFilter = null }) => {
   const plPositive = { color: "#22c55e" };
   const plNegative = { color: "#ef4444" };
   const totalRowStyle = { ...rowStyle, background: "var(--surface2)", fontWeight: 600 };
+  const modalOverlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+  const modalCardStyle = { width: '420px', maxWidth: '92vw', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', boxShadow: '0 14px 32px rgba(0,0,0,0.35)', padding: '16px' };
+  const modalTitleStyle = { fontSize: '14px', fontWeight: 700, color: 'var(--text)', marginBottom: '10px' };
+  const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', borderRadius: '6px', padding: '8px 10px', fontSize: '12px' };
+  const labelStyle = { fontSize: '11px', color: 'var(--muted)', marginBottom: '4px', display: 'block' };
+  const btnBase = { border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' };
 
   const formatMoney = (v) => "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
@@ -309,6 +412,86 @@ const PositionsTab = ({ productFilter = null }) => {
           </table>
         </div>
       </div>
+
+      {exitModalOpen && exitRow && (
+        <div style={modalOverlayStyle} onClick={closeExitModal}>
+          <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
+            <div style={modalTitleStyle}>Exit Order — {exitRow.symbol}</div>
+            <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '10px' }}>
+              Open Qty: {Math.abs(Number(exitRow.qty || 0)).toLocaleString('en-IN')} ({Number(exitRow.qty || 0) >= 0 ? 'Long' : 'Short'})
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelStyle}>Exit Qty</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, Math.abs(Number(exitRow.qty || 0)))}
+                  step={1}
+                  value={exitQty}
+                  onChange={(e) => setExitQty(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>Order Type</label>
+                <select value={exitOrderType} onChange={(e) => setExitOrderType(e.target.value)} style={inputStyle}>
+                  <option value="MARKET">MARKET</option>
+                  <option value="LIMIT">LIMIT</option>
+                  <option value="SLM">SLM</option>
+                  <option value="SLL">SLL</option>
+                </select>
+              </div>
+            </div>
+
+            {(exitOrderType === 'LIMIT' || exitOrderType === 'SLL') && (
+              <div style={{ marginTop: '10px' }}>
+                <label style={labelStyle}>Limit Price</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.05"
+                  value={exitLimitPrice}
+                  onChange={(e) => setExitLimitPrice(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+            )}
+
+            {(exitOrderType === 'SLM' || exitOrderType === 'SLL') && (
+              <div style={{ marginTop: '10px' }}>
+                <label style={labelStyle}>Trigger Price</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.05"
+                  value={exitTriggerPrice}
+                  onChange={(e) => setExitTriggerPrice(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+            )}
+
+            {exitError && (
+              <div style={{ marginTop: '10px', fontSize: '11px', color: '#ef4444' }}>{exitError}</div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+              <button onClick={closeExitModal} disabled={exitSubmitting} style={{ ...btnBase, background: 'var(--surface2)', color: 'var(--text)' }}>
+                Cancel
+              </button>
+              <button
+                onClick={submitExitOrder}
+                disabled={exitSubmitting}
+                style={{ ...btnBase, background: '#f97316', color: '#fff', borderColor: '#f97316' }}
+              >
+                {exitSubmitting ? 'Placing…' : 'Place Exit Order'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

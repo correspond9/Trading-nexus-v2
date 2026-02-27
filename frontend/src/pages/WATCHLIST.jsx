@@ -27,6 +27,14 @@ const saveToStorage = (userId, tabs) => {
   } catch {}
 };
 
+const extractWatchlistItems = (response) => {
+  const direct = response?.data;
+  if (Array.isArray(direct)) return direct;
+  if (Array.isArray(direct?.data)) return direct.data;
+  if (Array.isArray(response)) return response;
+  return [];
+};
+
 // ─── WatchlistPage ──────────────────────────────────────────────────────────────
 const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
   const { user } = useAuth();
@@ -79,8 +87,7 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
   const hydrateFromServer = useCallback(async () => {
     if (!user?.id) return { instruments: [], tokens: new Set() };
     const res = await apiService.get(`/watchlist/${user.id}`);
-    const serverItems = res?.data || [];
-    if (!Array.isArray(serverItems)) return { instruments: [], tokens: new Set() };
+    const serverItems = extractWatchlistItems(res);
     const instruments = mapServerItems(serverItems);
     const tokens = new Set(instruments.map(i => String(i.token)));
     const canonicalByToken = new Map(instruments.map(i => [String(i.token), i]));
@@ -245,6 +252,7 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
             instrumentType: item.instrument_type || item.instrumentType || 'EQ',
             underlying: item.underlying || '',
             displayName: item.display_name || item.displayName || '',
+            tradingSymbol: item.trading_symbol || item.tradingSymbol || '',
             strikePrice: item.strike_price ?? item.strikePrice ?? null,
             optionType: item.option_type ?? item.optionType ?? null,
             expiryDate: item.expiry_date ?? item.expiryDate ?? null,
@@ -265,8 +273,11 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
         const symU = String(r.symbol || '').toUpperCase();
         const undU = String(r.underlying || '').toUpperCase();
         const dispU = String(r.displayName || '').toUpperCase();
+        const tsU = String(r.tradingSymbol || '').toUpperCase();
         const symN = normalize(r.symbol);
         const undN = normalize(r.underlying);
+        const dispN = normalize(r.displayName);
+        const tsN = normalize(r.tradingSymbol);
 
         const it = String(r.instrumentType || '').toUpperCase();
         const isOption = it.startsWith('OPT');
@@ -292,10 +303,16 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
         if (qFirstAlpha) {
           if (symU.startsWith(qFirstAlpha)) s += 4200;
           if (undU.startsWith(qFirstAlpha)) s += 4000;
+          if (dispU.startsWith(qFirstAlpha)) s += 4100;
+          if (tsU.startsWith(qFirstAlpha)) s += 4050;
           const si = symU.indexOf(qFirstAlpha);
           const ui = undU.indexOf(qFirstAlpha);
+          const di = dispU.indexOf(qFirstAlpha);
+          const ti = tsU.indexOf(qFirstAlpha);
           if (si >= 0) s += 3000 - Math.min(si, 50);
           if (ui >= 0) s += 2800 - Math.min(ui, 50);
+          if (di >= 0) s += 2900 - Math.min(di, 50);
+          if (ti >= 0) s += 2850 - Math.min(ti, 50);
         }
 
         // Exact strike match when user typed one
@@ -315,7 +332,9 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
         .filter(r => {
           const symN = normalize(r.symbol);
           const undN = normalize(r.underlying);
-          return qTokens.every(t => symN.includes(t) || undN.includes(t));
+          const dispN = normalize(r.displayName);
+          const tsN = normalize(r.tradingSymbol);
+          return qTokens.every(t => symN.includes(t) || undN.includes(t) || dispN.includes(t) || tsN.includes(t));
         })
         .sort((a, b) => score(b) - score(a));
 
@@ -343,7 +362,7 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
         // Refresh server-backed watchlist so close/ltp fields populate.
         try {
           const res = await apiService.get(`/watchlist/${user.id}`);
-          const instruments = (res?.data || []).map(item => ({
+          const instruments = extractWatchlistItems(res).map(item => ({
             id: item.id || item.token,
             symbol: item.symbol,
             exchange: item.exchange,
@@ -558,18 +577,20 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span style={symbolStyle}>{title}</span>
-                        {/* Tier indicator badge */}
-                        <span style={{ 
-                          fontSize: '10px', 
-                          padding: '2px 6px', 
-                          borderRadius: '3px',
-                          backgroundColor: inst.tier === 'A' ? 'rgba(255,165,0,0.2)' : 'rgba(76,175,80,0.2)',
-                          color: inst.tier === 'A' ? '#FFA500' : '#4CAF50',
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap'
-                        }}>
-                          {inst.tier === 'A' ? 'Tier-A' : 'Tier-B'}
-                        </span>
+                        {/* Tier indicator badge (show only Tier-A) */}
+                        {inst.tier === 'A' && (
+                          <span style={{
+                            fontSize: '10px',
+                            padding: '2px 6px',
+                            borderRadius: '3px',
+                            backgroundColor: 'rgba(255,165,0,0.2)',
+                            color: '#FFA500',
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap'
+                          }}>
+                            Tier-A
+                          </span>
+                        )}
                         {/* Position indicator */}
                         {inst.tier === 'A' && (
                           <span style={{

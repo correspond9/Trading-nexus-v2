@@ -366,11 +366,36 @@ async def place_paper_order(
         # ── Margin enforcement & Order placement in transaction (prevents race condition) ──
         async with pool.acquire() as conn:
             async with conn.transaction():
+                # Determine whether this order increases risk exposure (open/add/flip remainder).
+                open_pos_for_margin = await conn.fetchrow(
+                    """
+                    SELECT quantity
+                    FROM paper_positions
+                    WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
+                    """,
+                    user_id, token or 0
+                )
+                existing_qty_for_margin = int(open_pos_for_margin["quantity"] or 0) if open_pos_for_margin else 0
+                signed_delta_for_margin = qty if side == "BUY" else -qty
+
+                exposure_increase_qty = 0
+                if existing_qty_for_margin == 0:
+                    exposure_increase_qty = abs(signed_delta_for_margin)
+                else:
+                    same_direction = (
+                        (existing_qty_for_margin > 0 and signed_delta_for_margin > 0)
+                        or (existing_qty_for_margin < 0 and signed_delta_for_margin < 0)
+                    )
+                    if same_direction:
+                        exposure_increase_qty = abs(signed_delta_for_margin)
+                    elif abs(signed_delta_for_margin) > abs(existing_qty_for_margin):
+                        exposure_increase_qty = abs(signed_delta_for_margin) - abs(existing_qty_for_margin)
+
                 # Lock paper_accounts row to prevent concurrent order race condition
-                if side == "BUY":
+                if exposure_increase_qty > 0:
                     margin_breakdown = _calculate_required_margin(
                         fill_price,
-                        qty,
+                        exposure_increase_qty,
                         body.exchange_segment,
                         prod,
                         body.symbol,

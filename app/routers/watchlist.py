@@ -133,8 +133,8 @@ async def get_watchlist(user_id: str, request: Request):
         # No watchlist yet — return empty list
         return {"data": []}
 
-    # Auto-clean Tier-A items with no position (older than 1 hour)
-    await _auto_clean_tier_a(pool, wl["watchlist_id"])
+    # IMPORTANT: do not mutate/watchlist-delete on read.
+    # Auto-clean should be handled by an explicit scheduler/admin flow, not on page refresh.
 
     # Fetch watchlist items with tier and position info
     rows = await pool.fetch(

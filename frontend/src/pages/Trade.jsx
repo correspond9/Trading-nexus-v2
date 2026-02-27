@@ -262,8 +262,8 @@ const Trade = () => {
 
             {leftTab !== 'watchlist' && (
               <div className="p-2" style={{ background: 'var(--surface)', borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex gap-1">
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                  <div className="flex gap-1 flex-wrap">
                     {expiries && expiries.length > 0 ? (
                       expiries.map((exp) => (
                         <button
@@ -281,9 +281,9 @@ const Trade = () => {
                       <span className="text-xs px-2 py-1" style={{ color: 'var(--muted)' }}>Loading expiries...</span>
                     )}
                   </div>
-                  <div className="flex items-center">
+                  <div className="flex items-center flex-wrap gap-1">
                     <span className="text-xs font-medium mr-2" style={{ color: 'var(--muted)' }}>Sort:</span>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-wrap">
                       {sortOptions.map((option) => (
                         <button
                           key={option}
@@ -299,7 +299,7 @@ const Trade = () => {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center">
+                <div className="flex items-center flex-wrap gap-1">
                   {indices.map((index) => (
                     <button
                       key={index}

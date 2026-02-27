@@ -18,6 +18,13 @@ const HistoricOrdersPage = () => {
   const [loading, setLoading] = useState(false);
   const [sortConfig, setSortConfig] = useState({ key: "placed_at", direction: "desc" });
   const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // Check admin access
   if (!isAdmin) {
@@ -89,23 +96,23 @@ const HistoricOrdersPage = () => {
   };
 
   const s = {
-    page: { padding: '24px', fontFamily: 'system-ui,sans-serif', color: 'var(--text)', minHeight: '100vh' },
+    page: { padding: isMobile ? '12px' : '24px', fontFamily: 'system-ui,sans-serif', color: 'var(--text)', minHeight: '100vh' },
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' },
     title: { fontSize: '20px', fontWeight: 700, margin: 0 },
     filterBar: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
     input: { padding: '7px 10px', background: '#09090b', border: '1px solid #3f3f46', borderRadius: '6px', color: '#f4f4f5', fontSize: '13px' },
-    label: { fontSize: '12px', color: '#a1a1aa' },
+    label: { fontSize: '12px', color: 'var(--muted)' },
     button: { padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer', opacity: loading ? 0.6 : 1 },
-    card: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '20px', overflow: 'hidden' },
-    table: { width: '100%', borderCollapse: 'collapse', fontSize: '12px' },
+    card: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: isMobile ? '12px' : '20px', overflow: 'hidden' },
+    table: { width: '100%', minWidth: '980px', borderCollapse: 'collapse', fontSize: '12px' },
     thead: { background: 'var(--surface2)', borderBottom: '1px solid var(--border)' },
     th: { padding: '10px 12px', textAlign: 'left', fontWeight: '600', color: 'var(--muted)', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap' },
     tr: { borderBottom: '1px solid var(--border)', cursor: 'pointer' },
     trSelected: { background: 'var(--surface2)' },
     td: { padding: '10px 12px', color: 'var(--text)', whiteSpace: 'nowrap' },
-    details: { flex: '1 0 300px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', maxHeight: '600px', overflowY: 'auto' },
-    layout: { display: 'flex', gap: '16px', marginTop: '16px' },
-    tableWrapper: { flex: '2 1 0' },
+    details: { flex: isMobile ? '1 1 auto' : '1 0 300px', width: isMobile ? '100%' : 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', maxHeight: isMobile ? 'none' : '600px', overflowY: 'auto' },
+    layout: { display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '16px', marginTop: '16px' },
+    tableWrapper: { flex: '2 1 0', minWidth: 0 },
   };
 
   const sortableHeader = (label, key) => {
@@ -138,7 +145,7 @@ const HistoricOrdersPage = () => {
               placeholder="User ID or Mobile" 
               value={userIdOrMobile} 
               onChange={e => setUserIdOrMobile(e.target.value)} 
-              style={{...s.input, minWidth: '150px'}} 
+              style={{...s.input, minWidth: isMobile ? '220px' : '150px', width: isMobile ? '100%' : 'auto'}} 
             />
           </div>
           <button onClick={fetchOrders} disabled={loading} style={s.button}>
@@ -149,7 +156,7 @@ const HistoricOrdersPage = () => {
 
       <div style={s.layout}>
         <div style={s.tableWrapper}>
-          <div style={{...s.card, padding: '0', overflow: 'visible'}}>
+          <div style={{...s.card, padding: '0', overflowX: 'auto', overflowY: 'hidden'}}>
             <table style={s.table}>
               <thead style={s.thead}>
                 <tr>
@@ -177,12 +184,12 @@ const HistoricOrdersPage = () => {
                     <td style={s.td}>{o.order_type || '—'}</td>
                     <td style={{...s.td, textAlign: 'right'}}>{o.quantity || 0}</td>
                     <td style={{...s.td, textAlign: 'right'}}>₹{Number(o.fill_price || 0).toFixed(2)}</td>
-                    <td style={{...s.td, color: o.status === 'FILLED' ? '#22c55e' : o.status === 'REJECTED' ? '#ef4444' : '#a1a1aa'}}>{o.status}</td>
+                    <td style={{...s.td, color: o.status === 'FILLED' ? 'var(--positive-text)' : o.status === 'REJECTED' ? 'var(--negative-text)' : 'var(--text)'}}>{o.status}</td>
                   </tr>
                 ))}
                 {sortedOrders.length === 0 && (
                   <tr>
-                    <td colSpan="8" style={{...s.td, textAlign: 'center', padding: '20px', color: '#a1a1aa'}}>
+                    <td colSpan="8" style={{...s.td, textAlign: 'center', padding: '20px', color: 'var(--text)'}}>
                       No orders found for the selected criteria.
                     </td>
                   </tr>
@@ -205,7 +212,7 @@ const HistoricOrdersPage = () => {
               <div><span style={{ color: 'var(--muted)' }}>Limit Price:</span> ₹{Number(selectedOrder.limit_price || 0).toFixed(2)}</div>
               <div><span style={{ color: 'var(--muted)' }}>Fill Price:</span> ₹{Number(selectedOrder.fill_price || 0).toFixed(2)}</div>
               <div><span style={{ color: 'var(--muted)' }}>Filled Qty:</span> {selectedOrder.filled_qty || 0}</div>
-              <div><span style={{ color: 'var(--muted)' }}>Status:</span> <span style={{ fontWeight: '600', color: selectedOrder.status === 'FILLED' ? '#22c55e' : '#ef4444' }}>{selectedOrder.status}</span></div>
+              <div><span style={{ color: 'var(--muted)' }}>Status:</span> <span style={{ fontWeight: '600', color: selectedOrder.status === 'FILLED' ? 'var(--positive-text)' : 'var(--negative-text)' }}>{selectedOrder.status}</span></div>
               <div><span style={{ color: 'var(--muted)' }}>Placed At:</span> {formatDateTime(selectedOrder.placed_at)}</div>
               <div><span style={{ color: 'var(--muted)' }}>Filled At:</span> {selectedOrder.filled_at ? formatDateTime(selectedOrder.filled_at) : '—'}</div>
               <div><span style={{ color: 'var(--muted)' }}>Archived At:</span> {selectedOrder.archived_at ? formatDateTime(selectedOrder.archived_at) : '—'}</div>

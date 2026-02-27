@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --port 5173",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "audit:contrast:light": "node scripts/audit-light-contrast.mjs --theme light",
+    "audit:contrast:all": "node scripts/audit-light-contrast.mjs --allThemes true"
   },
   "dependencies": {
     "axios": "^1.7.2",
@@ -22,6 +24,7 @@
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.39",
+    "playwright": "^1.54.2",
     "tailwindcss": "^3.4.4",
     "tailwindcss-neumorphism-ui": "^1.0.4",
     "typescript": "^5.4.5",

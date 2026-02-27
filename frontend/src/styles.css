@@ -34,7 +34,7 @@
   --surface2: var(--color-base-300);
   --border: color-mix(in oklch, var(--color-base-content) 12%, transparent);
   --text: var(--color-base-content);
-  --muted: color-mix(in oklch, var(--color-base-content) 70%, transparent);
+  --muted: color-mix(in oklch, var(--color-base-content) 85%, transparent);
   --accent: var(--color-primary);
   --accent-contrast: var(--color-primary-content);
   --row-highlight: color-mix(in oklch, var(--color-primary) 12%, var(--color-base-200));
@@ -49,6 +49,8 @@
   --header-text: var(--color-base-content);
   --header-muted: color-mix(in oklch, var(--color-base-content) 70%, transparent);
   --header-active-text: var(--color-primary-content);
+  --positive-text: #15803d;
+  --negative-text: #b91c1c;
 }
 
 [data-theme='dark'] {
@@ -79,7 +81,7 @@
   --surface2: var(--color-base-300);
   --border: color-mix(in oklch, var(--color-base-content) 16%, transparent);
   --text: var(--color-base-content);
-  --muted: color-mix(in oklch, var(--color-base-content) 70%, transparent);
+  --muted: color-mix(in oklch, var(--color-base-content) 85%, transparent);
   --accent: var(--color-primary);
   --accent-contrast: var(--color-primary-content);
   --row-highlight: color-mix(in oklch, var(--color-primary) 18%, var(--color-base-200));
@@ -95,6 +97,8 @@
   --header-muted: color-mix(in oklch, var(--color-base-content) 70%, transparent);
   --header-active-text: #ff8800;
   --header-active-bg: #000000;
+  --positive-text: #22c55e;
+  --negative-text: #ef4444;
 }
 
 [data-theme='grey'] {
@@ -139,7 +143,10 @@
   --nm-highlight-rgb: 255 255 255;
   --header-text: oklch(28% 0.006 56.043);
   --header-muted: oklch(32% 0.006 56.043);
-  --header-active-text: #ffffff;
+  --header-active-text: var(--color-base-content);
+  --header-active-bg: color-mix(in oklch, var(--color-primary) 20%, var(--surface2));
+  --positive-text: #15803d;
+  --negative-text: #b91c1c;
 }
 
 /* Theme-aware overrides for common Tailwind utility classes */

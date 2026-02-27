@@ -75,7 +75,7 @@ const Background: React.FC = () => {
                 .nexus-reflective-floor {
                     position: absolute; bottom: 0; width: 100%; height: 40vh;
                     background: linear-gradient(to top, rgba(15, 23, 42, 0.8) 0%, transparent 100%);
-                    z-index: 3; border-top: 1px solid rgba(255, 255, 255, 0.05);
+                    z-index: 3;
                 }
                 .nexus-hud-overlay {
                     position: absolute; top: 0; left: 0; width: 100%; height: 100%;

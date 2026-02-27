@@ -522,10 +522,10 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                         const pct = (typeof r.change_pct === 'number') ? r.change_pct : null;
                         return (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <span style={{ fontSize: '13px', fontWeight: 700, color: '#f4f4f5' }}>{label}</span>
+                              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>{label}</span>
                             <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px' }}>
                               {pct !== null && <span style={{ color: '#a1a1aa' }}>{pct.toFixed(2)} %</span>}
-                              {price != null && <span style={{ color: '#f4f4f5', fontWeight: 800 }}>{Number(price).toFixed(2)}</span>}
+                              {price != null && <span style={{ color: 'var(--text)', fontWeight: 800 }}>{Number(price).toFixed(2)}</span>}
                             </span>
                           </div>
                         );

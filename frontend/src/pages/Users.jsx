@@ -19,7 +19,7 @@ const BROKERAGE_PLANS = [
 ];
 
 const STATUS_CONFIG = {
-  ACTIVE:    { color: "#22c55e", bg: "#14532d22" },
+  ACTIVE:    { color: "#166534", bg: "var(--surface2)" },
   PENDING:   { color: "#f59e0b", bg: "#78350f22" },
   SUSPENDED: { color: "#f97316", bg: "#7c2d1222" },
   BLOCKED:   { color: "#ef4444", bg: "#7f1d1d22" },
@@ -82,7 +82,7 @@ function DocField({ label, fieldKey, value, onChange }) {
       <div style={S.label}>{label}</div>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         {hasDoc && (
-          <span style={{ fontSize: "11px", color: "#22c55e", fontWeight: 600 }}>
+          <span style={{ fontSize: "11px", color: "var(--positive-text)", fontWeight: 600 }}>
             ✓ Saved
           </span>
         )}
@@ -147,6 +147,7 @@ const Inp = ({ formData, onField, fkey, type = "text", placeholder = "" }) => (
 // ── Main component ────────────────────────────────────────────────────────
 const UsersPage = () => {
   const { user: self } = useAuth();
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
 
   const [users,       setUsers]       = useState([]);
   const [loading,     setLoading]     = useState(true);
@@ -171,6 +172,12 @@ const UsersPage = () => {
   const roleOptions  = isSuperAdmin
     ? ["USER", "ADMIN", "SUPER_USER", "SUPER_ADMIN"]
     : ["USER", "ADMIN"];
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // ── Load users ────────────────────────────────────────────────────────
   const loadUsers = useCallback(async () => {
@@ -316,14 +323,14 @@ const UsersPage = () => {
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
-    <div style={S.page}>
-      <div style={S.card}>
+    <div style={{ ...S.page, padding: isMobile ? "12px" : "24px" }}>
+      <div style={{ ...S.card, padding: isMobile ? "12px" : "20px" }}>
 
         {/* Top bar */}
         <div style={S.topBar}>
           <div style={S.title}>Users</div>
           <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-            <label style={{ color: "#a1a1aa", fontSize: "13px" }}>
+            <label style={{ color: "var(--muted)", fontSize: "13px" }}>
               Show{" "}
               <select
                 value={showEntries}
@@ -338,7 +345,7 @@ const UsersPage = () => {
               placeholder="Search…"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              style={{ ...S.input, width: "200px" }}
+              style={{ ...S.input, width: isMobile ? "100%" : "200px", minWidth: isMobile ? "220px" : "auto" }}
             />
             <button style={S.btn("#2563eb")} onClick={openAdd}>+ Add User</button>
           </div>
@@ -356,28 +363,28 @@ const UsersPage = () => {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: "#a1a1aa", padding: "32px" }}>Loading…</td></tr>
+                <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: "var(--text)", padding: "32px" }}>Loading…</td></tr>
               ) : displayed.length === 0 ? (
-                <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: "#a1a1aa", padding: "32px" }}>No matching records found.</td></tr>
+                <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: "var(--text)", padding: "32px" }}>No matching records found.</td></tr>
               ) : displayed.map(u => (
                 <tr key={u.id}>
-                  <td style={{ ...S.td, color: "#a1a1aa" }}>{u.user_no || "—"}</td>
+                  <td style={{ ...S.td, color: "var(--text)" }}>{u.user_no || "—"}</td>
                   <td style={S.td}>{u.first_name || u.name || "—"}</td>
                   <td style={S.td}>{u.last_name || "—"}</td>
                   <td style={S.td}>
                     <span style={{
                       padding: "2px 8px", borderRadius: "999px", fontSize: "10px",
-                      fontWeight: 700, color: "#fff",
+                      fontWeight: 700, color: (u.role === "SUPER_USER" || u.role === "USER") ? "#111827" : "#fff",
                       background: ROLE_COLORS[u.role] || "#6b7280",
                     }}>{u.role}</span>
                   </td>
-                  <td style={{ ...S.td, color: "#a1a1aa" }}>{u.email || "—"}</td>
-                  <td style={{ ...S.td, color: "#a1a1aa" }}>
+                  <td style={{ ...S.td, color: "var(--text)" }}>{u.email || "—"}</td>
+                  <td style={{ ...S.td, color: "var(--text)" }}>
                     {u.created_at ? new Date(u.created_at).toLocaleDateString("en-IN") : "—"}
                   </td>
                   <td style={S.td}>{u.mobile}</td>
                   <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>
-                    <span style={{ color: Number(u.wallet_balance) < 0 ? "#ef4444" : "#f4f4f5" }}>
+                    <span style={{ color: Number(u.wallet_balance) < 0 ? "#ef4444" : "var(--text)" }}>
                       {fmt(u.wallet_balance)}
                     </span>
                   </td>
@@ -397,7 +404,7 @@ const UsersPage = () => {
         </div>
 
         {/* Footer count */}
-        <div style={{ marginTop: "12px", fontSize: "12px", color: "#a1a1aa" }}>
+        <div style={{ marginTop: "12px", fontSize: "12px", color: "var(--muted)" }}>
           Showing 1–{Math.min(displayed.length, filtered.length)} of {filtered.length} entries
           {q && ` (filtered from ${users.length} total)`}
         </div>
@@ -406,7 +413,7 @@ const UsersPage = () => {
       {/* ── Add / Edit Modal ─────────────────────────────────────────── */}
       {showModal && (
         <div style={S.overlay} onMouseDown={e => { if (e.target === e.currentTarget) setShowModal(false); }}>
-          <div style={S.modal} onMouseDown={e => e.stopPropagation()}>
+          <div style={{ ...S.modal, maxWidth: isMobile ? "96vw" : "880px" }} onMouseDown={e => e.stopPropagation()}>
             <div style={S.mHeader}>
               <span style={{ fontSize: "16px", fontWeight: 700 }}>
                 {editingId ? "Edit User" : "Add New User"}
@@ -415,7 +422,7 @@ const UsersPage = () => {
                 style={{ background: "none", border: "none", color: "#a1a1aa", fontSize: "20px", cursor: "pointer" }}>✕</button>
             </div>
 
-            <div style={S.mBody}>
+            <div style={{ ...S.mBody, padding: isMobile ? "14px" : "20px 24px" }}>
               {formError && (
                 <div style={{ marginBottom: "14px", padding: "10px 14px", background: "#7f1d1d33", border: "1px solid #ef4444", borderRadius: "6px", color: "#fca5a5", fontSize: "13px" }}>
                   {formError}
@@ -423,7 +430,7 @@ const UsersPage = () => {
               )}
 
               {/* ── Admin fields: role, status, password */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "16px", paddingBottom: "16px", borderBottom: "1px solid #3f3f46" }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "14px", marginBottom: "16px", paddingBottom: "16px", borderBottom: "1px solid #3f3f46" }}>
                 <Field label="Role">
                   <select value={formData.role} onChange={e => onField("role", e.target.value)} style={S.select}>
                     {roleOptions.map(r => <option key={r} value={r}>{r}</option>)}
@@ -448,7 +455,7 @@ const UsersPage = () => {
               </div>
 
               {/* ── Two-column layout: personal left, KYC right */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "24px" }}>
 
                 {/* LEFT: Personal details */}
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -505,7 +512,7 @@ const UsersPage = () => {
               </div>
             </div>
 
-            <div style={S.mFooter}>
+            <div style={{ ...S.mFooter, flexDirection: isMobile ? "column" : "row", padding: isMobile ? "12px 14px" : "16px 24px" }}>
               <button onClick={handleSubmit} disabled={saving}
                 style={{ ...S.btn("#2563eb"), flex: 1, padding: "10px", fontSize: "14px" }}>
                 {saving ? "Saving…" : "SAVE DETAILS"}
@@ -530,13 +537,13 @@ const UsersPage = () => {
             </div>
             <div style={S.mBody}>
               <div style={{ marginBottom: "14px", padding: "12px 14px", background: "var(--surface2)", borderRadius: "8px", fontSize: "13px" }}>
-                <div style={{ color: "#a1a1aa", marginBottom: "4px" }}>User</div>
+                <div style={{ color: "var(--muted)", marginBottom: "4px" }}>User</div>
                 <div style={{ fontWeight: 700 }}>
                   {fundsUser.first_name} {fundsUser.last_name} ({fundsUser.mobile})
                 </div>
-                <div style={{ color: "#a1a1aa", marginTop: "6px" }}>
+                <div style={{ color: "var(--muted)", marginTop: "6px" }}>
                   Current Balance:{" "}
-                  <span style={{ fontWeight: 700, color: "#f4f4f5" }}>{fmt(fundsUser.wallet_balance)}</span>
+                  <span style={{ fontWeight: 700, color: "var(--text)" }}>{fmt(fundsUser.wallet_balance)}</span>
                 </div>
               </div>
               <div style={{ marginBottom: "12px" }}>

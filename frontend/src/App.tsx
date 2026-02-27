@@ -21,6 +21,7 @@ const SuperAdmin = lazy(() => import('./pages/SuperAdmin'));
 
 const LandingPage = lazy(() => import('./pages/nexus/LandingPage'));
 const SignupPage = lazy(() => import('./pages/nexus/SignupPage'));
+const CrashCourse = lazy(() => import('./pages/nexus/CrashCourse'));
 const Background = lazy(() => import('./components/nexus/Background'));
 
 const Loader = () => (
@@ -44,6 +45,7 @@ const NexusPortal = () => {
       <Background />
       <Routes>
         <Route path="/" element={<LandingPage toggleTheme={toggleTheme} theme={theme} />} />
+        <Route path="/crash-course" element={<CrashCourse />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

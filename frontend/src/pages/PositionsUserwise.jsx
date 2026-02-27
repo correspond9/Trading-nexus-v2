@@ -10,16 +10,19 @@ const INR = (n) =>
 const PCT = (n) => (Number(n) >= 0 ? "" : "") + Number(n).toFixed(2) + "%";
 
 const numColor = (n) =>
-  Number(n) > 0 ? "#22c55e" : Number(n) < 0 ? "#ef4444" : "#f4f4f5";
+  Number(n) > 0 ? "var(--positive-text)" : Number(n) < 0 ? "var(--negative-text)" : "var(--text)";
+
+const isDarkTheme = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "dark";
+const surfaceBg = isDarkTheme ? "#111827" : "var(--surface)";
 
 // ── styles ────────────────────────────────────────────────────────────────
 const TH = {
   padding: "9px 11px",
-  background: "#1c1c1f",
-  borderBottom: "1px solid #3f3f46",
+  background: "var(--surface2)",
+  borderBottom: "1px solid var(--border)",
   fontWeight: 700,
   fontSize: "10px",
-  color: "#a1a1aa",
+  color: "var(--muted)",
   textTransform: "uppercase",
   whiteSpace: "nowrap",
   cursor: "pointer",
@@ -27,9 +30,9 @@ const TH = {
 };
 const TD = {
   padding: "9px 11px",
-  borderBottom: "1px solid #27272a",
+  borderBottom: "1px solid var(--border)",
   fontSize: "12px",
-  color: "#f4f4f5",
+  color: "var(--text)",
   whiteSpace: "nowrap",
 };
 const SUB_TH = {
@@ -44,9 +47,9 @@ const SUB_TH = {
 };
 const SUB_TD = {
   padding: "7px 10px",
-  borderBottom: "1px solid #27272a",
+  borderBottom: "1px solid var(--border)",
   fontSize: "12px",
-  color: "#f4f4f5",
+  color: "var(--text)",
   whiteSpace: "nowrap",
 };
 
@@ -118,7 +121,7 @@ function UserPositions({ row, onExitDone, liveTickByToken = {} }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
         <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--text)" }}>
           Positions for{" "}
-          <span style={{ color: "#60a5fa" }}>{row.display_name}</span>
+          <span style={{ color: "#1d4ed8" }}>{row.display_name}</span>
           {" "}(User ID: {row.user_no || row.user_id?.slice(0, 8)})
         </span>
         <button
@@ -201,13 +204,13 @@ function UserPositions({ row, onExitDone, liveTickByToken = {} }) {
                   <td style={{ 
                     ...SUB_TD, 
                     fontVariantNumeric: "tabular-nums",
-                    color: liveTick ? "#fbbf24" : "#f4f4f5",
+                    color: liveTick ? "#fbbf24" : "var(--text)",
                     fontWeight: liveTick ? 600 : 400
                   }}>
                     {INR(currentLTP)}
                     {liveTick && <span style={{ fontSize: "9px", color: "#60a5fa", marginLeft: "4px" }}>●</span>}
                   </td>
-                  <td style={{ ...SUB_TD, fontVariantNumeric: "tabular-nums", color: numColor(currentPnL) }}>
+                  <td style={{ ...SUB_TD, fontVariantNumeric: "tabular-nums", color: numColor(currentPnL), backgroundColor: surfaceBg }}>
                     {INR(currentPnL)}
                   </td>
                   <td style={SUB_TD}>
@@ -220,20 +223,20 @@ function UserPositions({ row, onExitDone, liveTickByToken = {} }) {
                         onChange={e => setExitQty(prev => ({ ...prev, [token]: e.target.value }))}
                         style={{
                           width: "72px", padding: "4px 6px",
-                          background: "#09090b", border: "1px solid #3f3f46",
-                          borderRadius: "4px", color: "#f4f4f5", fontSize: "12px",
+                          background: "var(--control-bg)", border: "1px solid var(--border)",
+                          borderRadius: "4px", color: "var(--text)", fontSize: "12px",
                         }}
                       />
                     ) : (
-                      <span style={{ color: "#a1a1aa" }}>—</span>
+                      <span style={{ color: "var(--muted)" }}>—</span>
                     )}
                   </td>
                   <td style={SUB_TD}>
                     <span style={{
                       padding: "2px 8px", borderRadius: "999px", fontSize: "10px", fontWeight: 700,
-                      color:       isOpen ? "#22c55e"  : "#a1a1aa",
-                      background:  isOpen ? "#14532d33" : "#3f3f4622",
-                      border: `1px solid ${isOpen ? "#22c55e44" : "#a1a1aa44"}`,
+                      color:       isOpen ? "var(--positive-text)" : "var(--muted)",
+                      background:  "var(--surface2)",
+                      border: `1px solid ${isOpen ? "var(--positive-text)" : "var(--border)"}`,
                     }}>
                       {p.status}
                     </span>
@@ -255,9 +258,16 @@ const PositionsUserwise = () => {
   const [sortLabel,  setSortLabel]  = useState("UserId(asc)");
   const [expandedId, setExpandedId] = useState(null); // user_id or null
   const [liveTickByToken, setLiveTickByToken] = useState({}); // token -> tick data
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
   
   // Market pulse hook for market status and prices
   const { pulse, readyState: pricesWSState, marketActive } = useMarketPulse();
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   
   // WebSocket connection for live ticks
   const wsRef = useRef(null);
@@ -411,12 +421,12 @@ const PositionsUserwise = () => {
   );
 
   return (
-    <div style={{ padding: "24px", fontFamily: "system-ui,sans-serif", color: "#f4f4f5", minHeight: "100vh" }}>
+    <div style={{ padding: isMobile ? "12px" : "24px", fontFamily: "system-ui,sans-serif", color: "var(--text)", minHeight: "100vh" }}>
 
       {/* Top bar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <h1 style={{ fontSize: "20px", fontWeight: 700, margin: 0, color: "#f4f4f5" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+          <h1 style={{ fontSize: "20px", fontWeight: 700, margin: 0, color: "var(--text)" }}>
             All Positions Userwise
           </h1>
           {/* Market Status Indicator */}
@@ -425,9 +435,9 @@ const PositionsUserwise = () => {
             borderRadius: "999px",
             fontSize: "12px",
             fontWeight: 600,
-            color: marketActive ? "#22c55e" : "#a1a1aa",
-            background: marketActive ? "#14532d44" : "#3f3f4644",
-            border: `1px solid ${marketActive ? "#22c55e66" : "#a1a1aa66"}`,
+            color: marketActive ? "var(--positive-text)" : "var(--muted)",
+            background: "var(--surface2)",
+            border: `1px solid ${marketActive ? "var(--positive-text)" : "var(--border)"}`,
             display: "flex",
             alignItems: "center",
             gap: "6px"
@@ -437,13 +447,13 @@ const PositionsUserwise = () => {
               width: "8px",
               height: "8px",
               borderRadius: "50%",
-              background: marketActive ? "#22c55e" : "#a1a1aa",
+              background: marketActive ? "var(--positive-text)" : "var(--muted)",
               animation: marketActive ? "pulse 2s infinite" : "none"
             }}></span>
             {marketActive ? "Markets Open" : "Markets Closed"}
           </div>
         </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
           {/* Refresh */}
           <button
             onClick={load}
@@ -472,7 +482,7 @@ const PositionsUserwise = () => {
 
       {/* Main table */}
       <div style={{ background: "var(--surface)", borderRadius: "10px", border: "1px solid var(--border)", overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", minWidth: "980px", borderCollapse: "collapse" }}>
           <thead>
             <tr>
               <th style={TH}>User ID</th>
@@ -488,9 +498,9 @@ const PositionsUserwise = () => {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} style={{ ...TD, textAlign: "center", color: "#a1a1aa", padding: "40px" }}>Loading…</td></tr>
+              <tr><td colSpan={9} style={{ ...TD, textAlign: "center", color: "var(--text)", padding: "40px" }}>Loading…</td></tr>
             ) : sorted.length === 0 ? (
-              <tr><td colSpan={9} style={{ ...TD, textAlign: "center", color: "#a1a1aa", padding: "40px" }}>No data.</td></tr>
+              <tr><td colSpan={9} style={{ ...TD, textAlign: "center", color: "var(--text)", padding: "40px" }}>No data.</td></tr>
             ) : sorted.map(r => {
               const isExpanded = expandedId === r.user_id;
               
@@ -514,28 +524,28 @@ const PositionsUserwise = () => {
                 <React.Fragment key={r.user_id}>
                   {/* Summary row */}
                   <tr style={{ background: isExpanded ? "#1e2a3a" : "transparent" }}>
-                    <td style={{ ...TD, fontWeight: 700, color: "#60a5fa" }}>
+                    <td style={{ ...TD, fontWeight: 700, color: "#1d4ed8" }}>
                       {r.user_no || r.user_id?.slice(0, 8)}
                     </td>
                     <td style={{ ...TD, fontWeight: 600 }}>
                       {r.display_name || "—"}
                     </td>
-                    <td style={{ ...TD, color: numColor(r.profit), fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ ...TD, color: numColor(r.profit), fontVariantNumeric: "tabular-nums", backgroundColor: isExpanded ? "#1e2a3a" : surfaceBg }}>
                       {INR(r.profit)}
                     </td>
-                    <td style={{ ...TD, color: numColor(r.wallet_balance), fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ ...TD, color: numColor(r.wallet_balance), fontVariantNumeric: "tabular-nums", backgroundColor: isExpanded ? "#1e2a3a" : surfaceBg }}>
                       {INR(r.wallet_balance)}
                     </td>
-                    <td style={{ ...TD, color: numColor(r.margin_allotted), fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ ...TD, color: numColor(r.margin_allotted), fontVariantNumeric: "tabular-nums", backgroundColor: isExpanded ? "#1e2a3a" : surfaceBg }}>
                       {INR(r.margin_allotted)}
                     </td>
                     <td style={{ ...TD, fontVariantNumeric: "tabular-nums" }}>
                       {INR(r.current_margin_usage)}
                     </td>
-                    <td style={{ ...TD, color: numColor(openOnlyPnL), fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ ...TD, color: numColor(openOnlyPnL), fontVariantNumeric: "tabular-nums", backgroundColor: isExpanded ? "#1e2a3a" : surfaceBg }}>
                       {INR(openOnlyPnL)}
                     </td>
-                    <td style={{ ...TD, color: numColor(openOnlyPnLPct), fontVariantNumeric: "tabular-nums" }}>
+                    <td style={{ ...TD, color: numColor(openOnlyPnLPct), fontVariantNumeric: "tabular-nums", backgroundColor: isExpanded ? "#1e2a3a" : surfaceBg }}>
                       {PCT(openOnlyPnLPct)}
                     </td>
                     <td style={TD}>

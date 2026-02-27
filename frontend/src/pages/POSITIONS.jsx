@@ -42,6 +42,13 @@ const PositionsTab = ({ productFilter = null }) => {
   const [exitTriggerPrice, setExitTriggerPrice] = useState('');
   const [exitSubmitting, setExitSubmitting] = useState(false);
   const [exitError, setExitError] = useState('');
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const fetchPositions = useCallback(async () => {
     try {
@@ -274,14 +281,14 @@ const PositionsTab = ({ productFilter = null }) => {
   };
 
   // styles
-  const pageStyle = { minHeight: "100vh", margin: 0, padding: "24px", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "transparent" };
-  const mainCardStyle = { maxWidth: "1200px", margin: "0 auto", background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: "24px 24px 32px 24px", border: "1px solid var(--border)" };
-  const sectionHeaderRowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", marginTop: "8px" };
+  const pageStyle = { minHeight: "100vh", margin: 0, padding: isMobile ? "12px" : "24px", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "transparent" };
+  const mainCardStyle = { maxWidth: "1200px", margin: "0 auto", background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: isMobile ? "14px" : "24px 24px 32px 24px", border: "1px solid var(--border)" };
+  const sectionHeaderRowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", marginTop: "8px", flexWrap: "wrap", gap: "8px" };
   const sectionTitleStyle = { fontSize: "14px", fontWeight: 600, color: "var(--text)" };
   const totalTextStyle = { fontSize: "13px", fontWeight: 600, color: "var(--text)" };
   const totalValueStyle = { fontWeight: 700 };
-  const tableOuterStyle = { borderRadius: "8px", border: "1px solid var(--border)", overflow: "hidden", background: "var(--surface)" };
-  const tableStyle = { width: "100%", borderCollapse: "collapse", fontSize: "12px" };
+  const tableOuterStyle = { borderRadius: "8px", border: "1px solid var(--border)", overflowX: "auto", overflowY: "hidden", background: "var(--surface)" };
+  const tableStyle = { width: "100%", minWidth: isAdminScopedView ? "980px" : "860px", borderCollapse: "collapse", fontSize: "12px" };
   const theadStyle = { background: "var(--surface2)", borderBottom: "1px solid var(--border)" };
   const thStyle = { padding: "10px 12px", textAlign: "left", fontWeight: 600, color: "var(--muted)", whiteSpace: "nowrap" };
   const thRight = { ...thStyle, textAlign: "right" };
@@ -292,8 +299,11 @@ const PositionsTab = ({ productFilter = null }) => {
   const exitButtonStyle = { border: "1px solid var(--border)", borderRadius: "6px", padding: "4px 12px", fontSize: "12px", background: "var(--surface2)", color: "var(--text)", cursor: "pointer" };
   const exitSelectedButtonStyle = { border: "1px solid var(--border)", borderRadius: "6px", padding: "4px 12px", fontSize: "12px", background: selectedOpenIds.size ? "#f97316" : "var(--surface2)", color: selectedOpenIds.size ? "#ffffff" : "var(--muted)", cursor: selectedOpenIds.size ? "pointer" : "default" };
   const qtyTextStyle = { fontVariantNumeric: "tabular-nums" };
-  const plPositive = { color: "#22c55e" };
-  const plNegative = { color: "#ef4444" };
+  const plPositive = { color: "var(--positive-text)" };
+  const plNegative = { color: "var(--negative-text)" };
+  const isDarkTheme = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "dark";
+  const surfaceBg = isDarkTheme ? "#111827" : "var(--surface)";
+  const surface2Bg = isDarkTheme ? "#1f2937" : "var(--surface2)";
   const totalRowStyle = { ...rowStyle, background: "var(--surface2)", fontWeight: 600 };
   const modalOverlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' };
   const modalCardStyle = { width: '420px', maxWidth: '92vw', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', boxShadow: '0 14px 32px rgba(0,0,0,0.35)', padding: '16px' };
@@ -330,7 +340,7 @@ const PositionsTab = ({ productFilter = null }) => {
           </div>
           <div style={totalTextStyle}>
             Total MTM:{" "}
-            <span style={{ ...totalValueStyle, ...(totalMtm >= 0 ? plPositive : plNegative) }}>
+            <span style={{ ...totalValueStyle, backgroundColor: surfaceBg, ...(totalMtm >= 0 ? plPositive : plNegative) }}>
               {formatMoney(totalMtm)}
             </span>
           </div>
@@ -365,15 +375,15 @@ const PositionsTab = ({ productFilter = null }) => {
                       <td style={{ ...tdRight, ...qtyTextStyle }}>{p.qty.toLocaleString("en-IN")}</td>
                       <td style={tdRight}>{p.avgEntry}</td>
                       <td style={tdRight}>{p.currentLtp}</td>
-                      <td style={{ ...tdRight, ...(parseFloat(p.mtm) >= 0 ? plPositive : plNegative) }}>{formatMoney(parseFloat(p.mtm))}</td>
+                      <td style={{ ...tdRight, backgroundColor: surfaceBg, ...(parseFloat(p.mtm) >= 0 ? plPositive : plNegative) }}>{formatMoney(parseFloat(p.mtm))}</td>
                       <td style={{ ...tdStyle }}><button style={exitButtonStyle} onClick={() => handleExitOne(p.id)}>Exit</button></td>
                     </tr>
                   ))}
                   <tr style={totalRowStyle}>
                     <td style={tdStyle}></td><td style={tdStyle}></td>{isAdminScopedView && <td style={tdStyle}></td>}<td style={tdStyle}></td>
                     <td style={tdRight}></td><td style={tdRight}></td>
-                    <td style={{ ...tdRight, color: "#111827" }}>Total</td>
-                    <td style={{ ...tdRight, ...(totalMtm >= 0 ? plPositive : plNegative) }}>{formatMoney(totalMtm)}</td>
+                    <td style={{ ...tdRight, color: "var(--text)", backgroundColor: surface2Bg }}>Total</td>
+                    <td style={{ ...tdRight, backgroundColor: surface2Bg, ...(totalMtm >= 0 ? plPositive : plNegative) }}>{formatMoney(totalMtm)}</td>
                     <td style={tdStyle}></td>
                   </tr>
                 </>
@@ -418,14 +428,14 @@ const PositionsTab = ({ productFilter = null }) => {
                       <td style={{ ...tdRight, ...qtyTextStyle }}>{p.qty.toLocaleString("en-IN")}</td>
                       <td style={tdRight}>{p.avgEntry}</td>
                       <td style={tdRight}>{p.exitPrice || "0.00"}</td>
-                      <td style={{ ...tdRight, ...(p.realizedPnl >= 0 ? plPositive : plNegative) }}>{formatMoney(p.realizedPnl)}</td>
+                      <td style={{ ...tdRight, backgroundColor: surfaceBg, ...(p.realizedPnl >= 0 ? plPositive : plNegative) }}>{formatMoney(p.realizedPnl)}</td>
                     </tr>
                   ))}
                   <tr style={totalRowStyle}>
                     <td style={tdStyle}></td><td style={tdStyle}></td>{isAdminScopedView && <td style={tdStyle}></td>}
                     <td style={{ ...tdStyle, color: "#111827" }}>Total</td>
                     <td style={tdRight}></td><td style={tdRight}></td><td style={tdRight}></td>
-                    <td style={{ ...tdRight, ...(totalClosed >= 0 ? plPositive : plNegative) }}>{formatMoney(totalClosed)}</td>
+                    <td style={{ ...tdRight, backgroundColor: surface2Bg, ...(totalClosed >= 0 ? plPositive : plNegative) }}>{formatMoney(totalClosed)}</td>
                   </tr>
                 </>
               )}
@@ -443,7 +453,7 @@ const PositionsTab = ({ productFilter = null }) => {
               {' · '}Lot Size: {Math.max(1, Number(exitRow?.lotSize || exitRow?.lot_size || 1))}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px' }}>
               <div>
                 <label style={labelStyle}>Exit Qty</label>
                 <select

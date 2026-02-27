@@ -16,7 +16,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ toggleTheme, theme }) => {
     useEffect(() => {
         // Disable Vanilla Tilt on mobile devices for performance
         const isMobile = window.innerWidth < 768;
-        
+
         if (!isMobile) {
             const tiltElements = document.querySelectorAll('.card');
             tiltElements.forEach((el) => {
@@ -78,25 +78,29 @@ const LandingPage: React.FC<LandingPageProps> = ({ toggleTheme, theme }) => {
                         <div className="card-icon" style={{ fontSize: 'clamp(2rem, 5vw, 3rem)' }}>📚</div>
                         <h3 style={{ fontSize: 'clamp(1.25rem, 4vw, 1.5rem)' }}>Knowledge Hub</h3>
                         <p style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1rem)' }}>High-tier education shouldn't be gated. Access our complete curriculum without spending a dime. Price Action mastery, Risk Management, and more.</p>
-                        <button className="btn btn-glass" style={{ marginTop: '1rem', width: '100%' }}>Explore Academy</button>
                     </div>
 
                     <div className="glass card reveal tilt-card" ref={addToRefs}>
                         <div className="card-icon" style={{ fontSize: 'clamp(2rem, 5vw, 3rem)' }}>💰</div>
                         <h3 style={{ fontSize: 'clamp(1.25rem, 4vw, 1.5rem)' }}>Mentoring from Pro-Traders</h3>
                         <p style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1rem)' }}>Ready to trade bigger? Nobody can earn on behalf of you, you have to learn and earn yourself</p>
-                        <button className="btn btn-glass" style={{ marginTop: '1rem', width: '100%' }}>Join hands</button>
                     </div>
 
                     <div className="glass card reveal tilt-card" ref={addToRefs}>
                         <div className="card-icon" style={{ fontSize: 'clamp(2rem, 5vw, 3rem)' }}>⚡</div>
                         <h3 style={{ fontSize: 'clamp(1.25rem, 4vw, 1.5rem)' }}>Pro Infrastructure</h3>
                         <p style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1rem)' }}>Optimized for professional scalpers and swing traders. Institutional leverage, low latency execution, and direct API access.</p>
-                        <button className="btn btn-glass" style={{ marginTop: '1rem', width: '100%' }}>Open Account</button>
                     </div>
                 </div>
 
                 <section className="join-now reveal" id="join" ref={addToRefs} style={{ padding: 'clamp(3rem, 10vw, 6rem) 0', textAlign: 'center' }}>
+                    <button
+                        className="btn btn-glass"
+                        onClick={() => navigate('/crash-course')}
+                        style={{ marginBottom: '2rem', padding: '1rem 2rem', fontSize: '1.1rem', background: 'rgba(255, 255, 255, 0.05)', borderColor: 'var(--accent)' }}
+                    >
+                        Free crash course content
+                    </button>
                     <div className="glass join-box" style={{ padding: 'clamp(2rem, 8vw, 5rem) clamp(1.5rem, 5vw, 2.5rem)', maxWidth: '800px', margin: '0 auto' }}>
                         <h2 style={{ fontSize: 'clamp(1.75rem, 5vw, 2.5rem)', marginBottom: '1rem' }}>Ready to Join the Elite?</h2>
                         <p className="join-desc" style={{ marginBottom: '2.5rem', fontSize: 'clamp(1rem, 3vw, 1.1rem)' }}>Become part of a global ecosystem of professional traders. Secure your spot today.</p>
@@ -122,7 +126,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ toggleTheme, theme }) => {
                 </section>
             </main>
 
-            <footer className="footer" style={{ padding: 'clamp(2rem, 5vw, 2.5rem)', textAlign: 'center', borderTop: '1px solid var(--glass-border)', color: 'var(--text-dim)' }}>
+            <footer className="footer" style={{ padding: 'clamp(2rem, 5vw, 2.5rem)', textAlign: 'center', borderTop: 'none', color: 'var(--text-dim)' }}>
                 <p style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1rem)' }}>&copy; 2026 Institutional Trading Hub. All rights reserved.</p>
                 <p style={{ marginTop: '10px', opacity: 0.6, fontSize: 'clamp(0.8rem, 2vw, 0.9rem)' }}>Trading involves risk. Education is key to success.</p>
             </footer>

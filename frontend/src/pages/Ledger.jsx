@@ -6,6 +6,7 @@ const today = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
 
 const LedgerPage = () => {
   const { user } = useAuth();
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fromDate, setFromDate] = useState(today());
@@ -30,15 +31,21 @@ const LedgerPage = () => {
     // eslint-disable-next-line
   }, [user]);
 
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   const s = {
-    page: { padding: '24px', fontFamily: 'system-ui,sans-serif', color: 'var(--text)' },
+    page: { padding: isMobile ? '12px' : '24px', fontFamily: 'system-ui,sans-serif', color: 'var(--text)' },
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' },
     title: { fontSize: '20px', fontWeight: 700, margin: 0, color: 'var(--text)' },
     filterBar: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
     input: { padding: '7px 10px', background: '#09090b', border: '1px solid #3f3f46', borderRadius: '6px', color: '#f4f4f5', fontSize: '13px' },
-    label: { fontSize: '12px', color: '#a1a1aa' },
+    label: { fontSize: '12px', color: 'var(--muted)' },
     button: { padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer', opacity: loading ? 0.6 : 1 },
-    card: { background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)', padding: '20px' },
+    card: { background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)', padding: isMobile ? '12px' : '20px' },
     th: { padding: '10px 14px', textAlign: 'left', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontWeight: '600', color: 'var(--muted)', fontSize: '12px' },
     td: { padding: '10px 14px', borderBottom: '1px solid var(--border)', fontSize: '13px', color: 'var(--text)' }
   };
@@ -63,10 +70,12 @@ const LedgerPage = () => {
       </div>
       <div style={s.card}>
         {loading ? <div>Loading...</div> : entries.length === 0 ? <div style={{ color: '#a1a1aa', fontSize: '13px' }}>No ledger entries found.</div> : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>{['Date', 'Description', 'Debit', 'Credit', 'Balance'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
-            <tbody>{entries.map((e, i) => <tr key={i}>{[e.date, e.description, e.debit != null ? '₹' + Number(e.debit).toFixed(2) : '—', e.credit != null ? '₹' + Number(e.credit).toFixed(2) : '—', e.balance != null ? '₹' + Number(e.balance).toFixed(2) : '—'].map((v, j) => <td key={j} style={s.td}>{v}</td>)}</tr>)}</tbody>
-          </table>
+          <div style={{ overflowX: 'auto', overflowY: 'hidden' }}>
+            <table style={{ width: '100%', minWidth: '720px', borderCollapse: 'collapse' }}>
+              <thead><tr>{['Date', 'Description', 'Debit', 'Credit', 'Balance'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+              <tbody>{entries.map((e, i) => <tr key={i}>{[e.date, e.description, e.debit != null ? '₹' + Number(e.debit).toFixed(2) : '—', e.credit != null ? '₹' + Number(e.credit).toFixed(2) : '—', e.balance != null ? '₹' + Number(e.balance).toFixed(2) : '—'].map((v, j) => <td key={j} style={s.td}>{v}</td>)}</tr>)}</tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

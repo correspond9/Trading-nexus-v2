@@ -42,8 +42,8 @@ const FormField = ({ label, children }) => (
   </div>
 );
 
-const inputCls = 'w-full px-3 py-2 text-sm bg-gray-900 border border-gray-700 text-white rounded-lg outline-none focus:border-blue-500';
-const btnCls   = (color = 'blue') => `px-4 py-2 rounded-lg font-medium transition-colors text-white text-sm ${
+const inputCls = 'w-full px-3 py-2 text-sm bg-gray-900 border border-gray-700 text-zinc-100 rounded-lg outline-none focus:border-blue-500';
+const btnCls   = (color = 'blue') => `px-4 py-2 rounded-lg font-medium transition-colors text-zinc-100 text-sm ${
   color === 'blue' ? 'bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900' :
   color === 'red' ? 'bg-red-600 hover:bg-red-500 disabled:bg-red-900' :
   'bg-gray-600 hover:bg-gray-500 disabled:bg-gray-900'
@@ -592,7 +592,7 @@ const SuperAdminDashboard = () => {
             className={`flex-shrink-0 px-4 py-2 rounded text-sm font-medium transition-all ${
               activeTab === t.id 
                 ? 'bg-blue-600 text-white font-semibold shadow-lg' 
-                : 'text-white bg-gray-800 hover:bg-gray-700'
+                : 'text-zinc-100 bg-gray-800 hover:bg-gray-700'
             }`}>
             {t.label}
           </button>
@@ -612,7 +612,7 @@ const SuperAdminDashboard = () => {
                   <button key={mode} onClick={() => setLocalSettings(s => ({ ...s, authMode: mode }))}
                     className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
                       localSettings.authMode === mode
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-blue-600 text-zinc-100'
                         : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
                     }`}>
                     {mode}
@@ -923,7 +923,7 @@ const SuperAdminDashboard = () => {
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {archivedUsers.map((u, idx) => (
                   <div key={idx} className="p-3 bg-zinc-900 rounded-lg border border-zinc-700 text-xs">
-                    <div className="font-semibold text-white">{u.mobile || u.name || u.email}</div>
+                    <div className="font-semibold text-zinc-100">{u.mobile || u.name || u.email}</div>
                     <div className="text-gray-400 text-xs mt-1">
                       Archived: {new Date(u.archived_at).toLocaleDateString()} 
                       {u.last_login && ` | Last login: ${new Date(u.last_login).toLocaleDateString()}`}
@@ -942,7 +942,7 @@ const SuperAdminDashboard = () => {
       {activeTab === 'historic' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Backdate */}
-          <div className="rounded-xl p-5 space-y-4 bg-gray-900 border border-gray-700">            <h2 className="text-base font-bold text-white">Backdate Position</h2>
+          <div className="rounded-xl p-5 space-y-4 bg-gray-900 border border-gray-700">            <h2 className="text-base font-bold text-zinc-100">Backdate Position</h2>
             <h2 className="text-base font-semibold">Backdate Position</h2>
             <p className="text-xs text-gray-400">Manually add a historic trade position for any user.</p>
             
@@ -1009,7 +1009,7 @@ const SuperAdminDashboard = () => {
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div>
-                              <div className="font-semibold text-white">{symbol}</div>
+                              <div className="font-semibold text-zinc-100">{symbol}</div>
                               <div className="text-xs text-gray-400">{instType}</div>
                             </div>
                             <div className="text-xs px-2 py-1 bg-gray-700 rounded text-gray-300">
@@ -1118,7 +1118,7 @@ const SuperAdminDashboard = () => {
           </div>
 
           {/* Force Exit */}
-          <div className="rounded-xl p-5 space-y-4 bg-gray-900 border border-gray-700">            <h2 className="text-base font-bold text-white">Force Exit Position</h2>
+          <div className="rounded-xl p-5 space-y-4 bg-gray-900 border border-gray-700">            <h2 className="text-base font-bold text-zinc-100">Force Exit Position</h2>
             <h2 className="text-base font-semibold">Force Exit Position</h2>
             <p className="text-xs text-gray-400">Manually close an open position at a specified price.</p>
             <FormField label="User ID">

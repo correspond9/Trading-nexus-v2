@@ -9,6 +9,13 @@ import OrdersTab from './Orders';
 const ProfilePage = () => {
   const { user, logout } = useAuth();
   const [active, setActive] = useState('profile');
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const s = {
     page:  { padding: '24px', fontFamily: 'system-ui,sans-serif', color: 'var(--text)', minHeight: '100vh' },
@@ -30,7 +37,7 @@ const ProfilePage = () => {
     row:   { display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border)', fontSize: '14px' },
     label: { color: 'var(--muted)', fontWeight: 500 },
     value: { fontWeight: 700, color: 'var(--text)' },
-    btn:   { marginTop: '18px', padding: '10px 18px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+    btn:   { marginTop: '18px', padding: '10px 18px', borderRadius: '8px', border: '1px solid #7f1d1d', background: '#7f1d1d', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
   };
 
   const tabs = [
@@ -42,14 +49,14 @@ const ProfilePage = () => {
   ];
 
   return (
-    <div style={s.page}>
+    <div style={{ ...s.page, padding: isMobile ? '12px' : '24px' }}>
       <div style={s.top}>
         <h1 style={s.title}>Profile</h1>
         <div style={s.sub}>Manage your account and reports</div>
       </div>
 
       <div style={s.shell}>
-        <div style={s.tabs}>
+        <div style={{ ...s.tabs, overflowX: 'auto' }}>
           {tabs.map(t => (
             <button key={t.id} style={s.tab(active === t.id)} onClick={() => setActive(t.id)}>
               {t.label}
@@ -57,9 +64,9 @@ const ProfilePage = () => {
           ))}
         </div>
 
-        <div style={s.body}>
+        <div style={{ ...s.body, padding: isMobile ? '12px' : '18px 18px 22px 18px' }}>
           {active === 'profile' && (
-            <div style={{ ...s.card, maxWidth: '560px' }}>
+            <div style={{ ...s.card, maxWidth: isMobile ? '100%' : '560px' }}>
               {user ? (
                 <>
                   <div style={s.row}><span style={s.label}>Name</span><span style={s.value}>{user.name || user.username || '—'}</span></div>
@@ -73,19 +80,19 @@ const ProfilePage = () => {
           )}
 
           {active === 'ledger' && (
-            <div style={{ margin: '-18px' }}>
+            <div style={{ margin: isMobile ? '-12px' : '-18px' }}>
               <LedgerPage />
             </div>
           )}
 
           {active === 'pnl' && (
-            <div style={{ margin: '-18px' }}>
+            <div style={{ margin: isMobile ? '-12px' : '-18px' }}>
               <PandLPage hideUserSelect={true} />
             </div>
           )}
 
           {active === 'trades' && (
-            <div style={{ margin: '-18px' }}>
+            <div style={{ margin: isMobile ? '-12px' : '-18px' }}>
               <OrdersTab />
             </div>
           )}
@@ -137,9 +144,9 @@ function MarginTab() {
 
   return (
     <div>
-      <div style={{ fontSize: '20px', fontWeight: 800, color: '#f4f4f5', marginBottom: '14px' }}>Margin</div>
+      <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text)', marginBottom: '14px' }}>Margin</div>
       {loading ? (
-        <div style={{ color: '#a1a1aa' }}>Loading…</div>
+        <div style={{ color: 'var(--text)' }}>Loading…</div>
       ) : (
         <>
           <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '14px' }}>
@@ -147,7 +154,7 @@ function MarginTab() {
             <MoneyCard label="Used Margin" value={fmt(m.used_margin)} />
             <MoneyCard label="Available Margin" value={fmt(m.available_margin)} />
           </div>
-          <div style={{ color: '#a1a1aa', fontSize: '12px' }}>
+          <div style={{ color: 'var(--muted)', fontSize: '12px' }}>
             Available Margin = Allotted Margin - Used Margin
           </div>
         </>

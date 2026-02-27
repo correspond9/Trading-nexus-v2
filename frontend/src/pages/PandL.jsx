@@ -12,7 +12,7 @@ const INR = (n) => {
 };
 
 const numColor = (n) =>
-  Number(n) > 0 ? "#22c55e" : Number(n) < 0 ? "#ef4444" : "#a1a1aa";
+  Number(n) > 0 ? "var(--positive-text)" : Number(n) < 0 ? "var(--negative-text)" : "var(--muted)";
 
 const fmtDt = (iso) => {
   if (!iso) return "—";
@@ -23,17 +23,17 @@ const fmtDt = (iso) => {
 
 // ── Reusable styles ───────────────────────────────────────────────────────
 const S = {
-  input:  { padding: "7px 10px", background: "#09090b", border: "1px solid #3f3f46", borderRadius: "6px", color: "#f4f4f5", fontSize: "13px" },
-  select: { padding: "7px 10px", background: "#09090b", border: "1px solid #3f3f46", borderRadius: "6px", color: "#f4f4f5", fontSize: "13px", cursor: "pointer" },
-  th:     { padding: "9px 12px", background: "#1c1c1f", borderBottom: "1px solid #3f3f46", fontWeight: 700, fontSize: "10px", color: "#a1a1aa", textTransform: "uppercase", whiteSpace: "nowrap", textAlign: "left" },
-  td:     { padding: "9px 12px", borderBottom: "1px solid #27272a", fontSize: "12px", color: "#f4f4f5", whiteSpace: "nowrap" },
+  input:  { padding: "7px 10px", background: "var(--control-bg)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--text)", fontSize: "13px" },
+  select: { padding: "7px 10px", background: "var(--control-bg)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--text)", fontSize: "13px", cursor: "pointer" },
+  th:     { padding: "9px 12px", background: "var(--surface2)", borderBottom: "1px solid var(--border)", fontWeight: 700, fontSize: "10px", color: "var(--muted)", textTransform: "uppercase", whiteSpace: "nowrap", textAlign: "left" },
+  td:     { padding: "9px 12px", borderBottom: "1px solid var(--border)", fontSize: "12px", color: "var(--text)", whiteSpace: "nowrap" },
 };
 
 // ── Summary card ──────────────────────────────────────────────────────────
 function SummaryCard({ label, value, colored = true, sub = null }) {
   const v = Number(value);
   return (
-    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "10px", padding: "18px 20px", minWidth: "160px" }}>
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "10px", padding: "18px 20px", minWidth: "160px", flex: "1 1 220px" }}>
       <div style={{ fontSize: "11px", color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", marginBottom: "8px" }}>{label}</div>
       <div style={{ fontSize: "22px", fontWeight: 800, color: colored ? numColor(v) : "var(--text)" }}>
         {typeof value === "number" ? INR(v) : value}
@@ -47,6 +47,7 @@ function SummaryCard({ label, value, colored = true, sub = null }) {
 const PandLPage = ({ hideUserSelect = false }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || user?.role === "SUPER_USER";
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
 
   const [fromDate,  setFromDate]  = useState(today());
   const [toDate,    setToDate]    = useState(today());
@@ -55,6 +56,12 @@ const PandLPage = ({ hideUserSelect = false }) => {
   const [data,      setData]      = useState(null);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState("");
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // Load user list for admin dropdown
   useEffect(() => {
@@ -83,7 +90,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: "24px", fontFamily: "system-ui,sans-serif", color: "#f4f4f5", minHeight: "100vh" }}>
+    <div style={{ padding: isMobile ? "12px" : "24px", fontFamily: "system-ui,sans-serif", color: "var(--text)", minHeight: "100vh" }}>
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
@@ -95,7 +102,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
             <select
               value={targetUid}
               onChange={e => setTargetUid(e.target.value)}
-              style={{ ...S.select, minWidth: "180px" }}
+              style={{ ...S.select, minWidth: isMobile ? "100%" : "180px" }}
             >
               <option value="">— My Account —</option>
               {userList.map(u => (
@@ -106,7 +113,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
             </select>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "12px", color: "#a1a1aa" }}>From</span>
+            <span style={{ fontSize: "12px", color: "var(--muted)" }}>From</span>
             <input
               type="date" value={fromDate}
               onChange={e => setFromDate(e.target.value)}
@@ -114,7 +121,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
             />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "12px", color: "#a1a1aa" }}>To</span>
+            <span style={{ fontSize: "12px", color: "var(--muted)" }}>To</span>
             <input
               type="date" value={toDate}
               onChange={e => setToDate(e.target.value)}
@@ -172,7 +179,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
                       return (
                         <tr key={i}>
                           <td style={{ ...S.td, fontWeight: 700 }}>{p.symbol || "—"}</td>
-                          <td style={{ ...S.td, color: "#a1a1aa" }}>{p.exchange_segment || "—"}</td>
+                          <td style={{ ...S.td, color: "var(--muted)" }}>{p.exchange_segment || "—"}</td>
                           <td style={S.td}>
                             <span style={{
                               padding: "2px 7px", borderRadius: "999px", fontSize: "10px", fontWeight: 700,
@@ -184,8 +191,8 @@ const PandLPage = ({ hideUserSelect = false }) => {
                           <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: numColor(pl) }}>
                             {INR(pl)}
                           </td>
-                          <td style={{ ...S.td, color: "#a1a1aa" }}>{fmtDt(p.opened_at)}</td>
-                          <td style={{ ...S.td, color: "#a1a1aa" }}>{fmtDt(p.closed_at)}</td>
+                          <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDt(p.opened_at)}</td>
+                          <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDt(p.closed_at)}</td>
                         </tr>
                       );
                     })}
@@ -215,7 +222,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
                       return (
                         <tr key={i}>
                           <td style={{ ...S.td, fontWeight: 700 }}>{p.symbol || "—"}</td>
-                          <td style={{ ...S.td, color: "#a1a1aa" }}>{p.exchange_segment || "—"}</td>
+                          <td style={{ ...S.td, color: "var(--muted)" }}>{p.exchange_segment || "—"}</td>
                           <td style={S.td}>
                             <span style={{
                               padding: "2px 7px", borderRadius: "999px", fontSize: "10px", fontWeight: 700,
@@ -228,7 +235,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
                           <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: numColor(mtm) }}>
                             {INR(mtm)}
                           </td>
-                          <td style={{ ...S.td, color: "#a1a1aa" }}>{fmtDt(p.opened_at)}</td>
+                          <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDt(p.opened_at)}</td>
                         </tr>
                       );
                     })}

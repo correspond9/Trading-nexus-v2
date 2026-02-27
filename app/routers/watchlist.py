@@ -10,11 +10,10 @@ from typing import Optional
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi import Depends
 from pydantic import BaseModel
 
 from app.database import get_pool
-from app.dependencies import CurrentUser, get_current_user
+from app.dependencies import CurrentUser
 import app.instruments.subscription_manager as subscription_manager
 
 
@@ -327,7 +326,7 @@ async def get_watchlist(user_id: str, request: Request):
 async def add_to_watchlist(
     body: AddItemRequest,
     request: Request,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: Optional[CurrentUser] = None,
 ):
     uid  = _require_uuid(_uid(request, body.user_id, current_user))
     pool = get_pool()
@@ -376,7 +375,7 @@ async def add_to_watchlist(
 async def remove_from_watchlist(
     body: RemoveItemRequest,
     request: Request,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: Optional[CurrentUser] = None,
 ):
     uid  = _require_uuid(_uid(request, body.user_id, current_user))
     pool = get_pool()

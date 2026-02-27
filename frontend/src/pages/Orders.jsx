@@ -41,6 +41,13 @@ const OrdersTab = () => {
   const [sorting, setSorting] = useState(false);
   const [sortConfig, setSortConfig] = useState({ key: "time", direction: "asc" });
   const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const formatTime = useCallback((isoLike) => {
     if (!isoLike) return "--";
@@ -139,13 +146,13 @@ const OrdersTab = () => {
   const selectedOrder = sortedOrders.find((o) => o.id === selectedOrderId) || null;
 
   // styles
-  const pageStyle = { minHeight: "100vh", margin: 0, padding: "24px", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "transparent" };
-  const layoutStyle = { maxWidth: "1200px", margin: "0 auto", display: "flex", gap: "16px" };
-  const tableCardStyle = { flex: "2 1 0", background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: "24px 24px 32px 24px", border: "1px solid var(--border)" };
-  const detailsCardStyle = { flex: "1 0 320px", background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: "18px 20px 20px 20px", border: "1px solid var(--border)", fontSize: "12px", color: "var(--text)", alignSelf: "flex-start", maxHeight: "600px", overflowY: "auto" };
+  const pageStyle = { minHeight: "100vh", margin: 0, padding: isMobile ? "12px" : "24px", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "transparent" };
+  const layoutStyle = { maxWidth: "1200px", margin: "0 auto", display: "flex", flexDirection: isMobile ? "column" : "row", gap: "16px" };
+  const tableCardStyle = { flex: "2 1 0", minWidth: 0, background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: isMobile ? "14px" : "24px 24px 32px 24px", border: "1px solid var(--border)" };
+  const detailsCardStyle = { flex: isMobile ? "1 1 auto" : "1 0 320px", width: isMobile ? "100%" : "auto", background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: "18px 20px 20px 20px", border: "1px solid var(--border)", fontSize: "12px", color: "var(--text)", alignSelf: isMobile ? "stretch" : "flex-start", maxHeight: isMobile ? "none" : "600px", overflowY: "auto" };
   const headerRowStyle = { marginBottom: "16px", fontSize: "16px", fontWeight: 600, color: "var(--text)" };
-  const tableOuterStyle = { borderRadius: "8px", border: "1px solid var(--border)", overflow: "hidden", background: "var(--surface)" };
-  const tableStyle = { width: "100%", borderCollapse: "collapse", fontSize: "12px" };
+  const tableOuterStyle = { borderRadius: "8px", border: "1px solid var(--border)", overflowX: "auto", overflowY: "hidden", background: "var(--surface)" };
+  const tableStyle = { width: "100%", minWidth: "860px", borderCollapse: "collapse", fontSize: "12px" };
   const theadStyle = { background: "var(--surface2)", borderBottom: "1px solid var(--border)" };
   const rowStyle = { borderBottom: "1px solid var(--border)", background: "var(--surface)", cursor: "pointer" };
   const rowSelectedStyle = { ...rowStyle, background: "var(--surface2)" };
@@ -195,11 +202,11 @@ const OrdersTab = () => {
         <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Trade History</h1>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '12px', color: '#a1a1aa' }}>From</span>
+            <span style={{ fontSize: '12px', color: 'var(--muted)' }}>From</span>
             <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ padding: '7px 10px', background: '#09090b', border: '1px solid #3f3f46', borderRadius: '6px', color: '#f4f4f5', fontSize: '13px' }} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '12px', color: '#a1a1aa' }}>To</span>
+            <span style={{ fontSize: '12px', color: 'var(--muted)' }}>To</span>
             <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ padding: '7px 10px', background: '#09090b', border: '1px solid #3f3f46', borderRadius: '6px', color: '#f4f4f5', fontSize: '13px' }} />
           </div>
           <button onClick={fetchOrders} disabled={sorting} style={{ padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer', opacity: sorting ? 0.6 : 1 }}>
@@ -251,7 +258,7 @@ const OrdersTab = () => {
         {selectedOrder && (
           <div style={detailsCardStyle}>
             <div style={detailsHeaderStyle}>
-              <div style={{ fontSize: "14px", fontWeight: 600, color: "#111827" }}>{selectedOrder.symbol}</div>
+              <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text)" }}>{selectedOrder.symbol}</div>
               <div style={tickCircleStyle}><span>✔</span></div>
             </div>
             {renderDetailsRow("Product", selectedOrder.productType)}

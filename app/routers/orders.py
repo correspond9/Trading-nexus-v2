@@ -386,33 +386,40 @@ async def place_paper_order(
                             or "Margin data not available for this symbol right now.",
                         )
 
-                    # SELECT FOR UPDATE locks the row until transaction commits
-                    margin_row = await conn.fetchrow(
+                    # Lock account row first (race-safe and PostgreSQL-compatible)
+                    account_row = await conn.fetchrow(
                         """
-                        SELECT
-                            COALESCE(pa.margin_allotted, 0) AS margin_allotted,
-                            COALESCE(SUM(
-                                calculate_position_margin(
-                                    pp.instrument_token,
-                                    pp.symbol,
-                                    pp.exchange_segment,
-                                    pp.quantity,
-                                    pp.product_type
-                                )
-                            ) FILTER (WHERE pp.status='OPEN' AND pp.quantity != 0), 0) AS used_margin
-                        FROM paper_accounts pa
-                        LEFT JOIN paper_positions pp ON pp.user_id = pa.user_id
-                        WHERE pa.user_id = $1::uuid
-                        GROUP BY pa.margin_allotted
-                        FOR UPDATE OF pa
+                        SELECT COALESCE(margin_allotted, 0) AS margin_allotted
+                        FROM paper_accounts
+                        WHERE user_id = $1::uuid
+                        FOR UPDATE
                         """,
                         user_id,
                     )
-                    if not margin_row:
+                    if not account_row:
                         raise HTTPException(status_code=403, detail="No margin account found for this user.")
 
-                    allotted = float(margin_row["margin_allotted"] or 0)
-                    used = float(margin_row["used_margin"] or 0)
+                    used_margin = await conn.fetchval(
+                        """
+                        SELECT COALESCE(SUM(
+                            calculate_position_margin(
+                                pp.instrument_token,
+                                pp.symbol,
+                                pp.exchange_segment,
+                                pp.quantity,
+                                pp.product_type
+                            )
+                        ), 0)
+                        FROM paper_positions pp
+                        WHERE pp.user_id = $1::uuid
+                          AND pp.status = 'OPEN'
+                          AND pp.quantity != 0
+                        """,
+                        user_id,
+                    )
+
+                    allotted = float(account_row["margin_allotted"] or 0)
+                    used = float(used_margin or 0)
                     available = allotted - used
 
                     if allotted <= 0:

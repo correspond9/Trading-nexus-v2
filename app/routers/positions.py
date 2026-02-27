@@ -57,9 +57,11 @@ async def get_positions(
     rows = await pool.fetch(
         """
         SELECT pp.*,
+               COALESCE(NULLIF(im.lot_size, 0), 1) AS lot_size,
                COALESCE(md.ltp, pp.avg_price) AS ltp,
                COALESCE((md.ltp - pp.avg_price) * pp.quantity, 0) AS mtm
         FROM paper_positions pp
+        LEFT JOIN instrument_master im ON im.instrument_token = pp.instrument_token
         LEFT JOIN market_data md ON md.instrument_token = pp.instrument_token
                 WHERE pp.user_id = $1
                     AND (

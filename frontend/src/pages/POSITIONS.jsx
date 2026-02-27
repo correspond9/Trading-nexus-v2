@@ -74,6 +74,7 @@ const PositionsTab = ({ productFilter = null }) => {
               id: `${userId}:${token}:${position.opened_at || index}:${status}`,
               closeId: token,
               instrumentToken: token,
+              lotSize: Number(position.lot_size || 1),
               userId,
               userNo,
               userName,
@@ -107,6 +108,7 @@ const PositionsTab = ({ productFilter = null }) => {
             id: `${position.id || index}:${status}`,
             closeId: position.id,
             instrumentToken: Number(position.instrument_token || 0),
+            lotSize: Number(position.lot_size || 1),
             userId: String(user?.id || ''),
             userNo: user?.mobile || '—',
             userName: user?.name || user?.mobile || 'Trader',
@@ -153,8 +155,9 @@ const PositionsTab = ({ productFilter = null }) => {
   };
   const openExitModal = (row) => {
     const maxQty = Math.max(1, Math.abs(Number(row?.qty || 0)));
+    const lotSize = Math.max(1, Number(row?.lotSize || row?.lot_size || 1));
     setExitRow(row);
-    setExitQty(String(maxQty));
+    setExitQty(String(lotSize <= maxQty ? lotSize : maxQty));
     setExitOrderType('MARKET');
     setExitLimitPrice('');
     setExitTriggerPrice('');
@@ -178,11 +181,17 @@ const PositionsTab = ({ productFilter = null }) => {
     if (!exitRow || exitSubmitting) return;
 
     const maxQty = Math.max(1, Math.abs(Number(exitRow.qty || 0)));
+    const lotSize = Math.max(1, Number(exitRow?.lotSize || exitRow?.lot_size || 1));
     const qtyNum = Number(exitQty);
     const orderType = String(exitOrderType || 'MARKET').toUpperCase();
 
     if (!Number.isInteger(qtyNum) || qtyNum <= 0 || qtyNum > maxQty) {
       setExitError(`Qty must be an integer between 1 and ${maxQty}`);
+      return;
+    }
+
+    if (qtyNum % lotSize !== 0) {
+      setExitError(`Qty must be in multiples of lot size (${lotSize})`);
       return;
     }
 
@@ -419,6 +428,7 @@ const PositionsTab = ({ productFilter = null }) => {
             <div style={modalTitleStyle}>Exit Order — {exitRow.symbol}</div>
             <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '10px' }}>
               Open Qty: {Math.abs(Number(exitRow.qty || 0)).toLocaleString('en-IN')} ({Number(exitRow.qty || 0) >= 0 ? 'Long' : 'Short'})
+              {' · '}Lot Size: {Math.max(1, Number(exitRow?.lotSize || exitRow?.lot_size || 1))}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -428,7 +438,7 @@ const PositionsTab = ({ productFilter = null }) => {
                   type="number"
                   min={1}
                   max={Math.max(1, Math.abs(Number(exitRow.qty || 0)))}
-                  step={1}
+                  step={Math.max(1, Number(exitRow?.lotSize || exitRow?.lot_size || 1))}
                   value={exitQty}
                   onChange={(e) => setExitQty(e.target.value)}
                   style={inputStyle}

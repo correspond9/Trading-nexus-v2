@@ -449,98 +449,121 @@ async def place_paper_order(
                     body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
                 )
 
-                # Update or create position (fixed for same-day re-entry)
-                if side == "BUY":
-                    # Check if an OPEN position exists
-                    open_pos = await conn.fetchrow(
-                        """
-                        SELECT position_id, quantity, avg_price
-                        FROM paper_positions
-                        WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
-                        """,
-                        user_id, token or 0
-                    )
+                # Update or create signed position (handles long/short open, partial close, full close, flip)
+                signed_delta = qty if side == "BUY" else -qty
+                open_pos = await conn.fetchrow(
+                    """
+                    SELECT position_id, quantity, avg_price, realized_pnl
+                    FROM paper_positions
+                    WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
+                    """,
+                    user_id, token or 0
+                )
 
-                    if open_pos:
-                        existing_qty = int(open_pos["quantity"] or 0)
-                        existing_avg = float(open_pos["avg_price"] or 0)
-                        # Update existing OPEN position
-                        new_qty = existing_qty + qty
-                        new_avg = (
-                            (existing_avg * existing_qty + fill_price * qty) / new_qty
-                        )
+                if not open_pos:
+                    await conn.execute(
+                        """
+                        INSERT INTO paper_positions
+                            (user_id, instrument_token, symbol, exchange_segment,
+                             quantity, avg_price, product_type, status)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
+                        """,
+                        user_id, token or 0, body.symbol, body.exchange_segment,
+                        signed_delta, fill_price, prod,
+                    )
+                else:
+                    existing_qty = int(open_pos["quantity"] or 0)
+                    existing_avg = float(open_pos["avg_price"] or 0)
+                    existing_realized = float(open_pos.get("realized_pnl") or 0)
+
+                    if existing_qty == 0:
                         await conn.execute(
                             """
                             UPDATE paper_positions
-                            SET quantity = $1, avg_price = $2
+                            SET quantity = $1,
+                                avg_price = $2,
+                                status = 'OPEN',
+                                closed_at = NULL
                             WHERE position_id = $3
                             """,
-                            new_qty, new_avg, open_pos["position_id"]
+                            signed_delta,
+                            fill_price,
+                            open_pos["position_id"],
                         )
                     else:
-                        # Insert new position (allows multiple CLOSED positions for same instrument)
-                        await conn.execute(
-                            """
-                            INSERT INTO paper_positions
-                                (user_id, instrument_token, symbol, exchange_segment,
-                                 quantity, avg_price, product_type, status)
-                            VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
-                            """,
-                            user_id, token or 0, body.symbol, body.exchange_segment,
-                            qty, fill_price, prod,
-                        )
-                else:
-                    # SELL: reduce or close existing OPEN position
-                    open_pos = await conn.fetchrow(
-                        """
-                        SELECT position_id, quantity, avg_price
-                        FROM paper_positions
-                        WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
-                        """,
-                        user_id, token or 0
-                    )
+                        existing_sign = 1 if existing_qty > 0 else -1
+                        delta_sign = 1 if signed_delta > 0 else -1
 
-                    if open_pos:
-                        existing_qty = int(open_pos["quantity"] or 0)
-                        existing_avg = float(open_pos["avg_price"] or 0)
-                        new_qty = max(0, existing_qty - qty)
-                        if new_qty == 0:
-                            # Position fully closed
-                            realized_pnl = (fill_price - existing_avg) * existing_qty
-                            await conn.execute(
-                                """
-                                UPDATE paper_positions
-                                SET quantity = 0, status = 'CLOSED', 
-                                    realized_pnl = $1, closed_at = NOW()
-                                WHERE position_id = $2
-                                """,
-                                realized_pnl, open_pos["position_id"]
+                        if existing_sign == delta_sign:
+                            # Increase same-direction position (average-in)
+                            new_qty = existing_qty + signed_delta
+                            new_avg = (
+                                (existing_avg * abs(existing_qty) + fill_price * abs(signed_delta))
+                                / abs(new_qty)
                             )
-                        else:
-                            # Partial close
-                            realized_pnl = (fill_price - existing_avg) * qty
                             await conn.execute(
                                 """
                                 UPDATE paper_positions
                                 SET quantity = $1,
-                                    realized_pnl = COALESCE(realized_pnl, 0) + $2
+                                    avg_price = $2,
+                                    status = 'OPEN',
+                                    closed_at = NULL
                                 WHERE position_id = $3
                                 """,
-                                new_qty, realized_pnl, open_pos["position_id"]
+                                new_qty,
+                                new_avg,
+                                open_pos["position_id"],
                             )
-                    else:
-                        # No open position to close (short selling or error)
-                        # Create short position
-                        await conn.execute(
-                            """
-                            INSERT INTO paper_positions
-                                (user_id, instrument_token, symbol, exchange_segment,
-                                 quantity, avg_price, product_type, status)
-                            VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
-                            """,
-                            user_id, token or 0, body.symbol, body.exchange_segment,
-                            -qty, fill_price, prod,
-                        )
+                        else:
+                            # Opposite-side order: reduce/close/flip existing position
+                            close_qty = min(abs(existing_qty), abs(signed_delta))
+                            realized_delta = (fill_price - existing_avg) * close_qty * existing_sign
+                            new_qty = existing_qty + signed_delta
+
+                            if new_qty == 0:
+                                # Fully closed
+                                await conn.execute(
+                                    """
+                                    UPDATE paper_positions
+                                    SET quantity = 0,
+                                        status = 'CLOSED',
+                                        realized_pnl = $1,
+                                        closed_at = NOW()
+                                    WHERE position_id = $2
+                                    """,
+                                    existing_realized + realized_delta,
+                                    open_pos["position_id"],
+                                )
+                            elif (new_qty > 0 and existing_qty > 0) or (new_qty < 0 and existing_qty < 0):
+                                # Partial close, direction unchanged
+                                await conn.execute(
+                                    """
+                                    UPDATE paper_positions
+                                    SET quantity = $1,
+                                        realized_pnl = $2
+                                    WHERE position_id = $3
+                                    """,
+                                    new_qty,
+                                    existing_realized + realized_delta,
+                                    open_pos["position_id"],
+                                )
+                            else:
+                                # Flipped position: reopen remainder at fill price
+                                await conn.execute(
+                                    """
+                                    UPDATE paper_positions
+                                    SET quantity = $1,
+                                        avg_price = $2,
+                                        status = 'OPEN',
+                                        realized_pnl = $3,
+                                        closed_at = NULL
+                                    WHERE position_id = $4
+                                    """,
+                                    new_qty,
+                                    fill_price,
+                                    existing_realized + realized_delta,
+                                    open_pos["position_id"],
+                                )
 
         return {"order_id": order_id, "status": "FILLED",
                 "fill_price": fill_price, "filled_qty": qty}

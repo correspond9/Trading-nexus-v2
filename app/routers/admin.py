@@ -2057,9 +2057,11 @@ async def positions_userwise(
         filtered_pos AS (
             SELECT
                 pp.*,
+                COALESCE(NULLIF(im.lot_size, 0), 1)                           AS lot_size,
                 COALESCE(md.ltp, pp.avg_price)                               AS ltp,
                 COALESCE((md.ltp - pp.avg_price) * pp.quantity, 0)           AS mtm_calc
             FROM paper_positions pp
+            LEFT JOIN instrument_master im ON im.instrument_token = pp.instrument_token
             LEFT JOIN market_data md ON md.instrument_token = pp.instrument_token
             CROSS JOIN ist_today
             WHERE
@@ -2109,6 +2111,7 @@ async def positions_userwise(
                         'symbol',         fp.symbol,
                         'exchange',       fp.exchange_segment,
                         'product_type',   fp.product_type,
+                        'lot_size',       fp.lot_size,
                         'quantity',       fp.quantity,
                         'avg_price',      fp.avg_price,
                         'ltp',            fp.ltp,

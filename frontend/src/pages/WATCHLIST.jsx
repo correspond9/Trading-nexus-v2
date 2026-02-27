@@ -370,6 +370,14 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
         exchange: instrument.exchange,
       });
 
+      if (addRes && addRes.success === false) {
+        setTabs(prev => prev.map(tab => {
+          if (tab.id !== activeTabId) return tab;
+          return { ...tab, instruments: tab.instruments.filter(i => Number(i.token) !== tokenNum) };
+        }));
+        return;
+      }
+
       const serverToken = Number(addRes?.token || tokenNum);
       if (Number.isFinite(serverToken) && serverToken > 0 && serverToken !== tokenNum) {
         setTabs(prev => prev.map(tab => {

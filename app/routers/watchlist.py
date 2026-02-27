@@ -17,6 +17,7 @@ from app.database import get_pool
 from app.dependencies import CurrentUser, get_current_user
 import app.instruments.subscription_manager as subscription_manager
 
+
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/watchlist", tags=["Watchlist"])
@@ -50,6 +51,107 @@ class AddItemRequest(BaseModel):
 class RemoveItemRequest(BaseModel):
     user_id: Optional[str] = None
     token:   Optional[str] = None
+
+
+async def _resolve_token_from_db(pool, token_val: Optional[int], symbol: str) -> Optional[int]:
+    if token_val:
+        row = await pool.fetchrow(
+            "SELECT instrument_token FROM instrument_master WHERE instrument_token = $1 LIMIT 1",
+            int(token_val),
+        )
+        if row:
+            return int(row["instrument_token"])
+
+    if symbol:
+        row = await pool.fetchrow(
+            """
+            SELECT instrument_token
+            FROM instrument_master
+            WHERE upper(symbol) = upper($1)
+               OR upper(COALESCE(trading_symbol, '')) = upper($1)
+               OR upper(COALESCE(display_name, '')) = upper($1)
+               OR upper(COALESCE(underlying, '')) = upper($1)
+               OR symbol ILIKE $2
+               OR COALESCE(trading_symbol, '') ILIKE $2
+               OR COALESCE(display_name, '') ILIKE $2
+               OR COALESCE(underlying, '') ILIKE $2
+            ORDER BY
+                CASE
+                    WHEN upper(symbol) = upper($1) THEN 0
+                    WHEN upper(COALESCE(trading_symbol, '')) = upper($1) THEN 0
+                    WHEN upper(COALESCE(display_name, '')) = upper($1) THEN 1
+                    WHEN upper(COALESCE(underlying, '')) = upper($1) THEN 1
+                    ELSE 2
+                END,
+                instrument_token
+            LIMIT 1
+            """,
+            symbol,
+            f"%{symbol}%",
+        )
+        if row:
+            return int(row["instrument_token"])
+
+    return None
+
+
+async def _resolve_token_with_csv_fallback(pool, token_val: Optional[int], symbol: str) -> Optional[int]:
+    resolved = await _resolve_token_from_db(pool, token_val, symbol)
+    if resolved:
+        return resolved
+
+    # If not found in DB, refresh instrument_master from local CSV and retry once.
+    try:
+        from app.instruments.scrip_master import refresh_instruments
+        await refresh_instruments(download=False)
+    except Exception as exc:
+        log.warning("CSV fallback refresh failed while resolving watchlist token: %s", exc)
+
+    return await _resolve_token_from_db(pool, token_val, symbol)
+
+
+async def _repair_zero_token_rows(pool, watchlist_id: str) -> None:
+    rows = await pool.fetch(
+        """
+        SELECT instrument_token, symbol
+        FROM watchlist_items
+        WHERE watchlist_id = $1 AND instrument_token = 0
+        """,
+        watchlist_id,
+    )
+    if not rows:
+        return
+
+    repaired = 0
+    for row in rows:
+        symbol = (row.get("symbol") or "").strip()
+        if not symbol:
+            continue
+        resolved = await _resolve_token_with_csv_fallback(pool, None, symbol)
+        if not resolved:
+            continue
+        try:
+            await pool.execute(
+                "DELETE FROM watchlist_items WHERE watchlist_id=$1 AND instrument_token=$2",
+                watchlist_id,
+                resolved,
+            )
+            await pool.execute(
+                """
+                UPDATE watchlist_items
+                SET instrument_token = $3
+                WHERE watchlist_id = $1 AND instrument_token = 0 AND symbol = $2
+                """,
+                watchlist_id,
+                symbol,
+                resolved,
+            )
+            repaired += 1
+        except Exception:
+            continue
+
+    if repaired:
+        log.info("Repaired %s legacy watchlist rows with token=0 for watchlist %s", repaired, watchlist_id)
 
 
 # ── Helper functions ──────────────────────────────────────────────────────────
@@ -133,6 +235,8 @@ async def get_watchlist(user_id: str, request: Request):
         # No watchlist yet — return empty list
         return {"data": []}
 
+    await _repair_zero_token_rows(pool, wl["watchlist_id"])
+
     # IMPORTANT: do not mutate/watchlist-delete on read.
     # Auto-clean should be handled by an explicit scheduler/admin flow, not on page refresh.
 
@@ -200,42 +304,10 @@ async def add_to_watchlist(
     symbol    = (body.symbol or "").strip()
     exchange  = (body.exchange or "NSE").strip().upper()
 
-    # If token not provided, resolve by symbol on instrument_master.
-    if not token_val and symbol:
-        row = await pool.fetchrow(
-            """
-            SELECT instrument_token
-            FROM instrument_master
-            WHERE upper(symbol) = upper($1)
-               OR upper(COALESCE(trading_symbol, '')) = upper($1)
-               OR upper(COALESCE(display_name, '')) = upper($1)
-               OR upper(COALESCE(underlying, '')) = upper($1)
-               OR symbol ILIKE $2
-               OR COALESCE(trading_symbol, '') ILIKE $2
-               OR COALESCE(display_name, '') ILIKE $2
-               OR COALESCE(underlying, '') ILIKE $2
-            ORDER BY
-                CASE
-                    WHEN upper(symbol) = upper($1) THEN 0
-                    WHEN upper(COALESCE(trading_symbol, '')) = upper($1) THEN 0
-                    WHEN upper(COALESCE(display_name, '')) = upper($1) THEN 1
-                    WHEN upper(COALESCE(underlying, '')) = upper($1) THEN 1
-                    ELSE 2
-                END,
-                instrument_token
-            LIMIT 1
-            """,
-            symbol,
-            f"%{symbol}%",
-        )
-        if row:
-            token_val = row["instrument_token"]
-
+    token_val = await _resolve_token_with_csv_fallback(pool, token_val, symbol)
     if not token_val:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unable to resolve instrument token for symbol '{symbol or body.token or ''}'",
-        )
+        # Keep API non-breaking; report unresolved but avoid inserting token=0.
+        return {"success": False, "token": None, "symbol": symbol, "detail": "Instrument not found in instrument_master/CSV"}
 
     # Ensure user has a watchlist
     wl = await pool.fetchrow(

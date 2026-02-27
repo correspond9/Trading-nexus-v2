@@ -69,32 +69,58 @@ async def _resolve_token_from_db(pool, token_val: Optional[int], symbol: str) ->
             return int(row["instrument_token"])
 
     if symbol:
-        row = await pool.fetchrow(
-            """
-            SELECT instrument_token
-            FROM instrument_master
-            WHERE upper(symbol) = upper($1)
-               OR upper(COALESCE(trading_symbol, '')) = upper($1)
-               OR upper(COALESCE(display_name, '')) = upper($1)
-               OR upper(COALESCE(underlying, '')) = upper($1)
-               OR symbol ILIKE $2
-               OR COALESCE(trading_symbol, '') ILIKE $2
-               OR COALESCE(display_name, '') ILIKE $2
-               OR COALESCE(underlying, '') ILIKE $2
-            ORDER BY
-                CASE
-                    WHEN upper(symbol) = upper($1) THEN 0
-                    WHEN upper(COALESCE(trading_symbol, '')) = upper($1) THEN 0
-                    WHEN upper(COALESCE(display_name, '')) = upper($1) THEN 1
-                    WHEN upper(COALESCE(underlying, '')) = upper($1) THEN 1
-                    ELSE 2
-                END,
-                instrument_token
-            LIMIT 1
-            """,
-            symbol,
-            f"%{symbol}%",
-        )
+        try:
+            row = await pool.fetchrow(
+                """
+                SELECT instrument_token
+                FROM instrument_master
+                WHERE upper(symbol) = upper($1)
+                   OR upper(COALESCE(trading_symbol, '')) = upper($1)
+                   OR upper(COALESCE(display_name, '')) = upper($1)
+                   OR upper(COALESCE(underlying, '')) = upper($1)
+                   OR symbol ILIKE $2
+                   OR COALESCE(trading_symbol, '') ILIKE $2
+                   OR COALESCE(display_name, '') ILIKE $2
+                   OR COALESCE(underlying, '') ILIKE $2
+                ORDER BY
+                    CASE
+                        WHEN upper(symbol) = upper($1) THEN 0
+                        WHEN upper(COALESCE(trading_symbol, '')) = upper($1) THEN 0
+                        WHEN upper(COALESCE(display_name, '')) = upper($1) THEN 1
+                        WHEN upper(COALESCE(underlying, '')) = upper($1) THEN 1
+                        ELSE 2
+                    END,
+                    instrument_token
+                LIMIT 1
+                """,
+                symbol,
+                f"%{symbol}%",
+            )
+        except Exception:
+            # Backward-compatible fallback for schemas without trading_symbol column.
+            row = await pool.fetchrow(
+                """
+                SELECT instrument_token
+                FROM instrument_master
+                WHERE upper(symbol) = upper($1)
+                   OR upper(COALESCE(display_name, '')) = upper($1)
+                   OR upper(COALESCE(underlying, '')) = upper($1)
+                   OR symbol ILIKE $2
+                   OR COALESCE(display_name, '') ILIKE $2
+                   OR COALESCE(underlying, '') ILIKE $2
+                ORDER BY
+                    CASE
+                        WHEN upper(symbol) = upper($1) THEN 0
+                        WHEN upper(COALESCE(display_name, '')) = upper($1) THEN 1
+                        WHEN upper(COALESCE(underlying, '')) = upper($1) THEN 1
+                        ELSE 2
+                    END,
+                    instrument_token
+                LIMIT 1
+                """,
+                symbol,
+                f"%{symbol}%",
+            )
         if row:
             return int(row["instrument_token"])
 

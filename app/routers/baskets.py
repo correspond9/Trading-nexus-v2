@@ -86,38 +86,38 @@ async def _resolve_security_id(pool, raw_security_id: Optional[str], symbol: Opt
         return None
 
     underlying_sym, strike, opt_type = m.groups()
-        try:
-                row = await pool.fetchrow(
-                        """
-                        SELECT security_id
-                        FROM instrument_master
-                        WHERE underlying = $1
-                            AND strike_price = $2
-                            AND option_type = $3
-                            AND expiry_date >= CURRENT_DATE
-                        ORDER BY expiry_date ASC
-                        LIMIT 1
-                        """,
-                        underlying_sym.upper(),
-                        float(strike),
-                        opt_type.upper(),
-                )
-        except Exception:
-                row = await pool.fetchrow(
-                        """
-                        SELECT instrument_token AS security_id
-                        FROM instrument_master
-                        WHERE underlying = $1
-                            AND strike_price = $2
-                            AND option_type = $3
-                            AND expiry_date >= CURRENT_DATE
-                        ORDER BY expiry_date ASC
-                        LIMIT 1
-                        """,
-                        underlying_sym.upper(),
-                        float(strike),
-                        opt_type.upper(),
-                )
+    try:
+        row = await pool.fetchrow(
+            """
+            SELECT security_id
+            FROM instrument_master
+            WHERE underlying = $1
+              AND strike_price = $2
+              AND option_type = $3
+              AND expiry_date >= CURRENT_DATE
+            ORDER BY expiry_date ASC
+            LIMIT 1
+            """,
+            underlying_sym.upper(),
+            float(strike),
+            opt_type.upper(),
+        )
+    except Exception:
+        row = await pool.fetchrow(
+            """
+            SELECT instrument_token AS security_id
+            FROM instrument_master
+            WHERE underlying = $1
+              AND strike_price = $2
+              AND option_type = $3
+              AND expiry_date >= CURRENT_DATE
+            ORDER BY expiry_date ASC
+            LIMIT 1
+            """,
+            underlying_sym.upper(),
+            float(strike),
+            opt_type.upper(),
+        )
     if row and row.get("security_id"):
         return int(row["security_id"])
     return None

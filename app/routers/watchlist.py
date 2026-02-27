@@ -56,7 +56,13 @@ class RemoveItemRequest(BaseModel):
 async def _resolve_token_from_db(pool, token_val: Optional[int], symbol: str) -> Optional[int]:
     if token_val:
         row = await pool.fetchrow(
-            "SELECT instrument_token FROM instrument_master WHERE instrument_token = $1 LIMIT 1",
+            """
+            SELECT instrument_token
+            FROM instrument_master
+            WHERE instrument_token = $1
+               OR security_id = $1
+            LIMIT 1
+            """,
             int(token_val),
         )
         if row:

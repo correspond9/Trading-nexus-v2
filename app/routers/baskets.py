@@ -24,14 +24,122 @@ router = APIRouter(prefix="/trading/basket-orders", tags=["Baskets"])
 
 
 def _uid(request: Request, user_id_param, current_user: Optional[CurrentUser] = None) -> str:
-    if user_id_param:
-        return str(user_id_param)
-    hdr = request.headers.get("X-USER")
-    if hdr:
-        return hdr
+    def _norm_uuid(raw: Optional[str]) -> Optional[str]:
+        if raw is None:
+            return None
+        s = str(raw).strip()
+        if not s:
+            return None
+        try:
+            return str(uuid.UUID(s))
+        except Exception:
+            return None
+
     if current_user:
-        return str(current_user.id)
+        caller_id = _norm_uuid(current_user.id)
+    else:
+        caller_id = None
+
+    # Explicit query/body override: allow only valid UUID.
+    if user_id_param is not None:
+        uid_q = _norm_uuid(user_id_param)
+        if not uid_q:
+            raise HTTPException(status_code=422, detail="user_id must be a UUID")
+        return uid_q
+
+    # Legacy X-USER support (best effort): use only if valid UUID.
+    hdr = request.headers.get("X-USER")
+    uid_h = _norm_uuid(hdr)
+    if uid_h:
+        return uid_h
+
+    if caller_id:
+        return caller_id
     raise HTTPException(status_code=401, detail="Authentication required")
+
+
+async def _resolve_security_id(pool, raw_security_id: Optional[str], symbol: Optional[str]) -> Optional[int]:
+    sid = str(raw_security_id or "").strip()
+    if sid.isdigit():
+        return int(sid)
+
+    sym = (symbol or "").strip()
+    if not sym:
+        return None
+
+    try:
+        row = await pool.fetchrow(
+            "SELECT security_id FROM instrument_master WHERE symbol ILIKE $1 OR display_name ILIKE $1 LIMIT 1",
+            sym,
+        )
+    except Exception:
+        row = await pool.fetchrow(
+            "SELECT instrument_token AS security_id FROM instrument_master WHERE symbol ILIKE $1 OR display_name ILIKE $1 LIMIT 1",
+            sym,
+        )
+    if row and row.get("security_id"):
+        return int(row["security_id"])
+
+    import re
+    m = re.match(r"(\w+)\s+(\d+)\s+(CE|PE)", sym, re.IGNORECASE)
+    if not m:
+        return None
+
+    underlying_sym, strike, opt_type = m.groups()
+        try:
+                row = await pool.fetchrow(
+                        """
+                        SELECT security_id
+                        FROM instrument_master
+                        WHERE underlying = $1
+                            AND strike_price = $2
+                            AND option_type = $3
+                            AND expiry_date >= CURRENT_DATE
+                        ORDER BY expiry_date ASC
+                        LIMIT 1
+                        """,
+                        underlying_sym.upper(),
+                        float(strike),
+                        opt_type.upper(),
+                )
+        except Exception:
+                row = await pool.fetchrow(
+                        """
+                        SELECT instrument_token AS security_id
+                        FROM instrument_master
+                        WHERE underlying = $1
+                            AND strike_price = $2
+                            AND option_type = $3
+                            AND expiry_date >= CURRENT_DATE
+                        ORDER BY expiry_date ASC
+                        LIMIT 1
+                        """,
+                        underlying_sym.upper(),
+                        float(strike),
+                        opt_type.upper(),
+                )
+    if row and row.get("security_id"):
+        return int(row["security_id"])
+    return None
+
+
+async def _resolve_exchange(pool, raw_exchange: Optional[str], symbol: Optional[str]) -> str:
+    ex = (raw_exchange or "").strip().upper()
+    if ex:
+        return ex
+
+    sym = (symbol or "").strip()
+    if not sym:
+        return "NSE_FNO"
+
+    row = await pool.fetchrow(
+        "SELECT exchange_segment FROM instrument_master WHERE symbol ILIKE $1 OR display_name ILIKE $1 LIMIT 1",
+        sym,
+    )
+    if row and row.get("exchange_segment"):
+        return str(row["exchange_segment"]).strip().upper()
+
+    return "NSE_FNO"
 
 
 def _detect_instrument(symbol: str, exchange_segment: str) -> tuple[bool, bool, bool]:
@@ -159,6 +267,8 @@ async def create_basket(
     basket_id = str(basket["id"])
 
     for leg in (body.legs or []):
+        resolved_sid = await _resolve_security_id(pool, leg.security_id, leg.symbol)
+        resolved_ex = await _resolve_exchange(pool, leg.exchange, leg.symbol)
         await pool.execute(
             """
             INSERT INTO basket_order_legs
@@ -167,7 +277,7 @@ async def create_basket(
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
             """,
             basket_id,
-            leg.symbol, leg.security_id, leg.exchange,
+            leg.symbol, resolved_sid, resolved_ex,
             leg.side,   leg.qty, leg.productType, leg.price, leg.order_type,
         )
 
@@ -392,6 +502,9 @@ async def add_leg(body: LegModel, basket_id: str = Path(...)):
     if not basket:
         raise HTTPException(status_code=404, detail="Basket not found")
 
+    resolved_sid = await _resolve_security_id(pool, body.security_id, body.symbol)
+    resolved_ex = await _resolve_exchange(pool, body.exchange, body.symbol)
+
     leg = await pool.fetchrow(
         """
         INSERT INTO basket_order_legs
@@ -401,7 +514,7 @@ async def add_leg(body: LegModel, basket_id: str = Path(...)):
         RETURNING *
         """,
         basket_id,
-        body.symbol, body.security_id, body.exchange,
+        body.symbol, resolved_sid, resolved_ex,
         body.side, body.qty, body.productType, body.price, body.order_type,
     )
     d = dict(leg)

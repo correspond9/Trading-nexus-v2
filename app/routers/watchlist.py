@@ -197,17 +197,45 @@ async def add_to_watchlist(
     pool = get_pool()
 
     token_val = int(body.token) if body.token and str(body.token).isdigit() else None
-    symbol    = body.symbol or ""
-    exchange  = body.exchange or "NSE"
+    symbol    = (body.symbol or "").strip()
+    exchange  = (body.exchange or "NSE").strip().upper()
 
-    # If token not provided, look up by symbol
+    # If token not provided, resolve by symbol on instrument_master.
     if not token_val and symbol:
         row = await pool.fetchrow(
-            "SELECT instrument_token FROM instrument_master WHERE symbol ILIKE $1 OR underlying ILIKE $1 LIMIT 1",
+            """
+            SELECT instrument_token
+            FROM instrument_master
+            WHERE upper(symbol) = upper($1)
+               OR upper(COALESCE(trading_symbol, '')) = upper($1)
+               OR upper(COALESCE(display_name, '')) = upper($1)
+               OR upper(COALESCE(underlying, '')) = upper($1)
+               OR symbol ILIKE $2
+               OR COALESCE(trading_symbol, '') ILIKE $2
+               OR COALESCE(display_name, '') ILIKE $2
+               OR COALESCE(underlying, '') ILIKE $2
+            ORDER BY
+                CASE
+                    WHEN upper(symbol) = upper($1) THEN 0
+                    WHEN upper(COALESCE(trading_symbol, '')) = upper($1) THEN 0
+                    WHEN upper(COALESCE(display_name, '')) = upper($1) THEN 1
+                    WHEN upper(COALESCE(underlying, '')) = upper($1) THEN 1
+                    ELSE 2
+                END,
+                instrument_token
+            LIMIT 1
+            """,
             symbol,
+            f"%{symbol}%",
         )
         if row:
             token_val = row["instrument_token"]
+
+    if not token_val:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unable to resolve instrument token for symbol '{symbol or body.token or ''}'",
+        )
 
     # Ensure user has a watchlist
     wl = await pool.fetchrow(
@@ -227,7 +255,7 @@ async def add_to_watchlist(
         VALUES ($1, $2, $3)
         ON CONFLICT (watchlist_id, instrument_token) DO NOTHING
         """,
-        wl_id, token_val or 0, symbol,
+        wl_id, token_val, symbol,
     )
 
     # Subscribe Tier-A if applicable

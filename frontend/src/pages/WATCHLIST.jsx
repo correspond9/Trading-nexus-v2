@@ -159,6 +159,10 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
   }, [tabs, user]);
 
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
+  const activeTabTokenList = (activeTab?.instruments || [])
+    .map(i => Number(i.token))
+    .filter(n => Number.isFinite(n) && n > 0);
+  const activeTabTokenKey = activeTabTokenList.join(',');
 
   // Close dropdown on outside click or Escape.
   useEffect(() => {
@@ -189,13 +193,13 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
   // Subscribe WS feed to active watchlist tokens (for bid/ask snapshot when market is open).
   useEffect(() => {
     if (feedState !== WebSocket.OPEN) return;
-    const tokens = (activeTab?.instruments || []).map(i => Number(i.token)).filter(n => Number.isFinite(n));
+    const tokens = activeTabTokenList;
     if (tokens.length === 0) return;
     sendFeed({ action: 'subscribe', tokens });
     return () => {
       try { sendFeed({ action: 'unsubscribe', tokens }); } catch {}
     };
-  }, [feedState, activeTabId, activeTab?.instruments?.length]);
+  }, [feedState, activeTabId, activeTabTokenKey]);
 
   useEffect(() => {
     if (!feedMsg) return;
@@ -346,40 +350,47 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     if (seq === searchSeq.current) setIsSearching(false);
   };
 
-  const handleAddInstrument = (instrument) => {
+  const handleAddInstrument = async (instrument) => {
+    const tokenNum = Number(instrument?.token);
+    if (!Number.isFinite(tokenNum) || tokenNum <= 0) {
+      return;
+    }
+
     setTabs(prev => prev.map(tab => {
       if (tab.id !== activeTabId) return tab;
-      if (tab.instruments.find(i => i.token === instrument.token)) return tab;
-      return { ...tab, instruments: [...tab.instruments, instrument] };
+      if (tab.instruments.find(i => Number(i.token) === tokenNum)) return tab;
+      return { ...tab, instruments: [...tab.instruments, { ...instrument, token: tokenNum }] };
     }));
-    apiService.post('/watchlist/add', {
-      user_id: String(user?.id || ''),
-      token: instrument.token,
-      symbol: instrument.symbol,
-      exchange: instrument.exchange,
-    })
-      .then(async () => {
-        // Refresh server-backed watchlist so close/ltp fields populate.
-        try {
-          const res = await apiService.get(`/watchlist/${user.id}`);
-          const instruments = extractWatchlistItems(res).map(item => ({
-            id: item.id || item.token,
-            symbol: item.symbol,
-            exchange: item.exchange,
-            token: item.token,
-            instrumentType: item.instrument_type || item.instrumentType,
-            ltp: item.ltp ?? null,
-            close: item.close ?? null,
-            underlying: item.underlying || '',
-            expiryDate: item.expiry_date ?? null,
-            strikePrice: item.strike_price ?? null,
-            optionType: item.option_type ?? null,
-            change_pct: item.change_pct ?? null,
-          }));
-          setTabs(prev => prev.map(t => (t.id === 1 ? { ...t, instruments } : t)));
-        } catch {}
-      })
-      .catch(() => {});
+
+    try {
+      const addRes = await apiService.post('/watchlist/add', {
+        user_id: String(user?.id || ''),
+        token: tokenNum,
+        symbol: instrument.symbol,
+        exchange: instrument.exchange,
+      });
+
+      const serverToken = Number(addRes?.token || tokenNum);
+      if (Number.isFinite(serverToken) && serverToken > 0 && serverToken !== tokenNum) {
+        setTabs(prev => prev.map(tab => {
+          if (tab.id !== activeTabId) return tab;
+          return {
+            ...tab,
+            instruments: tab.instruments.map(i =>
+              Number(i.token) === tokenNum ? { ...i, token: serverToken, id: serverToken } : i
+            )
+          };
+        }));
+      }
+
+      await hydrateFromServer();
+    } catch {
+      // rollback optimistic row on failure
+      setTabs(prev => prev.map(tab => {
+        if (tab.id !== activeTabId) return tab;
+        return { ...tab, instruments: tab.instruments.filter(i => Number(i.token) !== tokenNum) };
+      }));
+    }
     // Keep dropdown open so user can add multiple items via +
   };
 
@@ -558,8 +569,8 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                   ? (pulse?.marketActiveCommodity ?? pulse?.marketActive ?? pulse?.market_active_commodity ?? pulse?.market_active) !== false
                   : (pulse?.marketActiveEquity ?? pulse?.marketActive ?? pulse?.market_active_equity ?? pulse?.market_active) !== false;
                 const tick = tickByToken[String(inst.token)];
-                const bid = tick?.bid_depth?.[0]?.price ?? null;
-                const ask = tick?.ask_depth?.[0]?.price ?? null;
+                const bid = tick?.bid_depth?.[0]?.price ?? tick?.best_bid ?? tick?.bid ?? tick?.bid_price ?? null;
+                const ask = tick?.ask_depth?.[0]?.price ?? tick?.best_ask ?? tick?.ask ?? tick?.ask_price ?? null;
 
                 const label = formatOptionLabel({
                   instrumentType: inst.instrumentType,

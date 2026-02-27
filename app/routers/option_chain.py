@@ -231,7 +231,7 @@ async def option_chain_ws(
             pool = get_pool()
             ocd_rows = await pool.fetch(
                 """
-                SELECT ocd.strike_price, ocd.option_type,
+                SELECT ocd.instrument_token, ocd.strike_price, ocd.option_type,
                        COALESCE(md.ltp, 0) AS ltp,
                        ocd.iv, ocd.delta, ocd.theta, ocd.gamma, ocd.vega
                 FROM option_chain_data ocd
@@ -248,6 +248,7 @@ async def option_chain_ws(
                 if key not in strikes:
                     strikes[key] = {"CE": None, "PE": None}
                 strikes[key][opt_type] = {
+                    "instrument_token": int(row["instrument_token"]),
                     "ltp":   float(row["ltp"]) if row["ltp"] else None,
                     "iv":    float(row["iv"])  if row["iv"]  else None,
                     "delta": float(row["delta"]) if row["delta"] else None,

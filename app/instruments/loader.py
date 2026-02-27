@@ -111,11 +111,12 @@ async def load_instruments() -> None:
         await conn.executemany(
             """
             INSERT INTO instrument_master
-                (instrument_token, exchange_segment, symbol, underlying,
+                (instrument_token, security_id, exchange_segment, symbol, underlying,
                  instrument_type, expiry_date, strike_price, option_type,
                  tick_size, lot_size, tier, ws_slot)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
             ON CONFLICT (instrument_token) DO UPDATE SET
+                security_id      = EXCLUDED.security_id,
                 exchange_segment = EXCLUDED.exchange_segment,
                 symbol           = EXCLUDED.symbol,
                 underlying       = EXCLUDED.underlying,
@@ -181,37 +182,37 @@ def _classify_row(
 
         # NSE Index Options — Tier-B
         if itype in ("OPTIDX",) and underlying in _TIER_B_INDICES:
-            return (token, segment, symbol, underlying, itype,
+                return (token, token, segment, symbol, underlying, itype,
                     expiry, strike, opt_type,
                     tick_size, lot_size, "B", _ws_slot(token))
 
         # NSE Stock Options — Tier-A (on-demand)
         if itype in ("OPTSTK",) and underlying in options_stocks:
-            return (token, segment, symbol, underlying, itype,
+                return (token, token, segment, symbol, underlying, itype,
                     expiry, strike, opt_type,
                     tick_size, lot_size, "A", None)
 
         # NSE Stock Futures — Tier-B
         if itype in ("FUTSTK",) and underlying in futures_stocks:
-            return (token, segment, symbol, underlying, itype,
+                return (token, token, segment, symbol, underlying, itype,
                     expiry, strike, opt_type,
                     tick_size, lot_size, "B", _ws_slot(token))
 
         # NSE Equity Cash — Tier-B
         if itype in ("EQUITY", "EQ") and underlying in equity_symbols and segment == "NSE_EQ":
-            return (token, segment, symbol, underlying, itype,
+                return (token, token, segment, symbol, underlying, itype,
                     None, None, None,
                     tick_size, lot_size, "B", _ws_slot(token))
 
         # MCX Futures — Tier-B
         if itype in ("FUTCOM",) and underlying in mcx_futures:
-            return (token, segment, symbol, underlying, itype,
+                return (token, token, segment, symbol, underlying, itype,
                     expiry, strike, opt_type,
                     tick_size, lot_size, "B", _ws_slot(token))
 
         # MCX Options — Tier-B
         if itype in ("OPTFUT",) and underlying in mcx_options:
-            return (token, segment, symbol, underlying, itype,
+                return (token, token, segment, symbol, underlying, itype,
                     expiry, strike, opt_type,
                     tick_size, lot_size, "B", _ws_slot(token))
 

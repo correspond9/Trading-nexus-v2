@@ -148,7 +148,7 @@ def _parse_expiry(val: str) -> Optional[date]:
 def _build_record(row: dict, tier: str) -> tuple:
     """
     Returns a tuple in INSERT column order:
-    (token, exchange_segment, symbol, underlying, itype, expiry, strike,
+    (token, security_id, exchange_segment, symbol, underlying, itype, expiry, strike,
      opt_type, tick_size, lot_size, tier, ws_slot, isin, display_name, series)
 
     CSV Column Mapping:
@@ -157,6 +157,7 @@ def _build_record(row: dict, tier: str) -> tuple:
       display_name DB field ← SYMBOL_NAME (the trading ticker for reference, e.g. "MARUTI")
     """
     token    = int(row["SECURITY_ID"])
+    security_id = token
     exch_id  = (row.get("EXCH_ID") or "").strip().upper()
     seg_code = (row.get("SEGMENT") or "").strip().upper()
     segment  = _map_exchange_segment(exch_id, seg_code)
@@ -182,7 +183,7 @@ def _build_record(row: dict, tier: str) -> tuple:
     series   = (row.get("SERIES") or "").strip() or None
     ws       = _ws_slot(token) if tier == "B" else None
 
-    return (token, segment, symbol, under, itype,
+    return (token, security_id, segment, symbol, under, itype,
             expiry, strike, opt_type, tick, lot,
             tier, ws, isin, display, series)
 
@@ -316,11 +317,12 @@ async def seed_subscription_lists_if_empty() -> None:
 
 _UPSERT_SQL = """
 INSERT INTO instrument_master
-    (instrument_token, exchange_segment, symbol, underlying,
+    (instrument_token, security_id, exchange_segment, symbol, underlying,
      instrument_type, expiry_date, strike_price, option_type,
      tick_size, lot_size, tier, ws_slot, isin, display_name, series)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 ON CONFLICT (instrument_token) DO UPDATE SET
+    security_id      = EXCLUDED.security_id,
     exchange_segment = EXCLUDED.exchange_segment,
     symbol           = EXCLUDED.symbol,
     underlying       = EXCLUDED.underlying,

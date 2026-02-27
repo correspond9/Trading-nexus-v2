@@ -326,18 +326,24 @@ async def place_paper_order(
                 if im_seg_u:
                     body.exchange_segment = im_seg_u
 
-        # Get LTP for fill simulation
-        ltp_row = await pool.fetchrow(
-            "SELECT ltp FROM market_data WHERE instrument_token=$1", token
-        ) if token else None
-        fill_price = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) \
-                     else (body.price or body.limit_price or 100.0)
-
         side     = (body.transaction_type or body.side or "BUY").upper()
         qty      = body.quantity
         ord_type = body.order_type.upper()
         prod     = body.product_type.upper()
         lp       = body.limit_price or body.price
+
+        # Get LTP for fill simulation
+        ltp_row = await pool.fetchrow(
+            "SELECT ltp FROM market_data WHERE instrument_token=$1", token
+        ) if token else None
+        ltp_price = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else None
+
+        if ord_type in {"LIMIT", "SLL"}:
+            if lp is None or float(lp) <= 0:
+                raise HTTPException(status_code=400, detail="Valid limit_price is required for LIMIT/SLL orders")
+            fill_price = float(lp)
+        else:
+            fill_price = ltp_price if ltp_price is not None else float(lp or 100.0)
 
         order_id = str(uuid.uuid4())
 

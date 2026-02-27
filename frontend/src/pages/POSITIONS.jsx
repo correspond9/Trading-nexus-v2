@@ -303,6 +303,18 @@ const PositionsTab = ({ productFilter = null }) => {
   const btnBase = { border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' };
 
   const formatMoney = (v) => "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  const getExitQtyOptions = (row) => {
+    const maxQty = Math.max(1, Math.abs(Number(row?.qty || 0)));
+    const lotSize = Math.max(1, Number(row?.lotSize || row?.lot_size || 1));
+    const options = [];
+    for (let value = lotSize; value <= maxQty; value += lotSize) {
+      options.push(value);
+    }
+    if (options.length === 0 || options[options.length - 1] !== maxQty) {
+      options.push(maxQty);
+    }
+    return options;
+  };
 
   return (
     <div style={pageStyle}>
@@ -434,15 +446,15 @@ const PositionsTab = ({ productFilter = null }) => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
                 <label style={labelStyle}>Exit Qty</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={Math.max(1, Math.abs(Number(exitRow.qty || 0)))}
-                  step={Math.max(1, Number(exitRow?.lotSize || exitRow?.lot_size || 1))}
+                <select
                   value={exitQty}
                   onChange={(e) => setExitQty(e.target.value)}
                   style={inputStyle}
-                />
+                >
+                  {getExitQtyOptions(exitRow).map((q) => (
+                    <option key={q} value={String(q)}>{q}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label style={labelStyle}>Order Type</label>

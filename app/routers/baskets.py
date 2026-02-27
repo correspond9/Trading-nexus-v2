@@ -497,9 +497,11 @@ async def execute_basket(
                     exchange,
                     side_u,
                     order_type_u,
-                    int(qty),
+                                        existing_qty = int(open_pos["quantity"] or 0)
+                                        existing_avg = float(open_pos["avg_price"] or 0)
+                                        new_qty = existing_qty + qty
                     limit_price,
-                    float(fill_price),
+                                            (existing_avg * existing_qty + fill_price * qty) / new_qty
                     int(qty),
                     product,
                     int(security_id),
@@ -522,9 +524,11 @@ async def execute_basket(
                         )
                         await conn.execute(
                             """
-                            UPDATE paper_positions
+                                        existing_qty = int(open_pos["quantity"] or 0)
+                                        existing_avg = float(open_pos["avg_price"] or 0)
+                                        new_qty = max(0, existing_qty - qty)
                             SET quantity = $1, avg_price = $2
-                            WHERE position_id = $3
+                                            realized_pnl = (fill_price - existing_avg) * existing_qty
                             """,
                             new_qty,
                             new_avg,
@@ -536,7 +540,7 @@ async def execute_basket(
                             INSERT INTO paper_positions
                                 (user_id, instrument_token, symbol, exchange_segment,
                                  quantity, avg_price, product_type, status)
-                            VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
+                                            realized_pnl = (fill_price - existing_avg) * qty
                             """,
                             uid,
                             token,

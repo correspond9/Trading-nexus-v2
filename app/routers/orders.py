@@ -455,10 +455,12 @@ async def place_paper_order(
                     )
 
                     if open_pos:
+                        existing_qty = int(open_pos["quantity"] or 0)
+                        existing_avg = float(open_pos["avg_price"] or 0)
                         # Update existing OPEN position
-                        new_qty = open_pos["quantity"] + qty
+                        new_qty = existing_qty + qty
                         new_avg = (
-                            (open_pos["avg_price"] * open_pos["quantity"] + fill_price * qty) / new_qty
+                            (existing_avg * existing_qty + fill_price * qty) / new_qty
                         )
                         await conn.execute(
                             """
@@ -492,10 +494,12 @@ async def place_paper_order(
                     )
 
                     if open_pos:
-                        new_qty = max(0, open_pos["quantity"] - qty)
+                        existing_qty = int(open_pos["quantity"] or 0)
+                        existing_avg = float(open_pos["avg_price"] or 0)
+                        new_qty = max(0, existing_qty - qty)
                         if new_qty == 0:
                             # Position fully closed
-                            realized_pnl = (fill_price - open_pos["avg_price"]) * open_pos["quantity"]
+                            realized_pnl = (fill_price - existing_avg) * existing_qty
                             await conn.execute(
                                 """
                                 UPDATE paper_positions
@@ -507,7 +511,7 @@ async def place_paper_order(
                             )
                         else:
                             # Partial close
-                            realized_pnl = (fill_price - open_pos["avg_price"]) * qty
+                            realized_pnl = (fill_price - existing_avg) * qty
                             await conn.execute(
                                 """
                                 UPDATE paper_positions

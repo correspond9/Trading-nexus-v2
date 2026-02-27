@@ -47,6 +47,7 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
   const [isSearching, setIsSearching] = useState(false);
   const searchTimeout = useRef(null);
   const searchSeq = useRef(0);
+  const hydrateSeq = useRef(0);
   const [showDepthFor, setShowDepthFor] = useState({});
   const [tickByToken, setTickByToken] = useState({});
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -86,7 +87,12 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
 
   const hydrateFromServer = useCallback(async () => {
     if (!user?.id) return { instruments: [], tokens: new Set() };
+    // Grab a sequence number BEFORE the async fetch so we can detect stale responses.
+    const seq = ++hydrateSeq.current;
     const res = await apiService.get(`/watchlist/${user.id}`);
+    // If a newer hydrate call already started (and possibly finished), discard this response
+    // to prevent an older, stale server snapshot from overwriting fresher state.
+    if (seq !== hydrateSeq.current) return { instruments: [], tokens: new Set() };
     const serverItems = extractWatchlistItems(res);
     const instruments = mapServerItems(serverItems);
     const tokens = new Set(instruments.map(i => String(i.token)));

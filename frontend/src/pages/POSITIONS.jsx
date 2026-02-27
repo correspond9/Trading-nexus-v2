@@ -1,40 +1,84 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { apiService } from '../services/apiService';
-import { useAuth } from '../contexts/AuthContext';
 import { useMarketPulse } from '../hooks/useMarketPulse';
 
-const PositionsTab = () => {
-  const { user } = useAuth();
+const isDerivativePosition = (position = {}) => {
+  const exchange = String(position.exchange || '').toUpperCase();
+  const symbol = String(position.symbol || '').toUpperCase();
+
+  const isExplicitEquity =
+    exchange === 'NSE_EQ' ||
+    exchange === 'BSE_EQ' ||
+    (exchange === 'NSE' && !symbol.endsWith('CE') && !symbol.endsWith('PE') && !symbol.includes('FUT')) ||
+    (exchange === 'BSE' && !symbol.endsWith('CE') && !symbol.endsWith('PE') && !symbol.includes('FUT'));
+
+  if (isExplicitEquity) return false;
+
+  return (
+    exchange.includes('FNO') ||
+    exchange.includes('FO') ||
+    exchange.includes('OPT') ||
+    exchange.includes('FUT') ||
+    exchange.includes('COMM') ||
+    symbol.endsWith('CE') ||
+    symbol.endsWith('PE') ||
+    symbol.includes('FUT')
+  );
+};
+
+const PositionsTab = ({ productFilter = "MIS" }) => {
   const { pulse, marketActive } = useMarketPulse();
   const [positions, setPositions] = useState([]);
   const [selectedOpenIds, setSelectedOpenIds] = useState(new Set());
 
   const fetchPositions = useCallback(async () => {
     try {
-      const params = user?.id ? { user_id: String(user.id) } : {};
-      const positionsResponse = await apiService.get('/portfolio/positions', params);
-      if (positionsResponse && positionsResponse.data) {
-        const mapped = positionsResponse.data.map((p) => {
-          const qty = Number(p.quantity ?? p.qty ?? 0);
-          const avgEntry = Number(p.avg_price ?? p.avgEntry ?? 0);
-          const mtm = Number(p.mtm ?? 0);
-          const currentLtp = qty !== 0 ? avgEntry + mtm / qty : avgEntry;
-          return {
-            id: p.id,
-            productType: p.product_type ?? p.productType ?? 'MIS',
-            symbol: p.symbol,
+      const res = await apiService.get('/admin/positions/userwise');
+      const users = res?.data?.data || res?.data || [];
+
+      const normalizedFilter = String(productFilter || 'MIS').toUpperCase();
+      const mapped = [];
+
+      users.forEach((userRow) => {
+        const userId = String(userRow.user_id || '');
+        const userNo = userRow.user_no;
+        const userName = userRow.display_name || userRow.mobile || userId;
+
+        (userRow.positions || []).forEach((position, index) => {
+          const positionProduct = String(position.product_type || 'MIS').toUpperCase();
+          if (positionProduct !== normalizedFilter) return;
+          if (!isDerivativePosition(position)) return;
+
+          const status = String(position.status || 'OPEN').toUpperCase();
+          if (status !== 'OPEN' && status !== 'CLOSED') return;
+
+          const qty = Number(position.quantity || 0);
+          const avgEntry = Number(position.avg_price || 0);
+          const currentLtp = Number(position.ltp || avgEntry);
+          const pnl = Number(position.pnl || 0);
+          const token = Number(position.instrument_token || 0);
+
+          mapped.push({
+            id: `${userId}:${token}:${position.opened_at || index}:${status}`,
+            positionToken: token,
+            userId,
+            userNo,
+            userName,
+            productType: positionProduct,
+            symbol: position.symbol || '—',
             qty,
             avgEntry: avgEntry.toFixed ? avgEntry.toFixed(2) : avgEntry,
             currentLtp: currentLtp.toFixed ? currentLtp.toFixed(2) : currentLtp,
-            mtm,
-            realizedPnl: p.realizedPnl ?? p.realized_pnl ?? 0,
-            status: p.status ?? 'OPEN'
-          };
+            mtm: status === 'OPEN' ? pnl : 0,
+            realizedPnl: status === 'CLOSED' ? pnl : 0,
+            status,
+          });
         });
+      });
+
         setPositions(mapped);
-      }
     } catch (err) { console.error('Error fetching positions:', err); }
-  }, [user]);
+  }, [productFilter]);
 
   useEffect(() => { fetchPositions(); }, [fetchPositions]);
 
@@ -65,8 +109,11 @@ const PositionsTab = () => {
 
   const exitPositions = async (idsSet) => {
     try {
+      const selectedRows = openPositions.filter((p) => idsSet.has(p.id));
       for (const id of idsSet) {
-        await apiService.post(`/portfolio/positions/${id}/close`, {});
+        const row = selectedRows.find((p) => p.id === id);
+        if (!row?.positionToken || !row?.userId) continue;
+        await apiService.post(`/portfolio/positions/${row.positionToken}/close?user_id=${row.userId}`, {});
       }
       await new Promise(resolve => setTimeout(resolve, 1000));
       await fetchPositions();
@@ -110,7 +157,7 @@ const PositionsTab = () => {
       <div style={mainCardStyle}>
         <div style={sectionHeaderRowStyle}>
           <div style={{ ...sectionTitleStyle, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Open Positions ({openPositions.length})
+            Open {productFilter} Derivatives Positions ({openPositions.length})
             <button onClick={fetchPositions} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Refresh positions">
               <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
             </button>
@@ -129,6 +176,7 @@ const PositionsTab = () => {
               <tr>
                 <th style={thStyle}><input type="checkbox" style={checkboxStyle} checked={openPositions.length > 0 && selectedOpenIds.size === openPositions.length} onChange={toggleSelectAllOpen} /></th>
                 <th style={thStyle}>Product</th>
+                <th style={thStyle}>User</th>
                 <th style={thStyle}>Instrument</th>
                 <th style={thRight}>Qty.</th>
                 <th style={thRight}>Avg.</th>
@@ -139,13 +187,14 @@ const PositionsTab = () => {
             </thead>
             <tbody>
               {openPositions.length === 0 ? (
-                <tr><td style={tdStyle} colSpan={8}>No open positions.</td></tr>
+                <tr><td style={tdStyle} colSpan={9}>No open positions.</td></tr>
               ) : (
                 <>
                   {openPositions.map((p) => (
                     <tr key={p.id} style={rowStyle}>
                       <td style={tdStyle}><input type="checkbox" style={checkboxStyle} checked={selectedOpenIds.has(p.id)} onChange={() => toggleSelectOne(p.id)} /></td>
                       <td style={tdStyle}>{p.productType}</td>
+                      <td style={tdStyle}>{p.userName} ({p.userNo || '—'})</td>
                       <td style={tdStyle}>{p.symbol}</td>
                       <td style={{ ...tdRight, ...qtyTextStyle }}>{p.qty.toLocaleString("en-IN")}</td>
                       <td style={tdRight}>{p.avgEntry}</td>
@@ -155,7 +204,7 @@ const PositionsTab = () => {
                     </tr>
                   ))}
                   <tr style={totalRowStyle}>
-                    <td style={tdStyle}></td><td style={tdStyle}></td><td style={tdStyle}></td>
+                    <td style={tdStyle}></td><td style={tdStyle}></td><td style={tdStyle}></td><td style={tdStyle}></td>
                     <td style={tdRight}></td><td style={tdRight}></td>
                     <td style={{ ...tdRight, color: "#111827" }}>Total</td>
                     <td style={{ ...tdRight, ...(totalMtm >= 0 ? plPositive : plNegative) }}>{formatMoney(totalMtm)}</td>
@@ -168,7 +217,7 @@ const PositionsTab = () => {
         </div>
 
         <div style={{ ...sectionHeaderRowStyle, marginTop: "24px" }}>
-          <div style={sectionTitleStyle}>Closed Positions ({closedPositions.length})</div>
+          <div style={sectionTitleStyle}>Intraday Closed {productFilter} Derivatives Positions ({closedPositions.length})</div>
         </div>
 
         <div style={tableOuterStyle}>
@@ -177,6 +226,7 @@ const PositionsTab = () => {
               <tr>
                 <th style={thStyle}><input type="checkbox" style={checkboxStyle} disabled /></th>
                 <th style={thStyle}>Product</th>
+                <th style={thStyle}>User</th>
                 <th style={thStyle}>Instrument</th>
                 <th style={thRight}>Qty.</th>
                 <th style={thRight}>Avg.</th>
@@ -186,13 +236,14 @@ const PositionsTab = () => {
             </thead>
             <tbody>
               {closedPositions.length === 0 ? (
-                <tr><td style={tdStyle} colSpan={7}>No closed positions yet.</td></tr>
+                <tr><td style={tdStyle} colSpan={8}>No intraday closed positions yet.</td></tr>
               ) : (
                 <>
                   {closedPositions.map((p) => (
                     <tr key={p.id} style={rowStyle}>
                       <td style={tdStyle}><input type="checkbox" style={checkboxStyle} disabled /></td>
                       <td style={tdStyle}>{p.productType}</td>
+                      <td style={tdStyle}>{p.userName} ({p.userNo || '—'})</td>
                       <td style={tdStyle}>{p.symbol}</td>
                       <td style={{ ...tdRight, ...qtyTextStyle }}>{p.qty.toLocaleString("en-IN")}</td>
                       <td style={tdRight}>{p.avgEntry}</td>
@@ -201,7 +252,7 @@ const PositionsTab = () => {
                     </tr>
                   ))}
                   <tr style={totalRowStyle}>
-                    <td style={tdStyle}></td><td style={tdStyle}></td>
+                    <td style={tdStyle}></td><td style={tdStyle}></td><td style={tdStyle}></td>
                     <td style={{ ...tdStyle, color: "#111827" }}>Total</td>
                     <td style={tdRight}></td><td style={tdRight}></td><td style={tdRight}></td>
                     <td style={{ ...tdRight, ...(totalClosed >= 0 ? plPositive : plNegative) }}>{formatMoney(totalClosed)}</td>

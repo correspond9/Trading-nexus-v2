@@ -14,8 +14,6 @@ const enrichOrder = (o) => {
   const price = o.price;
   let leg1Price = price;
   let leg2Price = "-";
-  const nowDate = new Date();
-  const defaultDateTime = `${nowDate.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Kolkata" })} ${nowDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })}`;
   if (isSD) { leg1Price = (price + 5).toFixed(2); leg2Price = (price - 5).toFixed(2); }
   return {
     ...o,
@@ -27,9 +25,9 @@ const enrichOrder = (o) => {
     stopLoss: o.stopLoss ?? 0,
     executedQty: o.executedQty ?? o.qty,
     executionPrice: o.executionPrice ?? o.price,
-    orderDateTime: o.orderDateTime ?? defaultDateTime,
-    exchangeTime: o.exchangeTime ?? defaultDateTime,
-    executionTime: o.executionTime ?? defaultDateTime,
+    orderDateTime: o.orderDateTime ?? "--",
+    exchangeTime: o.exchangeTime ?? "--",
+    executionTime: o.executionTime ?? "--",
     leg1Price,
     leg2Price,
   };
@@ -45,18 +43,22 @@ const OrdersTab = () => {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
 
   const formatTime = useCallback((isoLike) => {
-    const date = new Date(isoLike || new Date().toISOString());
+    if (!isoLike) return "--";
+    const date = new Date(isoLike);
+    if (Number.isNaN(date.getTime())) return "--";
     return date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
   }, []);
 
   const formatDateTime = useCallback((isoLike) => {
-    const date = new Date(isoLike || new Date().toISOString());
+    if (!isoLike) return "--";
+    const date = new Date(isoLike);
+    if (Number.isNaN(date.getTime())) return "--";
     return `${date.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Kolkata" })} ${date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })}`;
   }, []);
 
   const mapOrder = useCallback((order) => {
-    const createdAt = order.created_at || order.createdAt || order.updated_at || new Date().toISOString();
-    const updatedAt = order.updated_at || order.updatedAt || createdAt;
+    const createdAt = order.placed_at || order.placedAt || order.created_at || order.createdAt || null;
+    const updatedAt = order.filled_at || order.filledAt || order.executed_at || order.executedAt || order.updated_at || order.updatedAt || createdAt;
     const qty = Number(order.quantity ?? order.qty ?? 0);
     const executedQty = Number(order.filled_qty ?? order.executedQty ?? qty);
     const pendingQty = Math.max(0, qty - executedQty);

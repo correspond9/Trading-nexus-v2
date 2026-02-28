@@ -60,3 +60,5 @@ build/
 
 # Reference folder
 __reference_trade_nexuss/
+
+check_futures_db.py

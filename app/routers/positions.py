@@ -52,6 +52,11 @@ async def get_positions(
     current_user: CurrentUser = Depends(get_current_user),
     user_id:  Optional[str] = Query(None),
 ):
+    """
+    Returns today's intraday positions (open + today's closed).
+    Overnight NORMAL equity holdings (opened on a previous day) are excluded here
+    — those live on the Portfolio page instead.
+    """
     uid  = _uid(request, user_id, current_user)
     pool = get_pool()
     rows = await pool.fetch(
@@ -63,11 +68,57 @@ async def get_positions(
         FROM paper_positions pp
         LEFT JOIN instrument_master im ON im.instrument_token = pp.instrument_token
         LEFT JOIN market_data md ON md.instrument_token = pp.instrument_token
-                WHERE pp.user_id = $1
-                    AND (
-                        pp.status = 'OPEN'
-                        OR (pp.status = 'CLOSED' AND pp.archived_at IS NULL)
-                    )
+        WHERE pp.user_id = $1
+          AND (
+              pp.status = 'OPEN'
+              OR (pp.status = 'CLOSED' AND pp.archived_at IS NULL)
+          )
+          -- Exclude overnight NORMAL equity positions (Portfolio page handles those)
+          AND NOT (
+              pp.status = 'OPEN'
+              AND pp.quantity > 0
+              AND pp.product_type = 'NORMAL'
+              AND (pp.exchange_segment ILIKE '%\_EQ%' OR pp.exchange_segment IN ('NSE', 'BSE'))
+              AND DATE(pp.opened_at AT TIME ZONE 'Asia/Kolkata') < CURRENT_DATE
+          )
+        ORDER BY pp.opened_at DESC
+        """,
+        uid,
+    )
+    return {"data": [_fmt(r) for r in rows]}
+
+
+@router.get("/equity-holdings")
+@router.get("/equity-holdings/")
+async def get_equity_holdings(
+    request:  Request,
+    current_user: CurrentUser = Depends(get_current_user),
+    user_id:  Optional[str] = Query(None),
+):
+    """
+    Returns OPEN NORMAL equity positions that were opened on a previous trading day
+    (i.e., overnight / delivery holdings).  These appear exclusively on the Portfolio
+    page, not the regular Positions page.
+    """
+    uid  = _uid(request, user_id, current_user)
+    pool = get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT pp.*,
+               COALESCE(NULLIF(im.lot_size, 0), 1) AS lot_size,
+               COALESCE(md.ltp, pp.avg_price)                          AS ltp,
+               COALESCE((md.ltp - pp.avg_price) * pp.quantity, 0)      AS mtm,
+               (pp.quantity * pp.avg_price)                            AS invested_value,
+               (pp.quantity * COALESCE(md.ltp, pp.avg_price))          AS current_value
+        FROM paper_positions pp
+        LEFT JOIN instrument_master im ON im.instrument_token = pp.instrument_token
+        LEFT JOIN market_data md ON md.instrument_token = pp.instrument_token
+        WHERE pp.user_id = $1::uuid
+          AND pp.status   = 'OPEN'
+          AND pp.quantity > 0
+          AND pp.product_type = 'NORMAL'
+          AND (pp.exchange_segment ILIKE '%\_EQ%' OR pp.exchange_segment IN ('NSE', 'BSE'))
+          AND DATE(pp.opened_at AT TIME ZONE 'Asia/Kolkata') < CURRENT_DATE
         ORDER BY pp.opened_at DESC
         """,
         uid,

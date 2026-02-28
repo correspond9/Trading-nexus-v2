@@ -108,12 +108,69 @@ const OrdersTab = () => {
         from_date: fromDate,
         to_date: toDate
       };
-      const response = await apiService.get('/trading/orders', params);
-      if (response && response.data) setOrders(response.data.map(mapOrder));
-      else setOrders([]);
+      
+      // Fetch executed orders
+      const orderResponse = await apiService.get('/trading/orders', params);
+      const filledOrders = (orderResponse && orderResponse.data) ? orderResponse.data.filter(o => {
+        const st = String(o.status || '').toUpperCase();
+        return st === 'FILLED' || st === 'EXECUTED';
+      }).map(mapOrder) : [];
+      
+      // Fetch closed positions as trade fills
+      const pnlResponse = await apiService.get('/portfolio/positions/pnl/historic', { 
+        from_date: fromDate, 
+        to_date: toDate 
+      });
+      const closedFills = [];
+      if (pnlResponse && pnlResponse.data && pnlResponse.data.closed) {
+        pnlResponse.data.closed.forEach(pos => {
+          // Create BUY fill
+          closedFills.push(enrichOrder({
+            id: `${pos.instrument_token}-buy-${pos.opened_at}`,
+            time: formatTime(pos.opened_at),
+            exTime: formatTime(pos.opened_at),
+            side: 'BUY',
+            symbol: pos.symbol || 'UNKNOWN',
+            orderMode: 'MARKET',
+            productType: pos.product_type || 'MIS',
+            qty: pos.quantity || 0,
+            price: Number(pos.avg_price || 0),
+            status: 'EXECUTED',
+            executionPrice: Number(pos.avg_price || 0),
+            executedQty: pos.quantity || 0,
+            orderDateTime: formatDateTime(pos.opened_at),
+            exchangeTime: formatDateTime(pos.opened_at),
+            executionTime: formatDateTime(pos.opened_at)
+          }));
+          
+          // Create SELL fill (exit price derived from closed position)
+          closedFills.push(enrichOrder({
+            id: `${pos.instrument_token}-sell-${pos.closed_at}`,
+            time: formatTime(pos.closed_at),
+            exTime: formatTime(pos.closed_at),
+            side: 'SELL',
+            symbol: pos.symbol || 'UNKNOWN',
+            orderMode: 'MARKET',
+            productType: pos.product_type || 'MIS',
+            qty: pos.quantity || 0,
+            price: pos.quantity ? Number((pos.realized_pnl / pos.quantity + Number(pos.avg_price || 0))) : Number(pos.avg_price || 0),
+            status: 'EXECUTED',
+            executionPrice: pos.quantity ? Number((pos.realized_pnl / pos.quantity + Number(pos.avg_price || 0))) : Number(pos.avg_price || 0),
+            executedQty: pos.quantity || 0,
+            orderDateTime: formatDateTime(pos.closed_at),
+            exchangeTime: formatDateTime(pos.closed_at),
+            executionTime: formatDateTime(pos.closed_at)
+          }));
+        });
+      }
+      
+      // Merge and sort
+      const allFills = [...filledOrders, ...closedFills];
+      allFills.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      setOrders(allFills);
     } catch (err) { console.error('Error fetching orders:', err); }
     finally { setSorting(false); }
-  }, [user, mapOrder, fromDate, toDate]);
+  }, [user, mapOrder, formatTime, formatDateTime, fromDate, toDate]);
 
   useEffect(() => { fetchOrders(); }, []); // eslint-disable-line
 

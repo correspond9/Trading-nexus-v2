@@ -168,7 +168,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Symbol","Exchange","Product","Entry Price","Closed Qty","Realized P&L","Opened","Closed"].map(h => (
+                      {["Symbol","Exchange","Product","Entry Price","Closed Qty","Realized P&L","Platform Cost","Trade Expense","Net P&L","Opened","Closed"].map(h => (
                         <th key={h} style={S.th}>{h}</th>
                       ))}
                     </tr>
@@ -176,6 +176,9 @@ const PandLPage = ({ hideUserSelect = false }) => {
                   <tbody>
                     {data.closed.map((p, i) => {
                       const pl = Number(p.realized_pnl || 0);
+                      const platformCost = Number(p.platform_cost || 0);
+                      const tradeExp = Number(p.trade_expense || 0);
+                      const netPnl = pl - platformCost - tradeExp;
                       return (
                         <tr key={i}>
                           <td style={{ ...S.td, fontWeight: 700 }}>{p.symbol || "—"}</td>
@@ -190,6 +193,15 @@ const PandLPage = ({ hideUserSelect = false }) => {
                           <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{p.closed_qty}</td>
                           <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: numColor(pl) }}>
                             {INR(pl)}
+                          </td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
+                            {INR(platformCost)}
+                          </td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
+                            {INR(tradeExp)}
+                          </td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: numColor(netPnl) }}>
+                            {INR(netPnl)}
                           </td>
                           <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDt(p.opened_at)}</td>
                           <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDt(p.closed_at)}</td>

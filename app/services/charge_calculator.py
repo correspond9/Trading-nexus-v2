@@ -137,8 +137,10 @@ class ChargeCalculator:
             gst_charge = taxable_amount * self.rates.GST_RATE
             
             # 8. Totals
-            platform_cost = brokerage + sebi_charge + exchange_charge + gst_charge
-            trade_expense = stt_ctt + stamp_duty + ipft_charge
+            # platform_cost = brokerage charge only (what broker keeps)
+            # trade_expense = all other charges (regulatory/statutory)
+            platform_cost = brokerage
+            trade_expense = stt_ctt + exchange_charge + sebi_charge + stamp_duty + ipft_charge + gst_charge
             total_charges = platform_cost + trade_expense
             
             return {

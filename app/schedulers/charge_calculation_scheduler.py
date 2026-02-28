@@ -278,7 +278,38 @@ class ChargeCalculationScheduler:
                 position['position_id']
             )
             
-            logger.debug(f"✓ Calculated charges for position {position['position_id']}: ₹{charges['total_charges']:.2f}")
+            # Create ledger entry for realized P&L
+            net_pnl = float(position.get('realized_pnl', 0)) - charges['total_charges']
+            
+            # Get current wallet balance
+            current_balance_row = await pool.fetchrow(
+                "SELECT COALESCE(MAX(balance_after), 0) as current_balance FROM ledger_entries WHERE user_id = $1",
+                position['user_id']
+            )
+            current_balance = float(current_balance_row['current_balance']) if current_balance_row else 0.0
+            new_balance = current_balance + net_pnl
+            
+            # Create ledger entry
+            symbol = position.get('symbol') or '—'
+            seg = position.get('exchange_segment') or ''
+            prod = position.get('product_type') or 'MIS'
+            desc = f"Realized P&L — {symbol} ({seg}, {prod})"
+            
+            await pool.execute(
+                """
+                INSERT INTO ledger_entries (user_id, created_at, description, debit, credit, balance_after)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                """,
+                position['user_id'],
+                position.get('closed_at') or None,
+                desc,
+                abs(net_pnl) if net_pnl < 0 else None,  # debit if loss
+                net_pnl if net_pnl > 0 else None,       # credit if profit
+                new_balance
+            )
+            
+            logger.debug(f"✓ Calculated charges for position {position['position_id']}: ₹{charges['total_charges']:.2f}, net P&L: ₹{net_pnl:.2f}")
+            
             
         except Exception as e:
             logger.error(f"Error calculating charges for position {position.get('position_id')}: {e}")

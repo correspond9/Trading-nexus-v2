@@ -5,6 +5,7 @@ import { THEMES, getInitialTheme, setTheme } from '../../utils/theme';
 
 const NAV_ITEMS = [
   { label: 'Trade',       path: '/trade',                          roles: null },
+  { label: 'Portfolio',   path: '/portfolio',                      roles: null },
   { label: 'P.MIS',       path: '/trade/all-positions',            roles: ['ADMIN', 'SUPER_ADMIN'] },
   { label: 'P.Normal',    path: '/all-positions-normal',           roles: ['ADMIN', 'SUPER_ADMIN'] },
   { label: 'P.Userwise',  path: '/all-positions-userwise',         roles: ['ADMIN', 'SUPER_ADMIN'] },

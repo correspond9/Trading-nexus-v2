@@ -27,6 +27,11 @@ async def get_ledger(
     limit: int = Query(200, ge=1, le=2000),
     offset: int = Query(0, ge=0),
 ):
+    """
+    Returns unified wallet and P&L statement.
+    - Wallet entries: deposits, withdrawals, fees
+    - P&L entries: realized gains/losses from closed positions (created by charge scheduler)
+    """
     pool = get_pool()
 
     target_user_id = user_id or current_user.id
@@ -53,14 +58,16 @@ async def get_ledger(
         credit = r["credit"]
         bal = r["balance_after"]
 
-        data.append(
-            {
-                "date": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
-                "description": r["description"],
-                "debit": float(debit) if debit is not None else None,
-                "credit": float(credit) if credit is not None else None,
-                "balance": float(bal) if bal is not None else 0.0,
-            }
-        )
+        # Determine type based on description containing "Realized P&L"
+        entry_type = "trade_pnl" if "Realized P&L" in r["description"] else "wallet"
+
+        data.append({
+            "date": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
+            "type": entry_type,
+            "description": r["description"],
+            "debit": float(debit) if debit is not None else None,
+            "credit": float(credit) if credit is not None else None,
+            "balance": float(bal) if bal is not None else 0.0,
+        })
 
     return {"data": data}

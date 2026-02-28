@@ -11,6 +11,7 @@ const Trade = lazy(() => import('./pages/Trade'));
 const PositionsMIS = lazy(() => import('./pages/PositionsMIS'));
 const PositionsNormal = lazy(() => import('./pages/PositionsNormal'));
 const PositionsUserwise = lazy(() => import('./pages/PositionsUserwise'));
+const Portfolio = lazy(() => import('./pages/Portfolio'));
 const PandL = lazy(() => import('./pages/PandL'));
 const Users = lazy(() => import('./pages/Users'));
 const Payouts = lazy(() => import('./pages/Payouts'));
@@ -95,6 +96,7 @@ export default function App() {
                       <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><TradeHistory /></ProtectedRoute>
                     } />
                     <Route path="/profile" element={<Profile />} />
+                    <Route path="/portfolio" element={<Portfolio />} />
                     <Route path="/dashboard" element={
                       <ProtectedRoute requiredRoles={['SUPER_ADMIN']}><SuperAdmin /></ProtectedRoute>
                     } />

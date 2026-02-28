@@ -43,7 +43,7 @@ const ProfilePage = () => {
   const tabs = [
     { id: 'profile', label: 'Profile' },
     { id: 'ledger', label: 'Ledger' },
-    { id: 'pnl', label: 'P&L' },
+    { id: 'pnl', label: 'P&L Reports' },
     { id: 'trades', label: 'Trade History' },
     { id: 'margin', label: 'Margin' },
   ];

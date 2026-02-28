@@ -326,9 +326,8 @@ async def get_watchlist(user_id: str, request: Request):
 async def add_to_watchlist(
     body: AddItemRequest,
     request: Request,
-    current_user: Optional[CurrentUser] = None,
 ):
-    uid  = _require_uuid(_uid(request, body.user_id, current_user))
+    uid  = _require_uuid(_uid(request, body.user_id))
     pool = get_pool()
 
     token_val = int(body.token) if body.token and str(body.token).isdigit() else None
@@ -375,9 +374,8 @@ async def add_to_watchlist(
 async def remove_from_watchlist(
     body: RemoveItemRequest,
     request: Request,
-    current_user: Optional[CurrentUser] = None,
 ):
-    uid  = _require_uuid(_uid(request, body.user_id, current_user))
+    uid  = _require_uuid(_uid(request, body.user_id))
     pool = get_pool()
 
     token_val = int(body.token) if body.token and str(body.token).isdigit() else None

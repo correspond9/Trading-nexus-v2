@@ -54,6 +54,9 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
   // Real-time calculation: find strike with minimum CE+PE premium (dynamic, updates each tick)
   // Fallback to cached ATM if real-time ticks unavailable
   const straddleAtmStrike = useMemo(() => {
+    // Prefer backend's ATM during closed hours or when LTP data is unavailable
+    const backendAtm = chainData?.atm_strike || chainData?.atm || null;
+    
     if (chainData?.strikes && Object.keys(chainData.strikes).length > 0) {
       let bestStrike = null;
       let bestPremium = null;
@@ -62,20 +65,23 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
         const strike = parseFloat(strikeStr);
         const ce = strikeData.CE?.ltp || 0;
         const pe = strikeData.PE?.ltp || 0;
-        if (strike <= 0 || ce <= 0 || pe <= 0) return;
+        if (strike <= 0) return;
+        // During closed hours, LTP might be 0 - skip those for calculation
+        if (ce <= 0 && pe <= 0) return;
 
         const straddle = ce + pe;
-        if (bestPremium === null || straddle < bestPremium) {
+        if (straddle > 0 && (bestPremium === null || straddle < bestPremium)) {
           bestPremium = straddle;
           bestStrike = strike;
         }
       });
 
+      // Use calculated ATM if found valid strikes, otherwise use backend ATM
       if (bestStrike !== null) return bestStrike;
     }
 
-    // Fallback to cached ATM from backend if real-time data unavailable
-    return chainData?.atm_strike || chainData?.atm || null;
+    // Fallback to backend ATM
+    return backendAtm;
   }, [chainData]);
 
   // Compute center strike from straddle ATM (exclusive logic for this tab)

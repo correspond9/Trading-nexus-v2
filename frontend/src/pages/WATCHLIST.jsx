@@ -296,10 +296,10 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
         const isEtf = isCash && (dispU.includes('ETF') || symU.includes('BEES') || symU.includes('ETF'));
 
         let s = 0;
-        if (isCash) s += 14000;
+        if (isCash) s += 12000;
         if (isEtf) s += 400;
+        if (isFuture) s += 8000;
         if (isOption) s += 6000;
-        if (isFuture) s += 2000;
 
         if (qFirstAlpha) {
           if (undU === qFirstAlpha) s += 5000;

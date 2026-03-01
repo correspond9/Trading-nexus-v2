@@ -566,3 +566,105 @@ th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px 12px;
 td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text); }
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: var(--row-highlight); color: var(--text); }
+
+/* ── SuperAdmin / SystemMonitoring — theme-responsive helpers ───────────── */
+/* Applied to form inputs / selects rendered inside SuperAdmin dashboard     */
+.sa-input {
+  background: var(--control-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+.sa-input option,
+.sa-input optgroup {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* Surface-level card panels */
+.sa-card {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+/* Kill near-white text that was only legible on dark card backgrounds */
+.sa-card .text-zinc-100,
+.sa-card .text-zinc-200,
+.sa-card .text-zinc-300 { color: var(--text) !important; }
+.sa-card .text-gray-300  { color: var(--muted) !important; }
+
+/* Nested / slightly-sunken elements inside a card */
+.sa-nested {
+  background: var(--surface2) !important;
+  border-color: var(--border) !important;
+}
+.sa-nested .text-zinc-100,
+.sa-nested .text-zinc-200 { color: var(--text) !important; }
+
+/* Tab bar container */
+.sa-tabs-bar {
+  background: var(--surface2) !important;
+  border-color: var(--border) !important;
+}
+/* Inactive tab buttons */
+.sa-tab-btn {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+.sa-tab-btn:hover {
+  background: var(--surface2) !important;
+}
+
+/* Autocomplete / suggestion dropdown */
+.sa-dropdown {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+.sa-dropdown-item {
+  border-color: var(--border) !important;
+}
+.sa-dropdown-item:hover {
+  background: #2563eb !important;
+  color: #fff !important;
+}
+/* Exchange/segment chip inside dropdown */
+.sa-dropdown-chip {
+  background: var(--surface2) !important;
+  color: var(--muted) !important;
+}
+
+/* JSON pre-formatted code output */
+.sa-pre {
+  background: var(--surface2) !important;
+  color: var(--text) !important;
+}
+
+/* Severity pills inside Admin Alerts — adjusted for light/dark readability */
+.sa-severity-error   { background: rgba(239,68,68,0.12);  color: var(--negative-text); border: 1px solid rgba(239,68,68,0.35); }
+.sa-severity-warning { background: rgba(234,179,8,0.12);  color: #92400e;              border: 1px solid rgba(234,179,8,0.35); }
+.sa-severity-info    { background: rgba(59,130,246,0.12); color: #1e40af;              border: 1px solid rgba(59,130,246,0.35); }
+[data-theme='dark'] .sa-severity-warning { color: #fef08a; }
+[data-theme='dark'] .sa-severity-info    { color: #93c5fd; }
+
+/* ── .sa-scope — batch-override all hard-coded Tailwind dark classes      ── */
+/* Wrap a component root in className="sa-scope" to auto-adapt all children  */
+.sa-scope .bg-zinc-800,
+.sa-scope .bg-zinc-900,
+.sa-scope .bg-gray-800,
+.sa-scope .bg-gray-900  { background: var(--surface) !important; }
+.sa-scope .bg-gray-700  { background: var(--surface2) !important; }
+.sa-scope .bg-gray-950,
+.sa-scope .bg-zinc-950  { background: var(--surface2) !important; }
+.sa-scope .border-zinc-700,
+.sa-scope .border-gray-700,
+.sa-scope .border-gray-600 { border-color: var(--border) !important; }
+.sa-scope :not(button).text-zinc-100,
+.sa-scope :not(button).text-zinc-200 { color: var(--text) !important; }
+.sa-scope :not(button).text-zinc-300,
+.sa-scope :not(button).text-gray-300 { color: var(--muted) !important; }
+.sa-scope :not(button).text-zinc-400,
+.sa-scope :not(button).text-gray-400 { color: var(--muted) !important; }
+/* Hover state on inactive tab buttons */
+.sa-scope .hover\:bg-gray-700:hover { background: var(--surface2) !important; }
+/* Table alternating rows inside scope */
+.sa-scope .bg-zinc-700\/30 { background: var(--row-highlight) !important; }

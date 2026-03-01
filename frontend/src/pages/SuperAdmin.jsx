@@ -42,7 +42,7 @@ const FormField = ({ label, children }) => (
   </div>
 );
 
-const inputCls = 'w-full px-3 py-2 text-sm bg-gray-900 border border-gray-700 text-zinc-100 rounded-lg outline-none focus:border-blue-500';
+const inputCls = 'sa-input w-full px-3 py-2 text-sm border rounded-lg outline-none focus:border-blue-500';
 const btnCls   = (color = 'blue') => `px-4 py-2 rounded-lg font-medium transition-colors text-zinc-100 text-sm ${
   color === 'blue' ? 'bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900' :
   color === 'red' ? 'bg-red-600 hover:bg-red-500 disabled:bg-red-900' :
@@ -577,7 +577,7 @@ const SuperAdminDashboard = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 sa-scope">
       {/* Header with Mode Badge */}
       <div className="flex items-center justify-between">
         <div>

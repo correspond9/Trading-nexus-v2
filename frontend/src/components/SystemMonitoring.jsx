@@ -40,12 +40,12 @@ const StatusCard = ({ title, status, detail, icon: Icon }) => (
 const SeverityPill = ({ level }) => {
   const lvl = (level || "info").toLowerCase();
   const style = {
-    error: "bg-red-500/15 text-red-200 border border-red-500/30",
-    critical: "bg-red-500/20 text-red-100 border border-red-500/40",
-    warning: "bg-yellow-500/15 text-yellow-200 border border-yellow-500/30",
-    warn: "bg-yellow-500/15 text-yellow-200 border border-yellow-500/30",
-    info: "bg-blue-500/10 text-blue-200 border border-blue-500/25",
-  }[lvl] || "bg-zinc-700/30 text-zinc-100 border border-zinc-600/40";
+    error:    "sa-severity-error",
+    critical: "sa-severity-error",
+    warning:  "sa-severity-warning",
+    warn:     "sa-severity-warning",
+    info:     "sa-severity-info",
+  }[lvl] || "sa-severity-info";
   return (
     <span className={`text-[11px] font-semibold px-2 py-1 rounded-md uppercase tracking-wide ${style}`}>
       {lvl.toUpperCase()}
@@ -167,7 +167,7 @@ const SystemMonitoring = () => {
           <button
             onClick={fetchAll}
             disabled={loading}
-            className="p-1.5 rounded transition-colors disabled:opacity-50 bg-zinc-900 border border-zinc-700"
+            className="p-1.5 rounded transition-colors disabled:opacity-50 sa-nested border"
             title="Refresh"
           >
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
@@ -218,7 +218,7 @@ const SystemMonitoring = () => {
           {notifications.map((notif, idx) => (
             <div
               key={notif.id || idx}
-              className="flex items-start gap-3 rounded-lg p-3 text-xs bg-zinc-900/60 border border-zinc-700"
+              className="flex items-start gap-3 rounded-lg p-3 text-xs sa-nested border"
             >
               <SeverityPill level={notif.severity || notif.level} />
               <div className="flex-1 min-w-0">

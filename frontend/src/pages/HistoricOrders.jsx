@@ -30,7 +30,7 @@ const HistoricOrdersPage = () => {
   if (!isAdmin) {
     return (
       <div style={{ padding: '24px', color: 'var(--text)', fontFamily: 'system-ui,sans-serif' }}>
-        <div style={{ background: '#7f1d1d33', border: '1px solid #ef4444', padding: '12px 16px', borderRadius: '8px', color: '#fca5a5' }}>
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', padding: '12px 16px', borderRadius: '8px', color: 'var(--negative-text)' }}>
           Access denied. Only admins can view historic orders.
         </div>
       </div>
@@ -100,7 +100,7 @@ const HistoricOrdersPage = () => {
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' },
     title: { fontSize: '20px', fontWeight: 700, margin: 0 },
     filterBar: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
-    input: { padding: '7px 10px', background: '#09090b', border: '1px solid #3f3f46', borderRadius: '6px', color: '#f4f4f5', fontSize: '13px' },
+    input: { padding: '7px 10px', background: 'var(--control-bg)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px' },
     label: { fontSize: '12px', color: 'var(--muted)' },
     button: { padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer', opacity: loading ? 0.6 : 1 },
     card: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: isMobile ? '12px' : '20px', overflow: 'hidden' },

@@ -12,9 +12,6 @@ const PCT = (n) => (Number(n) >= 0 ? "" : "") + Number(n).toFixed(2) + "%";
 const numColor = (n) =>
   Number(n) > 0 ? "var(--positive-text)" : Number(n) < 0 ? "var(--negative-text)" : "var(--text)";
 
-const isDarkTheme = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "dark";
-const surfaceBg = isDarkTheme ? "#111827" : "var(--surface)";
-
 // ── styles ────────────────────────────────────────────────────────────────
 const TH = {
   padding: "9px 11px",
@@ -210,7 +207,7 @@ function UserPositions({ row, onExitDone, liveTickByToken = {} }) {
                     {INR(currentLTP)}
                     {liveTick && <span style={{ fontSize: "9px", color: "#60a5fa", marginLeft: "4px" }}>●</span>}
                   </td>
-                  <td style={{ ...SUB_TD, fontVariantNumeric: "tabular-nums", color: numColor(currentPnL), backgroundColor: surfaceBg }}>
+                  <td style={{ ...SUB_TD, fontVariantNumeric: "tabular-nums", color: numColor(currentPnL), backgroundColor: "var(--surface)" }}>
                     {INR(currentPnL)}
                   </td>
                   <td style={SUB_TD}>
@@ -523,29 +520,29 @@ const PositionsUserwise = () => {
               return (
                 <React.Fragment key={r.user_id}>
                   {/* Summary row */}
-                  <tr style={{ background: isExpanded ? "#1e2a3a" : "transparent" }}>
+                  <tr className={isExpanded ? "pu-row pu-row-expanded" : "pu-row"}>
                     <td style={{ ...TD, fontWeight: 700, color: "#1d4ed8" }}>
                       {r.user_no || r.user_id?.slice(0, 8)}
                     </td>
                     <td style={{ ...TD, fontWeight: 600 }}>
                       {r.display_name || "—"}
                     </td>
-                    <td style={{ ...TD, color: numColor(r.profit), fontVariantNumeric: "tabular-nums", backgroundColor: isExpanded ? "#1e2a3a" : surfaceBg }}>
+                    <td style={{ ...TD, color: numColor(r.profit), fontVariantNumeric: "tabular-nums" }}>
                       {INR(r.profit)}
                     </td>
-                    <td style={{ ...TD, color: numColor(r.wallet_balance), fontVariantNumeric: "tabular-nums", backgroundColor: isExpanded ? "#1e2a3a" : surfaceBg }}>
+                    <td style={{ ...TD, color: numColor(r.wallet_balance), fontVariantNumeric: "tabular-nums" }}>
                       {INR(r.wallet_balance)}
                     </td>
-                    <td style={{ ...TD, color: numColor(r.margin_allotted), fontVariantNumeric: "tabular-nums", backgroundColor: isExpanded ? "#1e2a3a" : surfaceBg }}>
+                    <td style={{ ...TD, color: numColor(r.margin_allotted), fontVariantNumeric: "tabular-nums" }}>
                       {INR(r.margin_allotted)}
                     </td>
                     <td style={{ ...TD, fontVariantNumeric: "tabular-nums" }}>
                       {INR(r.current_margin_usage)}
                     </td>
-                    <td style={{ ...TD, color: numColor(openOnlyPnL), fontVariantNumeric: "tabular-nums", backgroundColor: isExpanded ? "#1e2a3a" : surfaceBg }}>
+                    <td style={{ ...TD, color: numColor(openOnlyPnL), fontVariantNumeric: "tabular-nums" }}>
                       {INR(openOnlyPnL)}
                     </td>
-                    <td style={{ ...TD, color: numColor(openOnlyPnLPct), fontVariantNumeric: "tabular-nums", backgroundColor: isExpanded ? "#1e2a3a" : surfaceBg }}>
+                    <td style={{ ...TD, color: numColor(openOnlyPnLPct), fontVariantNumeric: "tabular-nums" }}>
                       {PCT(openOnlyPnLPct)}
                     </td>
                     <td style={TD}>
@@ -554,7 +551,7 @@ const PositionsUserwise = () => {
                         title={isExpanded ? "Hide positions" : "Show positions"}
                         style={{
                           width: "32px", height: "32px", borderRadius: "6px", border: "none",
-                          background: isExpanded ? "#374151" : "transparent",
+                          background: isExpanded ? "var(--surface2)" : "transparent",
                           color: "#60a5fa", fontSize: "18px", cursor: "pointer",
                           display: "flex", alignItems: "center", justifyContent: "center",
                           transition: "transform 0.2s, background 0.2s",
@@ -589,11 +586,17 @@ const PositionsUserwise = () => {
         Displays all users with their open positions. Click the arrow (⌄) to expand and view details of open and intraday closed positions. Live prices update with a ● indicator when markets are open.
       </div>
 
-      {/* Pulse animation */}
+      {/* Pulse animation + row hover/expand theming */}
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.5; }
+        }
+        tr.pu-row:hover > td {
+          background: var(--hover-bg, var(--surface2)) !important;
+        }
+        tr.pu-row-expanded > td {
+          background: var(--row-selected-bg, var(--surface2)) !important;
         }
       `}</style>
     </div>

@@ -253,21 +253,21 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
   const isBuy = side === "BUY";
   const legs = isMultiLeg ? (orderData?.legs || []) : [orderData];
   const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' };
-  const modal = { position: 'relative', transform: `translate(${position.x}px, ${position.y}px)`, width: '380px', maxHeight: '90vh', overflowY: 'auto', background: '#18181b', borderRadius: '14px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', zIndex: 1000, userSelect: 'none' };
-  const header = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', cursor: 'grab', borderBottom: '1px solid #3f3f46', background: isBuy ? 'linear-gradient(135deg,rgba(59,130,246,0.15),rgba(37,99,235,0.2))' : 'linear-gradient(135deg,rgba(249,115,22,0.15),rgba(194,65,12,0.2))' };
+  const modal = { position: 'relative', transform: `translate(${position.x}px, ${position.y}px)`, width: '380px', maxHeight: '90vh', overflowY: 'auto', background: 'var(--surface)', borderRadius: '14px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)', zIndex: 1000, userSelect: 'none' };
+  const header = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', cursor: 'grab', borderBottom: '1px solid var(--border)', background: isBuy ? 'linear-gradient(135deg,rgba(59,130,246,0.15),rgba(37,99,235,0.2))' : 'linear-gradient(135deg,rgba(249,115,22,0.15),rgba(194,65,12,0.2))' };
   const title = { fontSize: '15px', fontWeight: 700, color: isBuy ? '#60a5fa' : '#fb923c' };
-  const closeBtn = { border: 'none', background: 'none', cursor: 'pointer', fontSize: '18px', color: '#a1a1aa', lineHeight: 1 };
+  const closeBtn = { border: 'none', background: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--muted)', lineHeight: 1 };
   const body = { padding: '18px' };
-  const label = { fontSize: '12px', fontWeight: 600, color: '#a1a1aa', marginBottom: '4px', display: 'block' };
+  const label = { fontSize: '12px', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px', display: 'block' };
   const toggleRow = { display: 'flex', gap: '6px', marginBottom: '14px' };
-  const toggleBtn = (active, color) => ({ flex: 1, padding: '8px', borderRadius: '8px', border: `2px solid ${active ? color : '#3f3f46'}`, background: active ? color : '#27272a', color: active ? '#ffffff' : '#a1a1aa', fontSize: '13px', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.15s' });
-  const input = { width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #3f3f46', background: '#27272a', color: '#f4f4f5', fontSize: '13px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.15s' };
+  const toggleBtn = (active, color) => ({ flex: 1, padding: '8px', borderRadius: '8px', border: `2px solid ${active ? color : 'var(--border)'}`, background: active ? color : 'var(--surface2)', color: active ? '#ffffff' : 'var(--muted)', fontSize: '13px', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.15s' });
+  const input = { width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--control-bg)', color: 'var(--text)', fontSize: '13px', outline: 'none', boxSizing: 'border-box', transition: 'border 0.15s' };
   const inputGroup = { marginBottom: '12px' };
-  const checkRow = { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', cursor: 'pointer', fontSize: '13px', color: '#f4f4f5' };
+  const checkRow = { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', cursor: 'pointer', fontSize: '13px', color: 'var(--text)' };
   const submitBtn = { width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: isBuy ? 'linear-gradient(135deg,#3b82f6,#1d4ed8)' : 'linear-gradient(135deg,#f97316,#c2410c)', color: '#fff', fontSize: '15px', fontWeight: 700, cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.7 : 1, marginTop: '6px' };
-  const errorBox = { padding: '10px', borderRadius: '8px', background: 'rgba(220,38,38,0.12)', color: '#f87171', fontSize: '13px', marginBottom: '10px', border: '1px solid rgba(220,38,38,0.3)' };
-  const successBox = { padding: '10px', borderRadius: '8px', background: 'rgba(22,163,74,0.12)', color: '#4ade80', fontSize: '13px', marginBottom: '10px', border: '1px solid rgba(22,163,74,0.3)' };
-  const marginInfo = { fontSize: '12px', color: '#a1a1aa', marginTop: '8px', padding: '8px', background: '#27272a', borderRadius: '8px', border: '1px solid #3f3f46' };
+  const errorBox = { padding: '10px', borderRadius: '8px', background: 'rgba(220,38,38,0.12)', color: 'var(--negative-text)', fontSize: '13px', marginBottom: '10px', border: '1px solid rgba(220,38,38,0.3)' };
+  const successBox = { padding: '10px', borderRadius: '8px', background: 'rgba(22,163,74,0.12)', color: 'var(--positive-text)', fontSize: '13px', marginBottom: '10px', border: '1px solid rgba(22,163,74,0.3)' };
+  const marginInfo = { fontSize: '12px', color: 'var(--muted)', marginTop: '8px', padding: '8px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' };
   const selectStyle = { ...input, appearance: 'none', backgroundImage: 'none' };
 
   return (
@@ -276,7 +276,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
         <div style={header} onMouseDown={onMouseDown}>
           <div>
             <div style={title}>{isBuy ? '▲ BUY' : '▼ SELL'} — {isMultiLeg ? 'Straddle (2 legs)' : (orderData?.symbol || 'Order')}</div>
-            <div style={{ fontSize: '11px', color: '#a1a1aa', marginTop: '2px' }}>{orderData?.exchange_segment || orderData?.exchange || ''}</div>
+            <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>{orderData?.exchange_segment || orderData?.exchange || ''}</div>
           </div>
           <button style={closeBtn} onClick={onClose}>✕</button>
         </div>
@@ -331,11 +331,11 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
           </div>
 
           {isEquityInstrument ? (
-            <div style={{ fontSize: '11px', color: '#a1a1aa', marginTop: '-6px', marginBottom: '10px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-6px', marginBottom: '10px' }}>
               For equity: 1 quantity = 1 stock
             </div>
           ) : (
-            <div style={{ fontSize: '11px', color: '#a1a1aa', marginTop: '-6px', marginBottom: '10px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-6px', marginBottom: '10px' }}>
               Lot size: {Number(lotSizePerLeg || 1)} (Qty = lots × lot size)
             </div>
           )}

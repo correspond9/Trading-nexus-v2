@@ -276,6 +276,13 @@ async def lifespan(app: FastAPI):
         log.info("[17] Starting charge calculation scheduler (16:00 IST NSE/BSE, 00:00 IST MCX) …")
         await charge_calculation_scheduler.start()
 
+        log.info("[17b] Running immediate charge backfill for pending closed positions …")
+        try:
+            backfill = await charge_calculation_scheduler.run_once(exchanges=None)
+            log.info("[17b] ✓ Charge backfill complete: processed=%s errors=%s", backfill.get("processed", 0), backfill.get("errors", 0))
+        except Exception as exc:
+            log.warning("[17b] Charge backfill failed: %s", exc)
+
         log.info("[18] Starting market timing controller (auto START/STOP) …")
         await market_timing_controller.start()
 

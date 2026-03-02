@@ -105,7 +105,13 @@ class ChargeCalculationScheduler:
             await self.run_once(exchanges=['MCX'])
             self._last_run_mcx = now_ist
     
-    async def run_once(self, exchanges: Optional[List[str]] = None) -> dict:
+    async def run_once(
+        self,
+        exchanges: Optional[List[str]] = None,
+        user_id: Optional[str] = None,
+        closed_from: Optional[datetime] = None,
+        closed_to: Optional[datetime] = None,
+    ) -> dict:
         """
         Manually trigger charge calculation.
         
@@ -122,12 +128,32 @@ class ChargeCalculationScheduler:
         try:
             pool = get_pool()
             
-            # Build exchange filter
-            exchange_filter = ""
+            # Build optional filters safely
+            filters = []
+            params = []
+
             if exchanges:
-                exchange_list = "', '".join(f"{ex}" for ex in exchanges)
-                exchange_filter = f"AND (exchange_segment LIKE '{exchange_list}%' OR " + \
-                                " OR ".join(f"exchange_segment LIKE '%{ex}%'" for ex in exchanges) + ")"
+                safe_exchanges = [str(ex).strip().upper() for ex in exchanges if str(ex).strip()]
+                if safe_exchanges:
+                    like_clauses = []
+                    for ex in safe_exchanges:
+                        params.append(f"%{ex}%")
+                        like_clauses.append(f"pp.exchange_segment ILIKE ${len(params)}")
+                    filters.append("(" + " OR ".join(like_clauses) + ")")
+
+            if user_id:
+                params.append(str(user_id))
+                filters.append(f"pp.user_id = ${len(params)}::uuid")
+
+            if closed_from is not None:
+                params.append(closed_from)
+                filters.append(f"pp.closed_at >= ${len(params)}")
+
+            if closed_to is not None:
+                params.append(closed_to)
+                filters.append(f"pp.closed_at <= ${len(params)}")
+
+            extra_where = f" AND {' AND '.join(filters)}" if filters else ""
             
             # Get uncalculated closed positions
             query = f"""
@@ -152,11 +178,11 @@ class ChargeCalculationScheduler:
                 WHERE pp.status = 'CLOSED'
                   AND pp.charges_calculated = FALSE
                   AND pp.closed_at IS NOT NULL
-                  {exchange_filter}
+                {extra_where}
                 ORDER BY pp.closed_at ASC
             """
             
-            rows = await pool.fetch(query)
+            rows = await pool.fetch(query, *params)
             total = len(rows)
             
             if total == 0:

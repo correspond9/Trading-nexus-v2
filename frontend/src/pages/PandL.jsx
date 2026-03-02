@@ -27,6 +27,11 @@ const fmtDt = (iso) => {
     " " + d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 };
 
+const fmtDate = (iso) => {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+};
+
 // ── Reusable styles ───────────────────────────────────────────────────────
 const S = {
   input:  { padding: "7px 10px", background: "var(--control-bg)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--text)", fontSize: "13px" },
@@ -173,45 +178,37 @@ const PandLPage = ({ hideUserSelect = false }) => {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Symbol","Exchange","Product","Entry Price","Closed Qty","Realized P&L","Trade Charges","Platform Cost","Net P&L","Opened","Closed"].map(h => (
+                      {["Date","Symbol","Buy Qty","Buy Price","Buy Value","Sell Qty","Sell Price","Sell Value","Platform Cost","Trade Expense","Net P&L"].map(h => (
                         <th key={h} style={S.th}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {data.closed.map((p, i) => {
-                      const pl = Number(p.realized_pnl || 0);
                       const tradeCharges = p.trade_expense != null 
                         ? Number(p.trade_expense) 
                         : (Number(p.total_charges || 0) - Number(p.platform_cost || 0));
                       const platformCost = Number(p.platform_cost || 0);
-                      const netPnl = p.net_pnl != null ? Number(p.net_pnl) : (pl - tradeCharges - platformCost);
+                      const netPnl = p.net_pnl != null ? Number(p.net_pnl) : (Number(p.realized_pnl || 0) - tradeCharges - platformCost);
                       return (
                         <tr key={i}>
+                          <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDate(p.closed_at || p.report_date)}</td>
                           <td style={{ ...S.td, fontWeight: 700 }}>{p.symbol || "—"}</td>
-                          <td style={{ ...S.td, color: "var(--muted)" }}>{p.exchange_segment || "—"}</td>
-                          <td style={S.td}>
-                            <span style={{
-                              padding: "2px 7px", borderRadius: "999px", fontSize: "10px", fontWeight: 700,
-                              color: "#fff", background: p.product_type === "NORMAL" ? "#1d4ed8" : "#7c3aed",
-                            }}>{p.product_type || "MIS"}</span>
-                          </td>
-                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{INR(p.entry_price)}</td>
-                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{p.closed_qty}</td>
-                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: numColor(pl) }}>
-                            {INR(pl)}
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{Number(p.buy_qty || 0)}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{INR(p.buy_price || 0)}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{INR(p.buy_value || 0)}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{Number(p.sell_qty || 0)}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{INR(p.sell_price || 0)}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{INR(p.sell_value || 0)}</td>
+                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
+                            {INR(platformCost)}
                           </td>
                           <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
                             {INR(tradeCharges)}
                           </td>
-                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
-                            {INR(platformCost)}
-                          </td>
                           <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: numColor(netPnl) }}>
                             {INR(netPnl)}
                           </td>
-                          <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDt(p.opened_at)}</td>
-                          <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDt(p.closed_at)}</td>
                         </tr>
                       );
                     })}

@@ -343,10 +343,38 @@ async def pnl_historic(
     from_utc = datetime(fd.year, fd.month, fd.day, 0, 0, 0, tzinfo=IST)
     to_utc   = datetime(td.year, td.month, td.day, 23, 59, 59, 999999, tzinfo=IST)
 
+    # Backfill missing charges for this user/date-range before fetching report rows
+    pending_count = await pool.fetchval(
+        """
+        SELECT COUNT(*)
+        FROM paper_positions pp
+        WHERE pp.user_id = $1::uuid
+          AND pp.status = 'CLOSED'
+          AND pp.closed_at IS NOT NULL
+          AND pp.closed_at >= $2
+          AND pp.closed_at <= $3
+          AND COALESCE(pp.charges_calculated, FALSE) = FALSE
+        """,
+        uid, from_utc, to_utc,
+    )
+    if int(pending_count or 0) > 0:
+        try:
+            from app.schedulers.charge_calculation_scheduler import charge_calculation_scheduler
+            await charge_calculation_scheduler.run_once(
+                exchanges=None,
+                user_id=str(uid),
+                closed_from=from_utc,
+                closed_to=to_utc,
+            )
+        except Exception:
+            # Do not fail P&L response if backfill fails; report will still return available data
+            pass
+
     # ── Closed positions within range ──────────────────────────────────
     closed_rows = await pool.fetch(
         """
         SELECT
+            pp.position_id,
             pp.instrument_token,
             pp.symbol,
             pp.exchange_segment,
@@ -355,6 +383,7 @@ async def pnl_historic(
             pp.avg_price         AS entry_price,
             pp.realized_pnl,
             pp.total_charges,
+            pp.charges_calculated,
             pp.brokerage_charge,
             pp.stt_ctt_charge,
             pp.exchange_charge,
@@ -365,9 +394,29 @@ async def pnl_historic(
             pp.platform_cost,
             pp.trade_expense,
             (pp.realized_pnl - COALESCE(pp.total_charges, 0)) AS net_pnl,
+            pp.closed_at::date AS report_date,
+            COALESCE(os.buy_qty, 0) AS buy_qty,
+            COALESCE(os.buy_value, 0) AS buy_value,
+            CASE WHEN COALESCE(os.buy_qty, 0) > 0 THEN ROUND(os.buy_value / os.buy_qty, 2) ELSE 0 END AS buy_price,
+            COALESCE(os.sell_qty, 0) AS sell_qty,
+            COALESCE(os.sell_value, 0) AS sell_value,
+            CASE WHEN COALESCE(os.sell_qty, 0) > 0 THEN ROUND(os.sell_value / os.sell_qty, 2) ELSE 0 END AS sell_price,
             pp.opened_at,
             pp.closed_at
         FROM paper_positions pp
+        LEFT JOIN LATERAL (
+            SELECT
+                COALESCE(SUM(CASE WHEN po.side = 'BUY'  THEN COALESCE(po.filled_qty, 0) ELSE 0 END), 0) AS buy_qty,
+                COALESCE(SUM(CASE WHEN po.side = 'BUY'  THEN COALESCE(po.filled_qty, 0) * COALESCE(po.fill_price, 0) ELSE 0 END), 0) AS buy_value,
+                COALESCE(SUM(CASE WHEN po.side = 'SELL' THEN COALESCE(po.filled_qty, 0) ELSE 0 END), 0) AS sell_qty,
+                COALESCE(SUM(CASE WHEN po.side = 'SELL' THEN COALESCE(po.filled_qty, 0) * COALESCE(po.fill_price, 0) ELSE 0 END), 0) AS sell_value
+            FROM paper_orders po
+            WHERE po.user_id = pp.user_id
+              AND po.instrument_token = pp.instrument_token
+              AND po.status = 'FILLED'
+              AND po.created_at >= pp.opened_at
+              AND po.created_at <= pp.closed_at
+        ) os ON TRUE
         WHERE pp.user_id = $1::uuid
           AND pp.status  = 'CLOSED'
           AND pp.closed_at >= $2

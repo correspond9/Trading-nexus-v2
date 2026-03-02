@@ -13,6 +13,7 @@ from app.dependencies                          import CurrentUser, get_current_u
 from app.execution_simulator.execution_engine import is_mock_mode
 from app.margin.nse_margin_data               import calculate_margin as _nse_calculate_margin
 from app.market_hours                          import is_market_open, get_market_state
+from decimal                                   import Decimal
 
 log = logging.getLogger(__name__)
 
@@ -345,6 +346,10 @@ async def place_paper_order(
         else:
             fill_price = ltp_price if ltp_price is not None else float(lp or 100.0)
 
+        if ord_type in {"SLM", "SLL"}:
+            if not body.trigger_price or float(body.trigger_price) <= 0:
+                raise HTTPException(status_code=400, detail="Valid trigger_price is required for SLM/SLL orders")
+
         order_id = str(uuid.uuid4())
 
         # ── Market hours validation ────────────────────────────────────────────
@@ -356,12 +361,12 @@ async def place_paper_order(
                 """
                 INSERT INTO paper_orders
                     (order_id, user_id, instrument_token, symbol, exchange_segment,
-                     side, order_type, quantity, limit_price, fill_price, filled_qty,
+                     side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
                      status, product_type, security_id, placed_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 'REJECTED', $11, $12, NOW())
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 'REJECTED', $12, $13, NOW())
                 """,
                 order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                side, ord_type, qty, lp, fill_price, prod, token or 0
+                side, ord_type, qty, lp, body.trigger_price, fill_price, prod, token or 0
             )
             
             raise HTTPException(
@@ -463,75 +468,73 @@ async def place_paper_order(
                             ),
                         )
 
-                # Insert order record
-                await conn.execute(
-                    """
-                    INSERT INTO paper_orders
-                        (order_id, user_id, instrument_token, symbol, exchange_segment,
-                         side, order_type, quantity, limit_price, fill_price, filled_qty,
-                         status, product_type, security_id,
-                         is_super, target_price, stop_loss_price, trailing_jump)
-                    VALUES
-                        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'FILLED',$12,$13,$14,$15,$16,$17)
-                    """,
-                    order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                    side, ord_type, qty, lp, fill_price, qty,
-                    prod, token or 0,
-                    body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
-                )
-
-                # Update or create signed position (handles long/short open, partial close, full close, flip)
-                signed_delta = qty if side == "BUY" else -qty
-                open_pos = await conn.fetchrow(
-                    """
-                    SELECT position_id, quantity, avg_price, realized_pnl
-                    FROM paper_positions
-                    WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
-                    """,
-                    user_id, token or 0
-                )
-
-                if not open_pos:
+                # ── SL orders: record as PENDING — position updated when trigger fires ──
+                if ord_type in {"SLM", "SLL"}:
                     await conn.execute(
                         """
-                        INSERT INTO paper_positions
-                            (user_id, instrument_token, symbol, exchange_segment,
-                             quantity, avg_price, product_type, status)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
+                        INSERT INTO paper_orders
+                            (order_id, user_id, instrument_token, symbol, exchange_segment,
+                             side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
+                             status, product_type, security_id,
+                             is_super, target_price, stop_loss_price, trailing_jump)
+                        VALUES
+                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,0,'PENDING',$11,$12,$13,$14,$15,$16)
                         """,
-                        user_id, token or 0, body.symbol, body.exchange_segment,
-                        signed_delta, fill_price, prod,
+                        order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+                        side, ord_type, qty, lp, body.trigger_price,
+                        prod, token or 0,
+                        body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
                     )
+                    _is_sl = True
                 else:
-                    existing_qty = int(open_pos["quantity"] or 0)
-                    existing_avg = float(open_pos["avg_price"] or 0)
-                    existing_realized = float(open_pos.get("realized_pnl") or 0)
+                    # Insert order record (MARKET / LIMIT — fill immediately)
+                    await conn.execute(
+                        """
+                        INSERT INTO paper_orders
+                            (order_id, user_id, instrument_token, symbol, exchange_segment,
+                             side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
+                             status, product_type, security_id,
+                             is_super, target_price, stop_loss_price, trailing_jump)
+                        VALUES
+                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'FILLED',$13,$14,$15,$16,$17,$18)
+                        """,
+                        order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+                        side, ord_type, qty, lp, body.trigger_price, fill_price, qty,
+                        prod, token or 0,
+                        body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
+                    )
+                    _is_sl = False
 
-                    if existing_qty == 0:
+                # Update or create signed position (handles long/short open, partial close, full close, flip)
+                # SL orders stay PENDING; position update deferred to trigger fill
+                if not _is_sl:
+                    signed_delta = qty if side == "BUY" else -qty
+                    open_pos = await conn.fetchrow(
+                        """
+                        SELECT position_id, quantity, avg_price, realized_pnl
+                        FROM paper_positions
+                        WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
+                        """,
+                        user_id, token or 0
+                    )
+
+                    if not open_pos:
                         await conn.execute(
                             """
-                            UPDATE paper_positions
-                            SET quantity = $1,
-                                avg_price = $2,
-                                status = 'OPEN',
-                                closed_at = NULL
-                            WHERE position_id = $3
+                            INSERT INTO paper_positions
+                                (user_id, instrument_token, symbol, exchange_segment,
+                                 quantity, avg_price, product_type, status)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')
                             """,
-                            signed_delta,
-                            fill_price,
-                            open_pos["position_id"],
+                            user_id, token or 0, body.symbol, body.exchange_segment,
+                            signed_delta, fill_price, prod,
                         )
                     else:
-                        existing_sign = 1 if existing_qty > 0 else -1
-                        delta_sign = 1 if signed_delta > 0 else -1
+                        existing_qty = int(open_pos["quantity"] or 0)
+                        existing_avg = float(open_pos["avg_price"] or 0)
+                        existing_realized = float(open_pos.get("realized_pnl") or 0)
 
-                        if existing_sign == delta_sign:
-                            # Increase same-direction position (average-in)
-                            new_qty = existing_qty + signed_delta
-                            new_avg = (
-                                (existing_avg * abs(existing_qty) + fill_price * abs(signed_delta))
-                                / abs(new_qty)
-                            )
+                        if existing_qty == 0:
                             await conn.execute(
                                 """
                                 UPDATE paper_positions
@@ -541,60 +544,115 @@ async def place_paper_order(
                                     closed_at = NULL
                                 WHERE position_id = $3
                                 """,
-                                new_qty,
-                                new_avg,
+                                signed_delta,
+                                fill_price,
                                 open_pos["position_id"],
                             )
                         else:
-                            # Opposite-side order: reduce/close/flip existing position
-                            close_qty = min(abs(existing_qty), abs(signed_delta))
-                            realized_delta = (fill_price - existing_avg) * close_qty * existing_sign
-                            new_qty = existing_qty + signed_delta
+                            existing_sign = 1 if existing_qty > 0 else -1
+                            delta_sign = 1 if signed_delta > 0 else -1
 
-                            if new_qty == 0:
-                                # Fully closed
-                                await conn.execute(
-                                    """
-                                    UPDATE paper_positions
-                                    SET quantity = 0,
-                                        status = 'CLOSED',
-                                        realized_pnl = $1,
-                                        closed_at = NOW()
-                                    WHERE position_id = $2
-                                    """,
-                                    existing_realized + realized_delta,
-                                    open_pos["position_id"],
+                            if existing_sign == delta_sign:
+                                # Increase same-direction position (average-in)
+                                new_qty = existing_qty + signed_delta
+                                new_avg = (
+                                    (existing_avg * abs(existing_qty) + fill_price * abs(signed_delta))
+                                    / abs(new_qty)
                                 )
-                            elif (new_qty > 0 and existing_qty > 0) or (new_qty < 0 and existing_qty < 0):
-                                # Partial close, direction unchanged
-                                await conn.execute(
-                                    """
-                                    UPDATE paper_positions
-                                    SET quantity = $1,
-                                        realized_pnl = $2
-                                    WHERE position_id = $3
-                                    """,
-                                    new_qty,
-                                    existing_realized + realized_delta,
-                                    open_pos["position_id"],
-                                )
-                            else:
-                                # Flipped position: reopen remainder at fill price
                                 await conn.execute(
                                     """
                                     UPDATE paper_positions
                                     SET quantity = $1,
                                         avg_price = $2,
                                         status = 'OPEN',
-                                        realized_pnl = $3,
                                         closed_at = NULL
-                                    WHERE position_id = $4
+                                    WHERE position_id = $3
                                     """,
                                     new_qty,
-                                    fill_price,
-                                    existing_realized + realized_delta,
+                                    new_avg,
                                     open_pos["position_id"],
                                 )
+                            else:
+                                # Opposite-side order: reduce/close/flip existing position
+                                close_qty = min(abs(existing_qty), abs(signed_delta))
+                                realized_delta = (fill_price - existing_avg) * close_qty * existing_sign
+                                new_qty = existing_qty + signed_delta
+
+                                if new_qty == 0:
+                                    # Fully closed
+                                    await conn.execute(
+                                        """
+                                        UPDATE paper_positions
+                                        SET quantity = 0,
+                                            status = 'CLOSED',
+                                            realized_pnl = $1,
+                                            closed_at = NOW()
+                                        WHERE position_id = $2
+                                        """,
+                                        existing_realized + realized_delta,
+                                        open_pos["position_id"],
+                                    )
+                                elif (new_qty > 0 and existing_qty > 0) or (new_qty < 0 and existing_qty < 0):
+                                    # Partial close, direction unchanged
+                                    await conn.execute(
+                                        """
+                                        UPDATE paper_positions
+                                        SET quantity = $1,
+                                            realized_pnl = $2
+                                        WHERE position_id = $3
+                                        """,
+                                        new_qty,
+                                        existing_realized + realized_delta,
+                                        open_pos["position_id"],
+                                    )
+                                else:
+                                    # Flipped position: reopen remainder at fill price
+                                    await conn.execute(
+                                        """
+                                        UPDATE paper_positions
+                                        SET quantity = $1,
+                                            avg_price = $2,
+                                            status = 'OPEN',
+                                            realized_pnl = $3,
+                                            closed_at = NULL
+                                        WHERE position_id = $4
+                                        """,
+                                        new_qty,
+                                        fill_price,
+                                        existing_realized + realized_delta,
+                                        open_pos["position_id"],
+                                    )
+
+        # ── SL order: enqueue for trigger-based fill, return PENDING ──────────
+        if ord_type in {"SLM", "SLL"}:
+            from app.execution_simulator.order_queue_manager import QueuedOrder, enqueue as _sl_enqueue
+            from app.execution_simulator.execution_config import get_tick_size as _get_tick_size
+            tick_size = _get_tick_size(body.exchange_segment or "NSE_FNO")
+            im_lot_row = await pool.fetchrow(
+                "SELECT lot_size FROM instrument_master WHERE instrument_token=$1", token
+            )
+            lot_size = int(im_lot_row["lot_size"]) if im_lot_row and im_lot_row["lot_size"] else 1
+            # SLM: fill at market once trigger hit → use trigger_price as effective limit
+            # SLL: fill at limit_price once trigger hit
+            effective_limit = Decimal(str(lp or body.trigger_price)) if ord_type == "SLL" else Decimal(str(body.trigger_price))
+            queued = QueuedOrder(
+                order_id         = order_id,
+                user_id          = str(user_id),
+                instrument_token = int(token or 0),
+                side             = side,
+                order_type       = "SL",
+                exchange_segment = body.exchange_segment or "",
+                symbol           = body.symbol or "",
+                limit_price      = effective_limit,
+                trigger_price    = Decimal(str(body.trigger_price)),
+                quantity         = qty,
+                tick_size        = tick_size,
+                lot_size         = lot_size,
+            )
+            await _sl_enqueue(queued)
+            log.info("SL order %s queued: %s %s %s trigger=%.2f",
+                     order_id, side, qty, body.symbol, body.trigger_price)
+            return {"order_id": order_id, "status": "PENDING", "trigger_price": body.trigger_price}
 
         return {"order_id": order_id, "status": "FILLED",
                 "fill_price": fill_price, "filled_qty": qty}

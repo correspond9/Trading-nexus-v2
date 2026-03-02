@@ -156,8 +156,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
         <>
           <div style={{ display: "flex", gap: "14px", flexWrap: "wrap", marginBottom: "24px" }}>
             <SummaryCard label="Realized P&L"   value={data.realized_pnl}   sub={`${data.closed_count} closed position${data.closed_count !== 1 ? "s" : ""}`} />
-            <SummaryCard label="Unrealized MTM"  value={data.unrealized_pnl} sub={`${data.open_count} open position${data.open_count !== 1 ? "s" : ""}`} />
-            <SummaryCard label="Net P&L"         value={data.net_pnl} />
+            <SummaryCard label="Net Realized P&L" value={data.net_realized_pnl ?? data.net_pnl} />
             <SummaryCard
               label="Period"
               value={data.from_date === data.to_date ? data.from_date : `${data.from_date} → ${data.to_date}`}
@@ -182,9 +181,9 @@ const PandLPage = ({ hideUserSelect = false }) => {
                   <tbody>
                     {data.closed.map((p, i) => {
                       const pl = Number(p.realized_pnl || 0);
-                      const tradeCharges = Number(p.total_charges || 0);
+                      const tradeCharges = Number(p.trade_expense ?? ((Number(p.total_charges || 0)) - (Number(p.platform_cost || 0))) || 0);
                       const platformCost = Number(p.platform_cost || 0);
-                      const netPnl = pl - tradeCharges - platformCost;
+                      const netPnl = Number(p.net_pnl ?? (pl - tradeCharges - platformCost));
                       return (
                         <tr key={i}>
                           <td style={{ ...S.td, fontWeight: 700 }}>{p.symbol || "—"}</td>
@@ -211,49 +210,6 @@ const PandLPage = ({ hideUserSelect = false }) => {
                           </td>
                           <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDt(p.opened_at)}</td>
                           <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDt(p.closed_at)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Section>
-
-          {/* Open positions table (MTM) */}
-          <Section title={`Open Positions — Unrealized MTM (${data.open_count})`} defaultOpen={true}>
-            {data.open.length === 0 ? (
-              <Empty msg="No open positions." />
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr>
-                      {["Symbol","Exchange","Product","Qty","Avg Entry","LTP","Unrealized MTM","Opened"].map(h => (
-                        <th key={h} style={S.th}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.open.map((p, i) => {
-                      const mtm = Number(p.mtm || 0);
-                      return (
-                        <tr key={i}>
-                          <td style={{ ...S.td, fontWeight: 700 }}>{p.symbol || "—"}</td>
-                          <td style={{ ...S.td, color: "var(--muted)" }}>{p.exchange_segment || "—"}</td>
-                          <td style={S.td}>
-                            <span style={{
-                              padding: "2px 7px", borderRadius: "999px", fontSize: "10px", fontWeight: 700,
-                              color: "#fff", background: p.product_type === "NORMAL" ? "#1d4ed8" : "#7c3aed",
-                            }}>{p.product_type || "MIS"}</span>
-                          </td>
-                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{p.quantity}</td>
-                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{INR(p.avg_price)}</td>
-                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums" }}>{INR(p.ltp)}</td>
-                          <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: numColor(mtm) }}>
-                            {INR(mtm)}
-                          </td>
-                          <td style={{ ...S.td, color: "var(--muted)" }}>{fmtDt(p.opened_at)}</td>
                         </tr>
                       );
                     })}

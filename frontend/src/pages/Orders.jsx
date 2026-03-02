@@ -1,345 +1,425 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { apiService } from '../services/apiService';
 import { useAuth } from '../contexts/AuthContext';
 
-const today = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
+// ── helpers ────────────────────────────────────────────────────────────────────
 
-const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const randomId = () => String(randomInt(100000, 999999));
-const randomUid = () => Math.random().toString(36).substring(2, 8).toUpperCase();
-const randomExOrderId = () => String(randomInt(100000000, 999999999));
+const todayISO = () => new Date().toLocaleDateString("en-CA");
 
-const enrichOrder = (o) => {
-  const isSD = o.symbol.includes(" SD ");
-  const price = o.price;
-  let leg1Price = price;
-  let leg2Price = "-";
-  if (isSD) { leg1Price = (price + 5).toFixed(2); leg2Price = (price - 5).toFixed(2); }
+const fmtTime = (iso) => {
+  if (!iso) return "--";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "--";
+  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
+};
+
+const fmtDateTime = (iso) => {
+  if (!iso) return "--";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "--";
+  return (
+    d.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Kolkata" }) +
+    " " +
+    d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
+  );
+};
+
+const mapOrder = (order) => {
+  const createdAt  = order.placed_at || order.created_at || null;
+  const updatedAt  = order.filled_at || order.executed_at || order.updated_at || createdAt;
+  const qty        = Number(order.quantity ?? order.qty ?? 0);
+  const filledQty  = Number(order.filled_qty ?? order.executedQty ?? 0);
+  const rejectedQty= Number(order.rejected_qty ?? 0);
+  const pendingQty = Math.max(0, qty - filledQty - rejectedQty);
+  const execPrice  = Number(order.execution_price ?? order.avg_execution_price ?? order.fill_price ?? order.price ?? 0);
+  const inputPrice = Number(order.price ?? execPrice ?? 0);
+  const rawStatus  = String(order.status || "PENDING").toUpperCase();
+
+  let displayStatus;
+  if (rawStatus === "FILLED" || rawStatus === "EXECUTED") {
+    displayStatus = "EXECUTED";
+  } else if (rawStatus === "REJECTED" || rawStatus === "CANCELLED") {
+    displayStatus = rawStatus;
+  } else if (rawStatus === "PARTIAL_FILL" || rawStatus === "PARTIAL") {
+    displayStatus = "PARTIAL";
+  } else {
+    displayStatus = "PENDING";
+  }
+
   return {
-    ...o,
-    orderId: o.orderId ?? randomId(),
-    uniqueId: o.uniqueId ?? randomUid(),
-    exchangeOrderId: o.exchangeOrderId ?? randomExOrderId(),
-    triggerPrice: o.triggerPrice ?? 0,
-    target: o.target ?? 0,
-    stopLoss: o.stopLoss ?? 0,
-    executedQty: o.executedQty ?? o.qty,
-    executionPrice: o.executionPrice ?? o.price,
-    orderDateTime: o.orderDateTime ?? "--",
-    exchangeTime: o.exchangeTime ?? "--",
-    executionTime: o.executionTime ?? "--",
-    leg1Price,
-    leg2Price,
+    id:              order.id ?? order.order_id ?? String(Math.random()),
+    orderId:         order.id ?? order.order_id ?? "--",
+    uniqueId:        order.unique_id ?? order.uniqueId ?? "--",
+    exchangeOrderId: order.exchange_order_id ?? order.exchangeOrderId ?? "--",
+    createdAt,
+    updatedAt,
+    time:            fmtTime(createdAt),
+    exTime:          fmtTime(updatedAt),
+    orderDateTime:   fmtDateTime(createdAt),
+    exchangeTime:    fmtDateTime(updatedAt),
+    executionTime:   fmtDateTime(updatedAt),
+    side:            String(order.transaction_type || order.side || "BUY").toUpperCase(),
+    symbol:          order.symbol || "UNKNOWN",
+    orderMode:       order.order_type  || "MARKET",
+    productType:     order.product_type || "MIS",
+    qty,
+    filledQty,
+    rejectedQty,
+    pendingQty,
+    inputPrice,
+    executionPrice:  execPrice,
+    triggerPrice:    Number(order.trigger_price ?? 0),
+    target:          Number(order.target_price ?? 0),
+    stopLoss:        Number(order.stop_loss_price ?? 0),
+    rawStatus,
+    displayStatus,
+    rejectionReason: order.remarks || order.rejection_reason || order.reason || "",
   };
 };
 
+// ── bucket helpers ──────────────────────────────────────────────────────────────
+
+const isPending  = (o) => o.displayStatus === "PENDING"  && o.filledQty === 0 && o.rejectedQty === 0;
+const isInFlight = (o) => o.displayStatus === "PARTIAL"  || (o.displayStatus === "PENDING" && o.filledQty > 0 && o.pendingQty > 0);
+const isResolved = (o) => o.displayStatus === "EXECUTED" || o.displayStatus === "REJECTED" || o.displayStatus === "CANCELLED" || (o.filledQty + o.rejectedQty >= o.qty && o.qty > 0);
+
+const resolvedLabel = (o) => {
+  if (o.displayStatus === "REJECTED" || o.displayStatus === "CANCELLED") return o.displayStatus;
+  if (o.filledQty > 0 && o.rejectedQty > 0) return "PARTIAL REJECTED";
+  return "EXECUTED";
+};
+
+// ── small ui pieces ─────────────────────────────────────────────────────────────
+
+const SideBadge = ({ side }) => (
+  <span style={{
+    padding: "3px 10px", borderRadius: "999px", fontSize: "11px", fontWeight: 700,
+    color: "#fff", display: "inline-block",
+    backgroundImage: side === "BUY" ? "linear-gradient(90deg,#3b82f6,#2563eb)" : "linear-gradient(90deg,#fb923c,#f97316)",
+  }}>{side}</span>
+);
+
+const ProductBadge = ({ productType }) => (
+  <span style={{
+    borderRadius: "999px", padding: "2px 8px", fontSize: "10px", fontWeight: 600,
+    border: "1px solid var(--border)", color: "var(--muted)",
+    background: "var(--surface2)", marginLeft: 6, display: "inline-block",
+  }}>{productType}</span>
+);
+
+const StatusBadge = ({ label }) => {
+  const l = String(label || "").toUpperCase();
+  const color =
+    l === "EXECUTED"         ? "#16a34a" :
+    l === "REJECTED"         ? "#dc2626" :
+    l === "PARTIAL REJECTED" ? "#d97706" :
+    l === "CANCELLED"        ? "#6b7280" :
+    l === "PARTIAL"          ? "#d97706" : "var(--muted)";
+  return <span style={{ fontWeight: 700, fontSize: "12px", color }}>{label}</span>;
+};
+
+// ── main component ─────────────────────────────────────────────────────────────
+
 const OrdersTab = () => {
   const { user } = useAuth();
-  const [orders, setOrders] = useState([]);
-  const [fromDate, setFromDate] = useState(today());
-  const [toDate, setToDate] = useState(today());
-  const [sorting, setSorting] = useState(false);
-  const [sortConfig, setSortConfig] = useState({ key: "time", direction: "asc" });
-  const [selectedOrderId, setSelectedOrderId] = useState(null);
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
+  const [orders,     setOrders]     = useState([]);
+  const [loading,    setLoading]    = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
+  const [isMobile,   setIsMobile]   = useState(() => window.innerWidth <= 900);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 900);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const formatTime = useCallback((isoLike) => {
-    if (!isoLike) return "--";
-    const date = new Date(isoLike);
-    if (Number.isNaN(date.getTime())) return "--";
-    return date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
-  }, []);
-
-  const formatDateTime = useCallback((isoLike) => {
-    if (!isoLike) return "--";
-    const date = new Date(isoLike);
-    if (Number.isNaN(date.getTime())) return "--";
-    return `${date.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Kolkata" })} ${date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })}`;
-  }, []);
-
-  const mapOrder = useCallback((order) => {
-    const createdAt = order.placed_at || order.placedAt || order.created_at || order.createdAt || null;
-    const updatedAt = order.filled_at || order.filledAt || order.executed_at || order.executedAt || order.updated_at || order.updatedAt || createdAt;
-    const qty = Number(order.quantity ?? order.qty ?? 0);
-    const executedQty = Number(order.filled_qty ?? order.executedQty ?? qty);
-    const pendingQty = Math.max(0, qty - executedQty);
-    const executionPrice = Number(order.execution_price ?? order.executionPrice ?? order.avg_execution_price ?? order.price ?? 0);
-    const displayPrice = Number(order.price ?? executionPrice ?? 0);
-    const statusRaw = String(order.status || 'PENDING');
-    const status = statusRaw.toUpperCase();
-    return enrichOrder({
-      id: order.id ?? randomId(),
-      time: formatTime(createdAt),
-      exTime: formatTime(updatedAt),
-      side: String(order.transaction_type || order.side || 'BUY').toUpperCase(),
-      symbol: order.symbol || 'UNKNOWN',
-      orderMode: order.order_type || order.orderMode || 'MARKET',
-      productType: order.product_type || order.productType || 'MIS',
-      qty,
-      price: displayPrice,
-      status,
-      rejectionReason: order.remarks || order.rejection_reason || order.reason || '',
-      triggerPrice: order.trigger_price ?? order.triggerPrice ?? 0,
-      target: order.target_price ?? order.target ?? 0,
-      stopLoss: order.stop_loss_price ?? order.stopLoss ?? 0,
-      createdAt,
-      executedQty,
-      pendingQty,
-      executionPrice,
-      orderDateTime: formatDateTime(createdAt),
-      exchangeTime: formatDateTime(updatedAt),
-      executionTime: formatDateTime(updatedAt)
-    });
-  }, [formatDateTime, formatTime]);
-
+  // ── fetch today's orders only ─────────────────────────────────────────────
   const fetchOrders = useCallback(async () => {
-    setSorting(true);
+    setLoading(true);
     try {
-      const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+      const today = todayISO();
+      const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
       const params = {
+        from_date: today,
+        to_date:   today,
         ...(!isAdmin && user?.id ? { user_id: String(user.id) } : {}),
-        current_session_only: false,
-        from_date: fromDate,
-        to_date: toDate
       };
-      
-      // Fetch executed orders
-      const orderResponse = await apiService.get('/trading/orders', params);
-      const filledOrders = (orderResponse && orderResponse.data) ? orderResponse.data.filter(o => {
-        const st = String(o.status || '').toUpperCase();
-        return st === 'FILLED' || st === 'EXECUTED';
-      }).map(mapOrder) : [];
-      
-      // Fetch closed positions as trade fills
-      const pnlResponse = await apiService.get('/portfolio/positions/pnl/historic', { 
-        from_date: fromDate, 
-        to_date: toDate 
-      });
-      const closedFills = [];
-      if (pnlResponse && pnlResponse.data && pnlResponse.data.closed) {
-        pnlResponse.data.closed.forEach(pos => {
-          // Create BUY fill
-          closedFills.push(enrichOrder({
-            id: `${pos.instrument_token}-buy-${pos.opened_at}`,
-            time: formatTime(pos.opened_at),
-            exTime: formatTime(pos.opened_at),
-            side: 'BUY',
-            symbol: pos.symbol || 'UNKNOWN',
-            orderMode: 'MARKET',
-            productType: pos.product_type || 'MIS',
-            qty: pos.quantity || 0,
-            price: Number(pos.avg_price || 0),
-            status: 'EXECUTED',
-            executionPrice: Number(pos.avg_price || 0),
-            executedQty: pos.quantity || 0,
-            orderDateTime: formatDateTime(pos.opened_at),
-            exchangeTime: formatDateTime(pos.opened_at),
-            executionTime: formatDateTime(pos.opened_at)
-          }));
-          
-          // Create SELL fill (exit price derived from closed position)
-          closedFills.push(enrichOrder({
-            id: `${pos.instrument_token}-sell-${pos.closed_at}`,
-            time: formatTime(pos.closed_at),
-            exTime: formatTime(pos.closed_at),
-            side: 'SELL',
-            symbol: pos.symbol || 'UNKNOWN',
-            orderMode: 'MARKET',
-            productType: pos.product_type || 'MIS',
-            qty: pos.quantity || 0,
-            price: pos.quantity ? Number((pos.realized_pnl / pos.quantity + Number(pos.avg_price || 0))) : Number(pos.avg_price || 0),
-            status: 'EXECUTED',
-            executionPrice: pos.quantity ? Number((pos.realized_pnl / pos.quantity + Number(pos.avg_price || 0))) : Number(pos.avg_price || 0),
-            executedQty: pos.quantity || 0,
-            orderDateTime: formatDateTime(pos.closed_at),
-            exchangeTime: formatDateTime(pos.closed_at),
-            executionTime: formatDateTime(pos.closed_at)
-          }));
-        });
-      }
-      
-      // Merge and sort
-      const allFills = [...filledOrders, ...closedFills];
-      allFills.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-      setOrders(allFills);
-    } catch (err) { console.error('Error fetching orders:', err); }
-    finally { setSorting(false); }
-  }, [user, mapOrder, formatTime, formatDateTime, fromDate, toDate]);
+      const res = await apiService.get("/trading/orders", params);
+      const raw = Array.isArray(res?.data) ? res.data : [];
+      setOrders(raw.map(mapOrder));
+    } catch (err) {
+      console.error("Error fetching orders:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
-  useEffect(() => { fetchOrders(); }, []); // eslint-disable-line
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
   useEffect(() => {
-    const handleOrdersUpdated = () => fetchOrders();
-    window.addEventListener('orders:updated', handleOrdersUpdated);
-    return () => window.removeEventListener('orders:updated', handleOrdersUpdated);
+    const handler = () => fetchOrders();
+    window.addEventListener("orders:updated", handler);
+    return () => window.removeEventListener("orders:updated", handler);
   }, [fetchOrders]);
 
-  const sortedOrders = useMemo(() => {
-    const data = [...orders];
-    if (!sortConfig.key) return data;
-    data.sort((a, b) => {
-      const { key, direction } = sortConfig;
-      let av = a[key]; let bv = b[key];
-      if (key === "qty" || key === "price") { av = Number(av); bv = Number(bv); }
-      else { av = String(av).toUpperCase(); bv = String(bv).toUpperCase(); }
-      if (av < bv) return direction === "asc" ? -1 : 1;
-      if (av > bv) return direction === "asc" ? 1 : -1;
-      return 0;
-    });
-    return data;
-  }, [orders, sortConfig]);
+  // ── bucket ────────────────────────────────────────────────────────────────
+  const pending  = orders.filter(isPending);
+  const inFlight = orders.filter(isInFlight);
+  const resolved = orders.filter(isResolved);
 
-  const onHeaderClick = (key) => {
-    setSortConfig((prev) => ({ key, direction: prev.key === key ? (prev.direction === "asc" ? "desc" : "asc") : "asc" }));
-  };
+  const selectedOrder = orders.find((o) => o.id === selectedId) || null;
 
-  const handleRowClick = (id) => setSelectedOrderId((prev) => (prev === id ? null : id));
-  const selectedOrder = sortedOrders.find((o) => o.id === selectedOrderId) || null;
-
-  // styles
-  const pageStyle = { minHeight: "100vh", margin: 0, padding: isMobile ? "12px" : "24px", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "transparent" };
-  const layoutStyle = { maxWidth: "1200px", margin: "0 auto", display: "flex", flexDirection: isMobile ? "column" : "row", gap: "16px" };
-  const tableCardStyle = { flex: "2 1 0", minWidth: 0, background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: isMobile ? "14px" : "24px 24px 32px 24px", border: "1px solid var(--border)" };
-  const detailsCardStyle = { flex: isMobile ? "1 1 auto" : "1 0 320px", width: isMobile ? "100%" : "auto", background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: "18px 20px 20px 20px", border: "1px solid var(--border)", fontSize: "12px", color: "var(--text)", alignSelf: isMobile ? "stretch" : "flex-start", maxHeight: isMobile ? "none" : "600px", overflowY: "auto" };
-  const headerRowStyle = { marginBottom: "16px", fontSize: "16px", fontWeight: 600, color: "var(--text)" };
-  const tableOuterStyle = { borderRadius: "8px", border: "1px solid var(--border)", overflowX: "auto", overflowY: "hidden", background: "var(--surface)" };
-  const tableStyle = { width: "100%", minWidth: "860px", borderCollapse: "collapse", fontSize: "12px" };
+  // ── styles ────────────────────────────────────────────────────────────────
+  const pageStyle = { margin: 0, padding: isMobile ? "12px" : "20px", fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", background: "transparent" };
+  const layoutStyle = { display: "flex", flexDirection: isMobile ? "column" : "row", gap: "16px" };
+  const tableCardStyle = { flex: "2 1 0", minWidth: 0, background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: isMobile ? "14px" : "20px 20px 28px 20px", border: "1px solid var(--border)" };
+  const detailsCardStyle = { flex: isMobile ? "1 1 auto" : "1 0 300px", width: isMobile ? "100%" : "auto", background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: "18px 20px 20px 20px", border: "1px solid var(--border)", fontSize: "12px", color: "var(--text)", alignSelf: isMobile ? "stretch" : "flex-start", maxHeight: isMobile ? "none" : "620px", overflowY: "auto" };
+  const tableOuterStyle = { borderRadius: "8px", border: "1px solid var(--border)", overflowX: "auto", background: "var(--surface)" };
+  const tableStyle = { width: "100%", minWidth: "700px", borderCollapse: "collapse", fontSize: "12px" };
   const theadStyle = { background: "var(--surface2)", borderBottom: "1px solid var(--border)" };
-  const rowStyle = { borderBottom: "1px solid var(--border)", background: "var(--surface)", cursor: "pointer" };
-  const rowSelectedStyle = { ...rowStyle, background: "var(--surface2)" };
-  const tdStyle = { padding: "10px 12px", color: "var(--text)", verticalAlign: "middle", whiteSpace: "nowrap" };
-  const tdRight = { ...tdStyle, textAlign: "right" };
-  const detailsHeaderStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" };
-  const tickCircleStyle = { width: 26, height: 26, borderRadius: "999px", border: "2px solid #16a34a", display: "flex", alignItems: "center", justifyContent: "center", color: "#16a34a", fontSize: "16px" };
-  const detailRowStyle = { display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" };
-  const detailLabelStyle = { fontSize: "11px", color: "var(--muted)" };
-  const detailValueStyle = { fontSize: "12px", fontWeight: 500, color: "var(--text)" };
-  const closeButtonStyle = { marginTop: "16px", width: "100%", padding: "8px 0", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontSize: "12px", fontWeight: 600, cursor: "pointer" };
+  const thStyle    = { padding: "9px 12px", textAlign: "left", fontWeight: 600, color: "var(--muted)", whiteSpace: "nowrap" };
+  const thRight    = { ...thStyle, textAlign: "right" };
+  const tdStyle    = { padding: "9px 12px", color: "var(--text)", verticalAlign: "middle", whiteSpace: "nowrap" };
+  const tdRight    = { ...tdStyle, textAlign: "right" };
+  const rowBase    = { borderBottom: "1px solid var(--border)", background: "var(--surface)" };
+  const rowClick   = { ...rowBase, cursor: "pointer" };
+  const rowSelStyle= { ...rowClick, background: "var(--surface2)" };
 
-  const sortableHeader = (label, key, alignRight = false) => {
-    const isActive = sortConfig.key === key;
-    const arrow = sortConfig.direction === "asc" ? "▲" : "▼";
-    const base = { padding: "10px 12px", textAlign: alignRight ? "right" : "left", fontWeight: 600, color: "var(--muted)", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" };
-    return (<th key={key} style={base} onClick={() => onHeaderClick(key)}><span>{label}{isActive && <span style={{ marginLeft: 4, fontSize: "10px" }}>{arrow}</span>}</span></th>);
-  };
-
-  const sideBadge = (side) => {
-    const base = { padding: "4px 12px", borderRadius: "999px", fontSize: "11px", fontWeight: 700, color: "#ffffff", display: "inline-block" };
-    const bg = side === "BUY" ? "linear-gradient(90deg, #3b82f6, #2563eb)" : "linear-gradient(90deg, #fb923c, #f97316)";
-    return <span style={{ ...base, backgroundImage: bg }}>{side}</span>;
-  };
-
-  const orderTypeBadge = () => ({ borderRadius: "999px", padding: "2px 10px", fontSize: "10px", fontWeight: 600, border: "1px solid var(--border)", color: "var(--muted)", background: "var(--surface2)", marginLeft: 8, display: "inline-block" });
-
-  const statusStyle = (status) => {
-    const base = { fontWeight: 600 };
-    const normalized = String(status || '').toUpperCase();
-    if (normalized === "EXECUTED") return { ...base, color: "#16a34a" };
-    if (normalized === "PARTIAL") return { ...base, color: "#d97706" };
-    if (normalized === "REJECTED") return { ...base, color: "#dc2626" };
-    return { ...base, color: "var(--text)" };
-  };
-
-  const renderDetailsRow = (label, value) => (
-    <div style={detailRowStyle}>
-      <div style={detailLabelStyle}>{label}</div>
-      <div style={detailValueStyle}>{value}</div>
+  const sectionLabel = (txt, count) => (
+    <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--muted)", margin: "18px 0 8px", display: "flex", alignItems: "center", gap: "8px" }}>
+      {txt}
+      <span style={{ fontSize: "11px", fontWeight: 600, padding: "1px 7px", borderRadius: "999px", background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--muted)" }}>{count}</span>
     </div>
   );
 
+  const emptyRow = (cols) => (
+    <tr><td colSpan={cols} style={{ ...tdStyle, color: "var(--muted)", fontStyle: "italic", padding: "14px 12px" }}>None</td></tr>
+  );
+
+  // ── details panel ─────────────────────────────────────────────────────────
+  const detailRowStyle   = { display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" };
+  const detailLabelStyle = { fontSize: "11px", color: "var(--muted)" };
+  const detailValueStyle = { fontSize: "12px", fontWeight: 500, color: "var(--text)", textAlign: "right", maxWidth: "55%" };
+
+  const renderDetailRow = (label, value) => (
+    <div key={label} style={detailRowStyle}>
+      <div style={detailLabelStyle}>{label}</div>
+      <div style={detailValueStyle}>{value ?? "—"}</div>
+    </div>
+  );
+
+  const detailsIcon = () => {
+    if (!selectedOrder) return null;
+    const lbl = resolvedLabel(selectedOrder);
+    if (lbl === "EXECUTED") return (
+      <div style={{ width: 26, height: 26, borderRadius: "999px", border: "2px solid #16a34a", display: "flex", alignItems: "center", justifyContent: "center", color: "#16a34a", fontSize: "14px" }}>✔</div>
+    );
+    if (lbl === "REJECTED" || lbl === "CANCELLED") return (
+      <div style={{ width: 26, height: 26, borderRadius: "999px", border: "2px solid #dc2626", display: "flex", alignItems: "center", justifyContent: "center", color: "#dc2626", fontSize: "14px" }}>✕</div>
+    );
+    if (lbl === "PARTIAL REJECTED") return (
+      <div style={{ width: 26, height: 26, borderRadius: "999px", border: "2px solid #d97706", display: "flex", alignItems: "center", justifyContent: "center", color: "#d97706", fontSize: "13px", fontWeight: 700 }}>!</div>
+    );
+    return (
+      <div style={{ width: 26, height: 26, borderRadius: "999px", border: "2px solid #3b82f6", display: "flex", alignItems: "center", justifyContent: "center", color: "#3b82f6", fontSize: "11px" }}>⏳</div>
+    );
+  };
+
+  // ── section tables ────────────────────────────────────────────────────────
+
+  const pendingTable = () => (
+    <>
+      {sectionLabel("Pending Orders", pending.length)}
+      <div style={tableOuterStyle}>
+        <table style={tableStyle}>
+          <thead style={theadStyle}>
+            <tr>
+              <th style={thStyle}>Time</th>
+              <th style={thStyle}>Type</th>
+              <th style={thStyle}>Symbol</th>
+              <th style={thStyle}>Order Type</th>
+              <th style={thRight}>Qty</th>
+              <th style={thRight}>Price</th>
+              <th style={thStyle}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pending.length === 0 ? emptyRow(7) : pending.map((o) => (
+              <tr key={o.id} style={selectedId === o.id ? rowSelStyle : rowClick}
+                  onClick={() => setSelectedId(prev => prev === o.id ? null : o.id)}>
+                <td style={tdStyle}>{o.time}</td>
+                <td style={tdStyle}><SideBadge side={o.side} /></td>
+                <td style={tdStyle}>{o.symbol}</td>
+                <td style={tdStyle}>{o.orderMode}<ProductBadge productType={o.productType} /></td>
+                <td style={tdRight}>{o.qty.toLocaleString("en-IN")}</td>
+                <td style={tdRight}>{o.inputPrice > 0 ? o.inputPrice.toFixed(2) : "—"}</td>
+                <td style={tdStyle}><span style={{ fontWeight: 700, fontSize: "12px", color: "#3b82f6" }}>PENDING</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+
+  const inFlightTable = () => (
+    <>
+      {sectionLabel("Open Orders", inFlight.length)}
+      <div style={tableOuterStyle}>
+        <table style={tableStyle}>
+          <thead style={theadStyle}>
+            <tr>
+              <th style={thStyle}>Time</th>
+              <th style={thStyle}>Type</th>
+              <th style={thStyle}>Symbol</th>
+              <th style={thStyle}>Order Type</th>
+              <th style={thRight}>Filled / Total</th>
+              <th style={thRight}>Price</th>
+              <th style={thStyle}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inFlight.length === 0 ? emptyRow(7) : inFlight.map((o) => (
+              <tr key={o.id} style={selectedId === o.id ? rowSelStyle : rowClick}
+                  onClick={() => setSelectedId(prev => prev === o.id ? null : o.id)}>
+                <td style={tdStyle}>{o.time}</td>
+                <td style={tdStyle}><SideBadge side={o.side} /></td>
+                <td style={tdStyle}>{o.symbol}</td>
+                <td style={tdStyle}>{o.orderMode}<ProductBadge productType={o.productType} /></td>
+                <td style={tdRight}>{o.filledQty.toLocaleString("en-IN")} / {o.qty.toLocaleString("en-IN")}</td>
+                <td style={tdRight}>{o.executionPrice > 0 ? o.executionPrice.toFixed(2) : "—"}</td>
+                <td style={tdStyle}><span style={{ fontWeight: 700, fontSize: "12px", color: "#d97706" }}>PARTIAL ({o.pendingQty} pending)</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+
+  const resolvedTable = () => (
+    <>
+      {sectionLabel("Executed Orders", resolved.length)}
+      <div style={tableOuterStyle}>
+        <table style={tableStyle}>
+          <thead style={theadStyle}>
+            <tr>
+              <th style={thStyle}>Time</th>
+              <th style={thStyle}>Ex. Time</th>
+              <th style={thStyle}>Type</th>
+              <th style={thStyle}>Symbol</th>
+              <th style={thStyle}>Order Type</th>
+              <th style={thRight}>Qty</th>
+              <th style={thRight}>Exec. Price</th>
+              <th style={thStyle}>Status</th>
+              <th style={thStyle}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {resolved.length === 0 ? emptyRow(9) : resolved.map((o) => {
+              const lbl = resolvedLabel(o);
+              const isSel = selectedId === o.id;
+              return (
+                <tr key={o.id} style={isSel ? rowSelStyle : rowClick}
+                    onClick={() => setSelectedId(prev => prev === o.id ? null : o.id)}>
+                  <td style={tdStyle}>{o.time}</td>
+                  <td style={tdStyle}>{o.exTime}</td>
+                  <td style={tdStyle}><SideBadge side={o.side} /></td>
+                  <td style={tdStyle}>{o.symbol}</td>
+                  <td style={tdStyle}>{o.orderMode}<ProductBadge productType={o.productType} /></td>
+                  <td style={tdRight}>{(o.filledQty > 0 ? o.filledQty : o.qty).toLocaleString("en-IN")}</td>
+                  <td style={tdRight}>{o.executionPrice > 0 ? o.executionPrice.toFixed(2) : "—"}</td>
+                  <td style={tdStyle}><StatusBadge label={lbl} /></td>
+                  {/* ▼ chevron — rotates when row is expanded */}
+                  <td style={{ ...tdStyle, color: "var(--muted)", fontSize: "10px", paddingLeft: 4 }}>
+                    <span style={{ display: "inline-block", transform: isSel ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▼</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+
+  // ── render ────────────────────────────────────────────────────────────────
   return (
     <div style={pageStyle}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-        <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Trade History</h1>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--muted)' }}>From</span>
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ padding: '7px 10px', background: 'var(--control-bg)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px' }} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--muted)' }}>To</span>
-            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ padding: '7px 10px', background: 'var(--control-bg)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px' }} />
-          </div>
-          <button onClick={fetchOrders} disabled={sorting} style={{ padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer', opacity: sorting ? 0.6 : 1 }}>
-            {sorting ? "Loading…" : "Apply"}
-          </button>
-        </div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <h1 style={{ fontSize: "18px", fontWeight: 700, margin: 0, color: "var(--text)" }}>
+          Today's Orders
+          {orders.length > 0 && (
+            <span style={{ fontSize: "13px", fontWeight: 500, color: "var(--muted)", marginLeft: "10px" }}>
+              ({orders.length} total)
+            </span>
+          )}
+        </h1>
+        <button onClick={fetchOrders} disabled={loading}
+          style={{ background: "none", border: "1px solid var(--border)", borderRadius: "6px", padding: "6px 8px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: loading ? 0.5 : 1 }}
+          title="Refresh">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
       </div>
+
       <div style={layoutStyle}>
+        {/* Tables */}
         <div style={tableCardStyle}>
-          <div style={{ ...headerRowStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>Orders ({orders.length})</span>
-            <button onClick={fetchOrders} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Refresh orders">
-              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-            </button>
-          </div>
-          <div style={tableOuterStyle}>
-            <table style={tableStyle}>
-              <thead style={theadStyle}>
-                <tr>
-                  {sortableHeader("Time", "time")}
-                  {sortableHeader("Ex. Time", "exTime")}
-                  {sortableHeader("Type", "side")}
-                  {sortableHeader("Symbol", "symbol")}
-                  {sortableHeader("Order Type", "orderMode")}
-                  {sortableHeader("Qty", "qty", true)}
-                  {sortableHeader("Price", "price", true)}
-                  {sortableHeader("Status", "status")}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedOrders.map((o) => (
-                  <tr key={o.id} style={selectedOrderId === o.id ? rowSelectedStyle : rowStyle} onClick={() => handleRowClick(o.id)}>
-                    <td style={tdStyle}>{o.time}</td>
-                    <td style={tdStyle}>{o.exTime}</td>
-                    <td style={tdStyle}>{sideBadge(o.side)}</td>
-                    <td style={tdStyle}>{o.symbol}</td>
-                    <td style={tdStyle}><span>{o.orderMode}</span><span style={orderTypeBadge(o.productType)}>{o.productType}</span></td>
-                    <td style={tdRight}>{o.status === 'PARTIAL' ? `${o.executedQty.toLocaleString("en-IN")} / ${o.qty.toLocaleString("en-IN")}` : o.qty.toLocaleString("en-IN")}</td>
-                    <td style={tdRight}>{o.price.toFixed(2)}</td>
-                    <td style={tdStyle}><span style={statusStyle(o.status)}>{o.status === 'PARTIAL' && o.pendingQty > 0 ? `PARTIAL (PENDING ${o.pendingQty})` : o.status}</span></td>
-                  </tr>
-                ))}
-                {sortedOrders.length === 0 && (<tr><td style={tdStyle} colSpan={8}>No orders yet.</td></tr>)}
-              </tbody>
-            </table>
-          </div>
+          {loading ? (
+            <div style={{ padding: "40px", textAlign: "center", color: "var(--muted)", fontSize: "13px" }}>Loading orders…</div>
+          ) : (
+            <>
+              {pendingTable()}
+              {inFlightTable()}
+              {resolvedTable()}
+            </>
+          )}
         </div>
 
+        {/* Details panel */}
         {selectedOrder && (
           <div style={detailsCardStyle}>
-            <div style={detailsHeaderStyle}>
-              <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text)" }}>{selectedOrder.symbol}</div>
-              <div style={tickCircleStyle}><span>✔</span></div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text)" }}>{selectedOrder.symbol}</div>
+              {detailsIcon()}
             </div>
-            {renderDetailsRow("Product", selectedOrder.productType)}
-            {renderDetailsRow("Rate Type", selectedOrder.orderMode)}
-            {renderDetailsRow("Operation Type", selectedOrder.side === "BUY" ? "Buy" : "Sell")}
-            {renderDetailsRow("Input Price", selectedOrder.price.toFixed(2))}
-            {renderDetailsRow("Trigger Price", selectedOrder.triggerPrice.toFixed ? selectedOrder.triggerPrice.toFixed(2) : selectedOrder.triggerPrice)}
-            {renderDetailsRow("Target", selectedOrder.target.toFixed ? selectedOrder.target.toFixed(2) : selectedOrder.target)}
-            {renderDetailsRow("Stop Loss", selectedOrder.stopLoss.toFixed ? selectedOrder.stopLoss.toFixed(2) : selectedOrder.stopLoss)}
-            {renderDetailsRow("Quantity", selectedOrder.qty.toLocaleString("en-IN"))}
-            {renderDetailsRow("Order Status", selectedOrder.status)}
-            {selectedOrder.status === "REJECTED" && selectedOrder.rejectionReason && renderDetailsRow("Rejection Reason", selectedOrder.rejectionReason)}
-            {renderDetailsRow("Executed Quantity", selectedOrder.executedQty.toLocaleString("en-IN"))}
-            {renderDetailsRow("Pending Quantity", Number(selectedOrder.pendingQty || 0).toLocaleString("en-IN"))}
-            {renderDetailsRow("Execution Price", selectedOrder.executionPrice.toFixed(2))}
-            {renderDetailsRow("Order Time", selectedOrder.orderDateTime)}
-            {renderDetailsRow("Exchange Time", selectedOrder.exchangeTime)}
-            {renderDetailsRow("Execution Time", selectedOrder.executionTime)}
-            {renderDetailsRow("Order Id", selectedOrder.orderId)}
-            {renderDetailsRow("Unique Identifier", selectedOrder.uniqueId)}
-            {renderDetailsRow("Exchange Order Id", selectedOrder.exchangeOrderId)}
-            {renderDetailsRow("Leg 1", selectedOrder.leg1Price)}
-            {renderDetailsRow("Leg 2", selectedOrder.leg2Price)}
-            <button style={closeButtonStyle} onClick={() => setSelectedOrderId(null)}>CLOSE</button>
+
+            {/* Rejection reason block */}
+            {selectedOrder.rejectionReason && (
+              <div style={{ marginBottom: "12px", padding: "8px 10px", borderRadius: "6px", background: "rgba(220,38,38,0.08)", border: "1px solid rgba(220,38,38,0.25)", fontSize: "12px", color: "#fca5a5", lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, marginBottom: "3px", color: "#ef4444" }}>Rejection Reason</div>
+                {selectedOrder.rejectionReason}
+              </div>
+            )}
+
+            {renderDetailRow("Product",           selectedOrder.productType)}
+            {renderDetailRow("Order Type",        selectedOrder.orderMode)}
+            {renderDetailRow("Direction",         selectedOrder.side === "BUY" ? "Buy" : "Sell")}
+            {renderDetailRow("Input Price",       selectedOrder.inputPrice > 0 ? selectedOrder.inputPrice.toFixed(2) : "—")}
+            {renderDetailRow("Execution Price",   selectedOrder.executionPrice > 0 ? selectedOrder.executionPrice.toFixed(2) : "—")}
+            {selectedOrder.triggerPrice > 0 && renderDetailRow("Trigger Price", selectedOrder.triggerPrice.toFixed(2))}
+            {selectedOrder.target > 0          && renderDetailRow("Target",       selectedOrder.target.toFixed(2))}
+            {selectedOrder.stopLoss > 0        && renderDetailRow("Stop Loss",    selectedOrder.stopLoss.toFixed(2))}
+            {renderDetailRow("Quantity",          selectedOrder.qty.toLocaleString("en-IN"))}
+            {renderDetailRow("Filled Qty",        selectedOrder.filledQty.toLocaleString("en-IN"))}
+            {selectedOrder.rejectedQty > 0 && renderDetailRow("Rejected Qty", selectedOrder.rejectedQty.toLocaleString("en-IN"))}
+            {renderDetailRow("Pending Qty",       selectedOrder.pendingQty.toLocaleString("en-IN"))}
+            {renderDetailRow("Status",            (() => { const lbl = resolvedLabel(selectedOrder); return <StatusBadge label={lbl} />; })())}
+            {renderDetailRow("Order Time",        selectedOrder.orderDateTime)}
+            {renderDetailRow("Exchange Time",     selectedOrder.exchangeTime)}
+            {renderDetailRow("Execution Time",    selectedOrder.executionTime)}
+            {renderDetailRow("Order ID",          selectedOrder.orderId)}
+            {renderDetailRow("Unique ID",         selectedOrder.uniqueId)}
+            {renderDetailRow("Exchange Order ID", selectedOrder.exchangeOrderId)}
+
+            <button
+              style={{ marginTop: "16px", width: "100%", padding: "8px 0", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+              onClick={() => setSelectedId(null)}>
+              CLOSE
+            </button>
           </div>
         )}
       </div>
@@ -348,3 +428,6 @@ const OrdersTab = () => {
 };
 
 export default OrdersTab;
+
+
+

@@ -2,19 +2,28 @@ import React, { useState, useEffect, useCallback } from "react";
 import { apiService } from '../services/apiService';
 import { useAuth } from '../contexts/AuthContext';
 
-const today = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
+const today   = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
+const daysAgo = (n) => {
+  const d = new Date(); d.setDate(d.getDate() - n);
+  return d.toLocaleDateString("en-CA");
+};
+const INR = (v) => {
+  const n = Number(v);
+  return (n < 0 ? "-₹" : "₹") + Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 
 const LedgerPage = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || user?.role === "SUPER_USER";
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
-  const [entries, setEntries] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [fromDate, setFromDate] = useState(today());
-  const [toDate, setToDate] = useState(today());
+  const [entries,  setEntries]  = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [fromDate, setFromDate] = useState(daysAgo(30)); // default: last 30 days
+  const [toDate,   setToDate]   = useState(today());
   const [targetUid, setTargetUid] = useState(""); // "" = self
   const [userList,  setUserList]  = useState([]);
   const [searchQ,   setSearchQ]   = useState("");
+  const [error,     setError]     = useState("");
 
   // Load full user list for admin
   useEffect(() => {
@@ -26,6 +35,7 @@ const LedgerPage = () => {
 
   const fetchLedger = useCallback(async () => {
     setLoading(true);
+    setError("");
     try {
       const params = { from_date: fromDate, to_date: toDate };
       if (isAdmin && targetUid) {
@@ -37,6 +47,7 @@ const LedgerPage = () => {
       setEntries(res?.data || []);
     } catch (err) {
       console.error('Error fetching ledger:', err);
+      setError(err?.data?.detail || err?.message || "Failed to load ledger.");
       setEntries([]);
     } finally {
       setLoading(false);
@@ -60,27 +71,40 @@ const LedgerPage = () => {
         const q = searchQ.toLowerCase();
         return (
           (u.first_name || u.name || "").toLowerCase().includes(q) ||
-          (u.last_name || "").toLowerCase().includes(q) ||
-          (u.mobile || "").includes(q)
+          (u.last_name  || "").toLowerCase().includes(q) ||
+          (u.mobile     || "").includes(q)
         );
       })
     : userList;
 
+  // Totals for summary bar
+  const totalCredit = entries.reduce((s, e) => s + (e.credit != null ? Number(e.credit) : 0), 0);
+  const totalDebit  = entries.reduce((s, e) => s + (e.debit  != null ? Number(e.debit)  : 0), 0);
+  const tradePnl    = entries.filter(e => e.type === 'trade_pnl')
+                             .reduce((s, e) => s + (e.net_pnl != null ? Number(e.net_pnl) : (e.credit != null ? Number(e.credit) : -Number(e.debit || 0))), 0);
+  const walletNet   = entries.filter(e => e.type === 'wallet')
+                             .reduce((s, e) => s + (e.credit != null ? Number(e.credit) : 0) - (e.debit != null ? Number(e.debit) : 0), 0);
+
   const s = {
-    page: { padding: isMobile ? '12px' : '24px', fontFamily: 'system-ui,sans-serif', color: 'var(--text)' },
-    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' },
-    title: { fontSize: '20px', fontWeight: 700, margin: 0, color: 'var(--text)' },
+    page:      { padding: isMobile ? '12px' : '24px', fontFamily: 'system-ui,sans-serif', color: 'var(--text)' },
+    header:    { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' },
+    title:     { fontSize: '20px', fontWeight: 700, margin: 0, color: 'var(--text)' },
     filterBar: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
-    input: { padding: '7px 10px', background: 'var(--control-bg)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px' },
-    label: { fontSize: '12px', color: 'var(--muted)' },
-    button: { padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer', opacity: loading ? 0.6 : 1 },
-    card: { background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)', padding: isMobile ? '12px' : '20px' },
-    th: { padding: '10px 14px', textAlign: 'left', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontWeight: '600', color: 'var(--muted)', fontSize: '12px' },
-    td: { padding: '10px 14px', borderBottom: '1px solid var(--border)', fontSize: '13px', color: 'var(--text)' }
+    input:     { padding: '7px 10px', background: 'var(--control-bg)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px' },
+    label:     { fontSize: '12px', color: 'var(--muted)' },
+    button:    { padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer', opacity: loading ? 0.6 : 1 },
+    card:      { background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)', padding: isMobile ? '12px' : '20px' },
+    th:        { padding: '10px 14px', textAlign: 'left', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontWeight: '600', color: 'var(--muted)', fontSize: '12px', whiteSpace: 'nowrap' },
+    td:        { padding: '9px 14px', borderBottom: '1px solid var(--border)', fontSize: '12px', color: 'var(--text)', verticalAlign: 'middle', whiteSpace: 'nowrap' },
+    summaryGrid: { display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' },
+    summaryCard: (color) => ({ background: 'var(--surface)', border: `1px solid var(--border)`, borderLeft: `4px solid ${color}`, borderRadius: '8px', padding: '12px 14px' }),
+    summaryLabel: { fontSize: '10px', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' },
+    summaryValue: (n) => ({ fontSize: '16px', fontWeight: 700, color: n > 0 ? 'var(--positive-text, #22c55e)' : n < 0 ? 'var(--negative-text, #ef4444)' : 'var(--text)' }),
   };
 
   return (
     <div style={s.page}>
+      {/* ── Header ── */}
       <div style={s.header}>
         <h1 style={s.title}>Ledger</h1>
         <div style={s.filterBar}>
@@ -121,35 +145,119 @@ const LedgerPage = () => {
           </button>
         </div>
       </div>
+
+      {/* ── Error ── */}
+      {error && (
+        <div style={{ marginBottom: '12px', padding: '10px 14px', background: '#7f1d1d33', border: '1px solid #ef4444', borderRadius: '8px', color: '#fca5a5', fontSize: '13px' }}>
+          {error}
+        </div>
+      )}
+
+      {/* ── Summary bar ── */}
+      {!loading && entries.length > 0 && (
+        <div style={s.summaryGrid}>
+          <div style={s.summaryCard('#22c55e')}>
+            <div style={s.summaryLabel}>Total Credits</div>
+            <div style={s.summaryValue(totalCredit)}>{INR(totalCredit)}</div>
+          </div>
+          <div style={s.summaryCard('#ef4444')}>
+            <div style={s.summaryLabel}>Total Debits</div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--negative-text, #ef4444)' }}>{INR(totalDebit)}</div>
+          </div>
+          <div style={s.summaryCard(tradePnl >= 0 ? '#22c55e' : '#ef4444')}>
+            <div style={s.summaryLabel}>Trade P&L (Net)</div>
+            <div style={s.summaryValue(tradePnl)}>{INR(tradePnl)}</div>
+          </div>
+          <div style={s.summaryCard(walletNet >= 0 ? '#3b82f6' : '#f97316')}>
+            <div style={s.summaryLabel}>Wallet Movements</div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>{INR(walletNet)}</div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Table ── */}
       <div style={s.card}>
-        {loading ? <div>Loading...</div> : entries.length === 0 ? <div style={{ color: '#a1a1aa', fontSize: '13px' }}>No ledger entries found.</div> : (
-          <div style={{ overflowX: 'auto', overflowY: 'hidden' }}>
-            <table style={{ width: '100%', minWidth: '900px', borderCollapse: 'collapse' }}>
-              <thead><tr>{['Date', 'Description', 'Type', 'Debit', 'Credit', 'Balance'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
-              <tbody>{entries.map((e, i) => {
-                const isTradeEntry = e.type === 'trade_pnl';
-                return (
-                  <tr key={i}>
-                    <td style={s.td}>{e.date?.split('T')[0] || e.date}</td>
-                    <td style={s.td}>{e.description}</td>
-                    <td style={s.td}>
-                      <span style={{
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        fontSize: '10px',
-                        fontWeight: '600',
-                        background: isTradeEntry ? '#10b981' : '#6b7280',
-                        color: '#fff'
-                      }}>
-                        {isTradeEntry ? 'TRADE P&L' : 'WALLET'}
-                      </span>
-                    </td>
-                    <td style={s.td}>{e.debit != null ? '₹' + Number(e.debit).toFixed(2) : '—'}</td>
-                    <td style={s.td}>{e.credit != null ? '₹' + Number(e.credit).toFixed(2) : '—'}</td>
-                    <td style={s.td}>{e.balance != null ? '₹' + Number(e.balance).toFixed(2) : '—'}</td>
-                  </tr>
-                );
-              })}</tbody>
+        {loading ? (
+          <div style={{ padding: '30px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>Loading…</div>
+        ) : entries.length === 0 ? (
+          <div style={{ color: '#a1a1aa', fontSize: '13px', padding: '20px 0' }}>
+            No ledger entries found for the selected date range.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', minWidth: '860px', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Date & Time', 'Description', 'Type', 'Debit (Loss)', 'Credit (Profit)', 'Net P&L', 'Wallet Balance'].map(h => (
+                    <th key={h} style={s.th}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e, i) => {
+                  const isTradeEntry = e.type === 'trade_pnl';
+                  const netPnl = e.net_pnl != null
+                    ? Number(e.net_pnl)
+                    : e.credit != null ? Number(e.credit) : e.debit != null ? -Number(e.debit) : null;
+
+                  // Format date/time
+                  const rawDate = e.date || "";
+                  const datePart = rawDate.split('T')[0] || rawDate;
+                  const timePart = rawDate.includes('T')
+                    ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                    : '';
+
+                  return (
+                    <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                      {/* Date */}
+                      <td style={s.td}>
+                        <div style={{ fontWeight: 600 }}>{datePart}</div>
+                        {timePart && <div style={{ fontSize: '10px', color: 'var(--muted)' }}>{timePart}</div>}
+                      </td>
+
+                      {/* Description */}
+                      <td style={{ ...s.td, maxWidth: '280px', whiteSpace: 'normal', lineHeight: 1.4 }}>
+                        {e.description}
+                      </td>
+
+                      {/* Type badge */}
+                      <td style={s.td}>
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: '600',
+                          background: isTradeEntry ? '#059669' : '#4b5563',
+                          color: '#fff',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {isTradeEntry ? 'TRADE P&L' : 'WALLET'}
+                        </span>
+                      </td>
+
+                      {/* Debit */}
+                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: e.debit != null ? 'var(--negative-text, #ef4444)' : 'var(--muted)', fontWeight: e.debit != null ? 600 : 400 }}>
+                        {e.debit != null ? INR(e.debit) : '—'}
+                      </td>
+
+                      {/* Credit */}
+                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: e.credit != null ? 'var(--positive-text, #22c55e)' : 'var(--muted)', fontWeight: e.credit != null ? 600 : 400 }}>
+                        {e.credit != null ? INR(e.credit) : '—'}
+                      </td>
+
+                      {/* Net P&L (trade rows only) */}
+                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: netPnl != null ? (netPnl >= 0 ? 'var(--positive-text, #22c55e)' : 'var(--negative-text, #ef4444)') : 'var(--muted)', fontWeight: isTradeEntry ? 700 : 400 }}>
+                        {isTradeEntry && netPnl != null ? INR(netPnl) : '—'}
+                      </td>
+
+                      {/* Wallet balance (wallet rows only) */}
+                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: 'var(--text)' }}>
+                        {e.balance != null ? INR(e.balance) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
             </table>
           </div>
         )}

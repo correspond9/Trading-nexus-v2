@@ -59,11 +59,23 @@ const Portfolio = () => {
     return () => window.removeEventListener('positions:updated', handle);
   }, [fetchHoldings]);
 
-  // Live tick refresh
+  // Live tick — update LTP in-place from pulse prices, no API round-trip (avoids blink)
   useEffect(() => {
-    if (!marketActive || !pulse?.timestamp) return;
-    fetchHoldings();
-  }, [pulse?.timestamp, marketActive, fetchHoldings]);
+    if (!marketActive || !pulse?.prices) return;
+    const prices = pulse.prices;
+    setHoldings(prev => {
+      let changed = false;
+      const next = prev.map(h => {
+        const newLtp = prices[h.symbol] ?? prices[String(h.instrumentToken)] ?? h.ltp;
+        if (newLtp === h.ltp) return h;
+        changed = true;
+        const currentValue = h.qty * newLtp;
+        const mtm = currentValue - h.investedValue;
+        return { ...h, ltp: newLtp, currentValue, mtm };
+      });
+      return changed ? next : prev;
+    });
+  }, [pulse?.prices, marketActive]);
 
   // ── Totals ────────────────────────────────────────────────────────────────
   const totalInvested = holdings.reduce((s, h) => s + h.investedValue, 0);

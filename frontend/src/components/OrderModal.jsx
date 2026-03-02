@@ -242,7 +242,14 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
       }
       setTimeout(() => { setSuccess(""); onClose?.(); }, 1500);
     } catch (err) {
-      setError(err?.response?.data?.detail || err?.message || "Order failed");
+      // Local validation errors (no HTTP response) stay visible inline
+      const isApiError = err?.response || (err?.status && err.status >= 400);
+      if (isApiError) {
+        setSuccess("order_rejected");   // sentinel triggers amber "Rejected" box
+        setTimeout(() => { setSuccess(""); onClose?.(); }, 2000);
+      } else {
+        setError(err?.message || "Order failed");
+      }
     }
     setIsSubmitting(false);
   };
@@ -282,7 +289,12 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
         </div>
         <div style={body}>
           {error && <div style={errorBox}>{error}</div>}
-          {success && <div style={successBox}>{success}</div>}
+          {success && success !== "order_rejected" && <div style={successBox}>{success}</div>}
+          {success === "order_rejected" && (
+            <div style={{ padding: '10px', borderRadius: '8px', background: 'rgba(217,119,6,0.12)', color: '#fbbf24', fontSize: '13px', marginBottom: '10px', border: '1px solid rgba(217,119,6,0.3)', fontWeight: 600, textAlign: 'center' }}>
+              Order Rejected — see Orders tab for details
+            </div>
+          )}
 
           {isMultiLeg && (
             <div style={{ ...marginInfo, marginBottom: '10px' }}>

@@ -144,10 +144,28 @@ const PositionsTab = ({ productFilter = null }) => {
     return () => window.removeEventListener('positions:updated', handlePositionsUpdated);
   }, [fetchPositions]);
 
+  // Live tick — update LTP/MTM in-place from pulse prices, no API round-trip (avoids blink)
   useEffect(() => {
-    if (!marketActive || !pulse?.timestamp) return;
-    fetchPositions();
-  }, [pulse?.timestamp, marketActive, fetchPositions]);
+    if (!marketActive || !pulse?.prices) return;
+    const prices = pulse.prices;
+    setPositions(prev => {
+      let changed = false;
+      const next = prev.map(p => {
+        if (p.status !== 'OPEN') return p;
+        const newLtpRaw = prices[p.symbol] ?? prices[String(p.instrumentToken)];
+        if (newLtpRaw === undefined) return p;
+        const newLtp = Number(newLtpRaw);
+        const oldLtp = Number(p.currentLtp);
+        if (newLtp === oldLtp) return p;
+        changed = true;
+        const avgEntry = Number(p.avgEntry);
+        const qty = Number(p.qty);
+        const newMtm = (newLtp - avgEntry) * qty;
+        return { ...p, currentLtp: newLtp.toFixed(2), mtm: newMtm };
+      });
+      return changed ? next : prev;
+    });
+  }, [pulse?.prices, marketActive]);
 
   const openPositions = positions.filter((p) => p.status === "OPEN");
   const closedPositions = positions.filter((p) => p.status === "CLOSED");
@@ -301,9 +319,6 @@ const PositionsTab = ({ productFilter = null }) => {
   const qtyTextStyle = { fontVariantNumeric: "tabular-nums" };
   const plPositive = { color: "var(--positive-text)" };
   const plNegative = { color: "var(--negative-text)" };
-  const isDarkTheme = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "dark";
-  const surfaceBg = isDarkTheme ? "#111827" : "var(--surface)";
-  const surface2Bg = isDarkTheme ? "#1f2937" : "var(--surface2)";
   const totalRowStyle = { ...rowStyle, background: "var(--surface2)", fontWeight: 600 };
   const modalOverlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' };
   const modalCardStyle = { width: '420px', maxWidth: '92vw', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', boxShadow: '0 14px 32px rgba(0,0,0,0.35)', padding: '16px' };
@@ -340,7 +355,7 @@ const PositionsTab = ({ productFilter = null }) => {
           </div>
           <div style={totalTextStyle}>
             Total MTM:{" "}
-            <span style={{ ...totalValueStyle, backgroundColor: surfaceBg, ...(totalMtm >= 0 ? plPositive : plNegative) }}>
+            <span style={{ ...totalValueStyle, backgroundColor: "var(--surface)", ...(totalMtm >= 0 ? plPositive : plNegative) }}>
               {formatMoney(totalMtm)}
             </span>
           </div>
@@ -375,15 +390,15 @@ const PositionsTab = ({ productFilter = null }) => {
                       <td style={{ ...tdRight, ...qtyTextStyle }}>{p.qty.toLocaleString("en-IN")}</td>
                       <td style={tdRight}>{p.avgEntry}</td>
                       <td style={tdRight}>{p.currentLtp}</td>
-                      <td style={{ ...tdRight, backgroundColor: surfaceBg, ...(parseFloat(p.mtm) >= 0 ? plPositive : plNegative) }}>{formatMoney(parseFloat(p.mtm))}</td>
+                      <td style={{ ...tdRight, backgroundColor: "var(--surface)", ...(parseFloat(p.mtm) >= 0 ? plPositive : plNegative) }}>{formatMoney(parseFloat(p.mtm))}</td>
                       <td style={{ ...tdStyle }}><button style={exitButtonStyle} onClick={() => handleExitOne(p.id)}>Exit</button></td>
                     </tr>
                   ))}
                   <tr style={totalRowStyle}>
                     <td style={tdStyle}></td><td style={tdStyle}></td>{isAdminScopedView && <td style={tdStyle}></td>}<td style={tdStyle}></td>
                     <td style={tdRight}></td><td style={tdRight}></td>
-                    <td style={{ ...tdRight, color: "var(--text)", backgroundColor: surface2Bg }}>Total</td>
-                    <td style={{ ...tdRight, backgroundColor: surface2Bg, ...(totalMtm >= 0 ? plPositive : plNegative) }}>{formatMoney(totalMtm)}</td>
+                    <td style={{ ...tdRight, color: "var(--text)", backgroundColor: "var(--surface2)" }}>Total</td>
+                    <td style={{ ...tdRight, backgroundColor: "var(--surface2)", ...(totalMtm >= 0 ? plPositive : plNegative) }}>{formatMoney(totalMtm)}</td>
                     <td style={tdStyle}></td>
                   </tr>
                 </>
@@ -428,14 +443,14 @@ const PositionsTab = ({ productFilter = null }) => {
                       <td style={{ ...tdRight, ...qtyTextStyle }}>{p.qty.toLocaleString("en-IN")}</td>
                       <td style={tdRight}>{p.avgEntry}</td>
                       <td style={tdRight}>{p.exitPrice || "0.00"}</td>
-                      <td style={{ ...tdRight, backgroundColor: surfaceBg, ...(p.realizedPnl >= 0 ? plPositive : plNegative) }}>{formatMoney(p.realizedPnl)}</td>
+                      <td style={{ ...tdRight, backgroundColor: "var(--surface)", ...(p.realizedPnl >= 0 ? plPositive : plNegative) }}>{formatMoney(p.realizedPnl)}</td>
                     </tr>
                   ))}
                   <tr style={totalRowStyle}>
                     <td style={tdStyle}></td><td style={tdStyle}></td>{isAdminScopedView && <td style={tdStyle}></td>}
                     <td style={{ ...tdStyle, color: "#111827" }}>Total</td>
                     <td style={tdRight}></td><td style={tdRight}></td><td style={tdRight}></td>
-                    <td style={{ ...tdRight, backgroundColor: surface2Bg, ...(totalClosed >= 0 ? plPositive : plNegative) }}>{formatMoney(totalClosed)}</td>
+                    <td style={{ ...tdRight, backgroundColor: "var(--surface2)", ...(totalClosed >= 0 ? plPositive : plNegative) }}>{formatMoney(totalClosed)}</td>
                   </tr>
                 </>
               )}

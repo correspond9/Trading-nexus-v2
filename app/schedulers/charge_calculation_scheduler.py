@@ -14,7 +14,7 @@ Only processes positions that:
 import asyncio
 import logging
 from datetime import datetime, time, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import pytz
 
 from app.database import get_pool
@@ -28,6 +28,62 @@ IST = pytz.timezone('Asia/Kolkata')
 # Market close times (IST)
 NSE_BSE_CHARGE_TIME = time(hour=16, minute=0)  # 4:00 PM
 MCX_CHARGE_TIME = time(hour=0, minute=0)       # 12:00 AM (midnight)
+
+
+def normalize_enums(exchange_segment: Optional[str], product_type: Optional[str], instrument_type: Optional[str]) -> Tuple[str, str, str]:
+    """
+    Normalize database enum values to strict enum contract.
+    
+    Maps legacy/variant values from database to canonical enums:
+    - exchange_segment: NSE_EQ, NSE_FNO, BSE_EQ, MCX_COMM
+    - product_type: MIS, NORMAL
+    - instrument_type: EQUITY, FUTIDX, FUTSTK, OPTIDX, OPTSTK, FUTCOM, OPTCOM
+    """
+    # Normalize exchange_segment
+    seg = str(exchange_segment or '').upper().strip()
+    if 'FNO' in seg or 'NIFTY' in seg or 'BANKNIFTY' in seg:
+        seg = 'NSE_FNO'
+    elif 'BSE' in seg and 'EQ' in seg:
+        seg = 'BSE_EQ'
+    elif 'BSE' in seg:
+        seg = 'BSE_EQ'
+    elif 'MCX' in seg or 'COMMODITY' in seg:
+        seg = 'MCX_COMM'
+    elif 'EQ' in seg or 'EQUITY' in seg or seg.startswith('NSE'):
+        seg = 'NSE_EQ'
+    else:
+        seg = 'NSE_EQ'  # Default
+    
+    # Normalize product_type
+    prod = str(product_type or '').upper().strip()
+    if 'DELIVERY' in prod or 'NORMAL' in prod or prod == 'D':
+        prod = 'NORMAL'
+    elif 'MIS' in prod or 'INTRADAY' in prod or prod == 'I':
+        prod = 'MIS'
+    else:
+        prod = 'MIS'  # Default
+    
+    # Normalize instrument_type
+    inst = str(instrument_type or '').upper().strip()
+    if inst == 'STOCK' or inst == 'EQUITY' or 'EQ' in inst:
+        inst = 'EQUITY'
+    elif inst in ('FUTIDX', 'NIFTY', 'BANKNIFTY'):
+        inst = 'FUTIDX'
+    elif inst in ('FUTSTK', 'STOCK_FUTURE', 'FUTSTK'):
+        inst = 'FUTSTK'
+    elif inst in ('OPTIDX', 'NIFTY_OPTION', 'OPTIDX'):
+        inst = 'OPTIDX'
+    elif inst in ('OPTSTK', 'STOCK_OPTION', 'OPTSTK'):
+        inst = 'OPTSTK'
+    elif inst == 'FUTCOM':
+        inst = 'FUTCOM'
+    elif inst == 'OPTCOM':
+        inst = 'OPTCOM'
+    else:
+        inst = 'EQUITY'  # Default
+    
+    logger.debug(f"Enum normalization: {exchange_segment}/{product_type}/{instrument_type} → {seg}/{prod}/{inst}")
+    return seg, prod, inst
 
 
 class ChargeCalculationScheduler:
@@ -269,13 +325,23 @@ class ChargeCalculationScheduler:
             # Calculate charges (ALWAYS, even for zero-brokerage plans)
             # Statutory charges are mandatory regulatory requirements
             is_option = position.get('option_type') in ('CE', 'PE')
+            
+            # Normalize enums from database to strict contract
+            seg_norm, prod_norm, inst_norm = normalize_enums(
+                position.get('exchange_segment'),
+                position.get('product_type'),
+                position.get('instrument_type')
+            )
+            
+            logger.info(f"Processing {position['position_id']}: {seg_norm}/{prod_norm}/{inst_norm}, is_option={is_option}")
+            
             charges = calculate_position_charges(
                 quantity=position['quantity'],
                 buy_price=float(position['avg_price']),
                 sell_price=exit_price,
-                exchange_segment=position['exchange_segment'] or 'NSE_FNO',
-                product_type=position['product_type'] or 'MIS',
-                instrument_type=position.get('instrument_type') or 'EQUITY',
+                exchange_segment=seg_norm,
+                product_type=prod_norm,
+                instrument_type=inst_norm,
                 brokerage_flat=flat_fee,
                 brokerage_percent=percent_fee,
                 is_option=is_option

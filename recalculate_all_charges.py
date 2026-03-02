@@ -14,7 +14,7 @@ import logging
 import sys
 from datetime import datetime
 
-from app.database import get_pool, create_pool
+from app.database import get_pool, init_db
 from app.schedulers.charge_calculation_scheduler import charge_calculation_scheduler
 
 # Configure logging
@@ -35,11 +35,9 @@ async def recalculate_all_charges():
     logger.info("=" * 80)
     
     try:
-        # Initialize pool if needed
+        # Initialize database pool
+        await init_db()
         pool = get_pool()
-        if pool is None:
-            await create_pool()
-            pool = get_pool()
         
         # Get total count of closed positions
         total_count = await pool.fetchval(

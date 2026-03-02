@@ -29,18 +29,19 @@ class ChargeRates:
     """
     
     # ========== EXCHANGE TRANSACTION CHARGES ==========
-    # These are typically per lakh of turnover
-    # For NSE EQ: ~₹3.25 per lakh
+    # These are percentage rates stored as decimal multipliers
+    # For NSE EQ: ~0.00325% (₹3.25 per lakh = 0.3gm00325 base rate)
     # For Options: on premium value
+    # FIXED: All rates divided by 100 to correct decimal representation
     EXCHANGE_RATES = {
-        'NSE_EQ_INTRADAY': Decimal('0.00325'),      # ~0.00325% on total turnover
-        'NSE_EQ_DELIVERY': Decimal('0.00325'),       # Same as intraday
-        'BSE_EQ': Decimal('0.00375'),                # ~0.00375% on total turnover
-        'NSE_FNO_FUTURES': Decimal('0.002'),        # ~₹2 per lakh = 0.002%
-        'NSE_FNO_OPTIONS': Decimal('0.035'),        # On premium: ~0.035%
-        'BSE_FNO_OPTIONS': Decimal('0.03'),         # On premium: ~0.03%
-        'MCX_COMMODITY_FUTURES': Decimal('0.0002'), # Very low for commodities
-        'MCX_COMMODITY_OPTIONS': Decimal('0.001'),  # Slightly higher for options
+        'NSE_EQ_INTRADAY': Decimal('0.0000325'),     # 0.00325% as decimal (₹3.25 per lakh)
+        'NSE_EQ_DELIVERY': Decimal('0.0000325'),     # Same as intraday
+        'BSE_EQ': Decimal('0.000375'),               # 0.00375% as decimal (₹3.75 per lakh)
+        'NSE_FNO_FUTURES': Decimal('0.00002'),       # 0.002% as decimal (₹2 per lakh)
+        'NSE_FNO_OPTIONS': Decimal('0.00035'),       # 0.035% as decimal (on premium)
+        'BSE_FNO_OPTIONS': Decimal('0.0003'),        # 0.03% as decimal (on premium)
+        'MCX_COMMODITY_FUTURES': Decimal('0.000002'), # 0.0002% as decimal (very low)
+        'MCX_COMMODITY_OPTIONS': Decimal('0.00001'),  # 0.001% as decimal (slightly higher)
     }
     
     # ========== STT/CTT RATES ==========
@@ -91,8 +92,8 @@ class ChargeRates:
     DP_CHARGE_PER_ISIN = Decimal('13.50')      # Flat charge per ISIN on sell
     
     # Clearing Charges (if applicable)
-    # Typically 0.001% for equity, varies for derivatives
-    CLEARING_CHARGE_EQ = Decimal('0.000002')   # ~₹2 per crore for equity
+    # FIXED: Set to 0 as exchange charges already include clearing
+    CLEARING_CHARGE_EQ = Decimal('0')          # Already included in exchange charges
     CLEARING_CHARGE_FUT = Decimal('0')         # Usually included in brokerage
     CLEARING_CHARGE_OPT = Decimal('0')         # Usually included in brokerage
 
@@ -226,17 +227,23 @@ class ChargeCalculator:
             gst_taxable = brokerage + exchange_charge + sebi_charge + clearing_charge + dp_charge
             gst_charge = gst_taxable * self.rates.GST_RATE
             
-            # === 9. TOTALS ===
+            # === 9. VALIDATION ===
+            # Check exchange charge is reasonable
+            self._validate_exchange_charge(exchange_charge, total_turnover)
+            
+            # === 10. TOTALS ===
             # platform_cost = what broker keeps (brokerage only)
             # trade_expense = all regulatory/statutory charges
             platform_cost = brokerage
             trade_expense = stt_ctt + stamp_duty + exchange_charge + sebi_charge + clearing_charge + dp_charge + gst_charge
             total_charges = platform_cost + trade_expense
             
-            # Round to 2 decimal places
+            # Round with appropriate precision
+            # STT: nearest rupee (0 decimals) - regulatory requirement
+            # Others: 2 decimals for accounting accuracy
             result = {
                 'brokerage_charge': self._round_to_2decimals(brokerage),
-                'stt_ctt_charge': self._round_to_2decimals(stt_ctt),
+                'stt_ctt_charge': self._round_to_0decimals(stt_ctt),          # Nearest rupee
                 'stamp_duty': self._round_to_2decimals(stamp_duty),
                 'exchange_charge': self._round_to_2decimals(exchange_charge),
                 'sebi_charge': self._round_to_2decimals(sebi_charge),
@@ -477,6 +484,25 @@ class ChargeCalculator:
         """Round Decimal to 2 decimal places using banker's rounding."""
         rounded = value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         return float(rounded)
+    
+    def _round_to_0decimals(self, value: Decimal) -> float:
+        """Round Decimal to nearest rupee (0 decimal places)."""
+        rounded = value.quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        return float(rounded)
+    
+    def _validate_exchange_charge(self, exchange_charge: Decimal, total_turnover: Decimal):
+        """
+        Validate exchange charge is not unusually high.
+        Safety check: if exchange > 0.1% of turnover, something is wrong.
+        """
+        if total_turnover > 0:
+            charge_pct = (exchange_charge / total_turnover) * 100
+            if charge_pct > 0.1:  # More than 0.1% is suspicious
+                logger.warning(
+                    f"Exchange charge unusually high: {charge_pct:.3f}% of turnover. "
+                    f"Check rate scaling. Charge: ₹{float(exchange_charge):.2f}, "
+                    f"Turnover: ₹{float(total_turnover):.2f}"
+                )
 
 
 # Global singleton instance

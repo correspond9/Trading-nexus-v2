@@ -20,6 +20,8 @@ import pytz
 from decimal import Decimal
 
 from app.database import get_pool
+from app.websocket_push import ws_push
+from app.runtime.notifications import add_notification
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +229,28 @@ class MISAutoSquareoffScheduler:
                         f"qty={quantity}, exit_price={ltp:.2f}, pnl={realized_pnl:.2f}"
                     )
                     
+                    # Send real-time notification to user via WebSocket
+                    try:
+                        notification_payload = {
+                            "type": "position_auto_squareoff",
+                            "data": {
+                                "symbol": symbol,
+                                "exchange_segment": exchange_segment,
+                                "quantity": quantity,
+                                "exit_side": exit_side,
+                                "exit_price": ltp,
+                                "avg_price": avg_price,
+                                "realized_pnl": realized_pnl,
+                                "timestamp": datetime.now(IST).isoformat(),
+                                "reason": "Intraday auto square-off at market close",
+                                "order_id": order_id,
+                            },
+                        }
+                        await ws_push.push_to_user(str(user_id), notification_payload)
+                        logger.debug(f"Sent auto-squareoff notification to user {user_id}")
+                    except Exception as notif_err:
+                        logger.warning(f"Failed to send WebSocket notification to user {user_id}: {notif_err}")
+                    
                 except Exception as e:
                     errors += 1
                     error_msg = f"Failed to square-off position {pos.get('position_id')}: {str(e)}"
@@ -245,6 +269,43 @@ class MISAutoSquareoffScheduler:
                 f"✓ MIS auto-square-off completed: {positions_closed} positions closed, "
                 f"{errors} errors, duration={duration:.1f}s"
             )
+            
+            # Send system notification for admin dashboard
+            if positions_closed > 0:
+                exchange_label = ", ".join(exchanges) if exchanges else "All exchanges"
+                await add_notification(
+                    category="scheduler",
+                    severity="info",
+                    title="MIS Auto Square-Off Completed",
+                    message=f"Automatically closed {positions_closed} MIS position(s) at market close ({exchange_label}).",
+                    details={
+                        "positions_closed": positions_closed,
+                        "errors": errors,
+                        "exchanges": exchanges or "all",
+                        "run_time_ist": start_time.isoformat(),
+                        "duration_seconds": duration,
+                    },
+                    dedupe_key=f"mis_auto_squareoff:{start_time.date()}",
+                    dedupe_ttl_seconds=3600,
+                )
+            
+            # Alert admin if there were errors
+            if errors > 0:
+                await add_notification(
+                    category="scheduler",
+                    severity="warning",
+                    title="MIS Auto Square-Off Errors",
+                    message=f"Failed to close {errors} MIS position(s). Manual intervention may be required.",
+                    details={
+                        "error_count": errors,
+                        "error_details": error_details[:10],  # limit to first 10 errors
+                        "positions_closed": positions_closed,
+                        "exchanges": exchanges or "all",
+                        "run_time_ist": start_time.isoformat(),
+                    },
+                    dedupe_key=f"mis_auto_squareoff_errors:{start_time.date()}",
+                    dedupe_ttl_seconds=3600,
+                )
             
             result = {
                 'positions_closed': positions_closed,

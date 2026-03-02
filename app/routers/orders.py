@@ -647,14 +647,9 @@ async def place_paper_order(
 
         # After transaction: flush auto-cancelled SL orders from in-memory queue
         if _sl_to_cancel:
-            from app.execution_simulator.order_queue_manager import cancel as _queue_cancel
+            from app.execution_simulator.order_queue_manager import cancel_by_id as _queue_cancel_by_id
             for _item in _sl_to_cancel:
-                await _queue_cancel(
-                    _item["instrument_token"],
-                    _item["side"],
-                    _item["limit_price"],
-                    _item["order_id"],
-                )
+                await _queue_cancel_by_id(_item["order_id"])
                 log.info("Auto-cancelled pending SL order %s (position fully closed)", _item["order_id"])
 
         # ── SL order: enqueue for trigger-based fill, return PENDING ──────────

@@ -20,7 +20,7 @@ from .rejection_engine            import check_rejection, RejectionCode
 from .latency_model               import apply_latency
 from .fill_engine                 import execute_market_fill, FillEvent
 from .order_queue_manager         import (
-    QueuedOrder, enqueue, cancel, get_fillable, remove_filled, pending_count,
+    QueuedOrder, enqueue, cancel, cancel_by_id, get_fillable, remove_filled, pending_count,
 )
 
 log = logging.getLogger(__name__)
@@ -170,12 +170,10 @@ async def cancel_order(order_id: str, user_id: str) -> dict:
     if row["status"] not in ("PENDING",):
         return {"success": False, "reason": f"Cannot cancel order in state {row['status']}"}
 
-    await cancel(
-        int(row["instrument_token"]),
-        row["side"],
-        Decimal(str(row["limit_price"])),
-        order_id,
-    )
+    # Use cancel_by_id so we don't need to know the exact price-level key.
+    # This is important for SLM orders where the queued limit_price (= trigger_price)
+    # differs from the limit_price column stored in the DB (which may be 0 / NULL).
+    await cancel_by_id(order_id)
     await pool.execute(
         "UPDATE paper_orders SET status='CANCELLED', updated_at=now() WHERE order_id=$1",
         order_id,

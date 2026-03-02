@@ -62,6 +62,20 @@ async def cancel(instrument_token: int, side: str, price: Decimal, order_id: str
     return removed > 0
 
 
+async def cancel_by_id(order_id: str) -> bool:
+    """Cancel an order by order_id alone, scanning all tokens/sides/price levels.
+    Handles SL orders where the queued limit_price differs from the DB limit_price.
+    """
+    async with _lock:
+        for key, levels in list(_book.items()):
+            for price_level, queue in list(levels.items()):
+                new_q = deque(o for o in queue if o.order_id != order_id)
+                if len(new_q) < len(queue):
+                    _book[key][price_level] = new_q
+                    return True
+    return False
+
+
 async def get_fillable(
     instrument_token: int, side: str, market_price: Decimal
 ) -> list[QueuedOrder]:

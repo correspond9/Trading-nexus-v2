@@ -271,8 +271,8 @@ class ChargeCalculationScheduler:
             is_option = position.get('option_type') in ('CE', 'PE')
             charges = calculate_position_charges(
                 quantity=position['quantity'],
-                avg_price=float(position['avg_price']),
-                exit_price=exit_price,
+                buy_price=float(position['avg_price']),
+                sell_price=exit_price,
                 exchange_segment=position['exchange_segment'] or 'NSE_FNO',
                 product_type=position['product_type'] or 'MIS',
                 instrument_type=position.get('instrument_type') or 'EQUITY',

@@ -58,6 +58,7 @@ async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
          OR COALESCE(trading_symbol, '') ILIKE $1
      )
         {extra_filter}
+        AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
         ORDER BY
             CASE
                 WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
@@ -96,6 +97,7 @@ async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
              OR COALESCE(trading_symbol, '') ILIKE $1
          )
             {extra_filter}
+            AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
             ORDER BY
                 CASE
                     WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
@@ -130,6 +132,7 @@ async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
                  OR COALESCE(underlying, '') ILIKE $1
              )
                 {extra_filter}
+                AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
                 ORDER BY
                     CASE
                         WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
@@ -184,6 +187,7 @@ async def subscriptions_search(
                      OR COALESCE(im.trading_symbol, '') ILIKE $1
                  )
                   AND im.tier = $2
+                  AND (im.expiry_date IS NULL OR im.expiry_date >= CURRENT_DATE)
                 ORDER BY
                     CASE
                         WHEN upper(im.symbol) = $3 OR upper(COALESCE(im.underlying, '')) = $3 THEN 0
@@ -217,6 +221,7 @@ async def subscriptions_search(
                      OR COALESCE(im.display_name, '') ILIKE $1
                      OR COALESCE(im.trading_symbol, '') ILIKE $1
                  )
+                  AND (im.expiry_date IS NULL OR im.expiry_date >= CURRENT_DATE)
                 ORDER BY
                     CASE
                         WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
@@ -252,6 +257,7 @@ async def subscriptions_search(
                      OR COALESCE(im.underlying, '') ILIKE $1
                  )
                   AND im.tier = $2
+                  AND (im.expiry_date IS NULL OR im.expiry_date >= CURRENT_DATE)
                 ORDER BY
                     CASE
                         WHEN upper(im.symbol) = $3 OR upper(COALESCE(im.underlying, '')) = $3 THEN 0
@@ -280,6 +286,7 @@ async def subscriptions_search(
                         im.symbol ILIKE $1
                      OR COALESCE(im.underlying, '') ILIKE $1
                  )
+                  AND (im.expiry_date IS NULL OR im.expiry_date >= CURRENT_DATE)
                 ORDER BY
                     CASE
                         WHEN upper(im.symbol) = $2 OR upper(COALESCE(im.underlying, '')) = $2 THEN 0
@@ -360,7 +367,7 @@ async def option_strikes_search(
             if exists:
                 underlying = alpha
 
-    parts = ["AND instrument_type IN ('OPTIDX','OPTSTK','OPTFUT')"]
+    parts = ["AND instrument_type IN ('OPTIDX','OPTSTK','OPTFUT')", "AND expiry_date >= CURRENT_DATE"]
     args: list = [like_pattern]
 
     if underlying:

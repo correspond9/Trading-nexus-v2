@@ -22,6 +22,7 @@ async def get_scheduler_snapshot() -> dict:
     from app.instruments.scrip_master import scrip_scheduler
     from app.margin.nse_margin_data import nse_margin_scheduler
     from app.positions.eod_archiver import eod_closed_position_archiver
+    from app.schedulers.mis_auto_squareoff import mis_auto_squareoff
 
     from app.market_hours import is_equity_window_active, is_commodity_window_active
     from app.config import get_settings
@@ -119,6 +120,20 @@ async def get_scheduler_snapshot() -> dict:
             },
         },
         {
+            "id": "mis_auto_squareoff",
+            "label": "MIS auto-square-off",
+            "kind": "fixed_time",
+            "window": "15:20 IST (NSE/BSE), 23:20 IST (MCX) daily",
+            "running": bool(getattr(mis_auto_squareoff, "_task", None) and not mis_auto_squareoff._task.done()),
+            "override": "n/a",
+            "actions": ["start", "stop", "refresh"],
+            "details": {
+                "last_run_at": mis_auto_squareoff.last_run_at.isoformat() if mis_auto_squareoff.last_run_at else None,
+                "positions_closed": mis_auto_squareoff.last_run_result.get("positions_closed") if mis_auto_squareoff.last_run_result else None,
+                "last_error": mis_auto_squareoff.last_run_error,
+            },
+        },
+        {
             "id": "holidays",
             "label": "Exchange holidays (loaded)",
             "kind": "data",
@@ -155,6 +170,8 @@ async def scheduler_action(name: str, action: str) -> dict:
     from app.instruments.scrip_master import refresh_instruments, scrip_scheduler
     from app.margin.nse_margin_data import download_and_refresh, nse_margin_scheduler
     from app.positions.eod_archiver import eod_closed_position_archiver
+    from app.schedulers.mis_auto_squareoff import mis_auto_squareoff
+    from app.schedulers.mis_auto_squareoff import mis_auto_squareoff
 
     if action == "auto":
         market_timing_controller.set_override(name, "auto")
@@ -208,6 +225,16 @@ async def scheduler_action(name: str, action: str) -> dict:
         elif action == "refresh":
             res = await eod_closed_position_archiver.run_once()
             return {"success": True, "archived_count": res.archived_count}
+        return {"success": True}
+
+    if name == "mis_auto_squareoff":
+        if action == "start":
+            await mis_auto_squareoff.start()
+        elif action == "stop":
+            await mis_auto_squareoff.stop()
+        elif action == "refresh":
+            res = await mis_auto_squareoff.run_once()
+            return {"success": True, "result": res}
         return {"success": True}
 
     if name == "holidays" and action == "refresh":

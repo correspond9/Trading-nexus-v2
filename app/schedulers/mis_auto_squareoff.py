@@ -1,0 +1,276 @@
+"""
+MIS Auto Square-Off Scheduler
+
+Automatically exits all open MIS (Intraday) positions before market close:
+- NSE/BSE: 3:20 PM IST (10 minutes before 3:30 PM market close)
+- MCX: 11:20 PM IST (10 minutes before 11:30 PM market close)
+
+Only processes positions that:
+1. Status = 'OPEN'
+2. product_type = 'MIS'
+3. quantity != 0
+
+Places market orders on the opposite side to close positions.
+"""
+import asyncio
+import logging
+from datetime import datetime, time, timedelta
+from typing import Optional
+import pytz
+from decimal import Decimal
+
+from app.database import get_pool
+
+logger = logging.getLogger(__name__)
+
+# IST timezone
+IST = pytz.timezone('Asia/Kolkata')
+
+# Square-off times (10 minutes before market close)
+NSE_BSE_SQUAREOFF_TIME = time(hour=15, minute=20)  # 3:20 PM
+MCX_SQUAREOFF_TIME = time(hour=23, minute=20)      # 11:20 PM
+
+
+class MISAutoSquareoffScheduler:
+    """
+    Scheduler for automatic MIS position square-off before market close.
+    """
+    
+    def __init__(self):
+        self._task: Optional[asyncio.Task] = None
+        self._running = False
+        self._last_run_nse = None
+        self._last_run_mcx = None
+        self.last_run_at: Optional[datetime] = None
+        self.last_run_result: Optional[dict] = None
+        self.last_run_error: Optional[str] = None
+        self._stats = {
+            'total_squared_off': 0,
+            'total_errors': 0,
+            'last_run_at': None,
+            'positions_closed': 0,
+        }
+    
+    async def start(self):
+        """Start the scheduler."""
+        if self._running:
+            logger.warning("MIS auto-square-off scheduler already running")
+            return
+        
+        self._running = True
+        self._task = asyncio.create_task(self._run_loop())
+        logger.info("🔄 MIS auto-square-off scheduler started (NSE/BSE: 3:20 PM, MCX: 11:20 PM)")
+    
+    async def stop(self):
+        """Stop the scheduler."""
+        if not self._running:
+            return
+        
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        logger.info("⏹️ MIS auto-square-off scheduler stopped")
+    
+    async def _run_loop(self):
+        """Main scheduler loop."""
+        while self._running:
+            try:
+                await self._check_and_run()
+                # Check every minute
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in MIS auto-square-off scheduler loop: {e}")
+                self.last_run_error = str(e)
+                await asyncio.sleep(60)
+    
+    async def _check_and_run(self):
+        """Check if it's time to run auto square-off."""
+        now_ist = datetime.now(IST)
+        today_date = now_ist.date()
+        current_time = now_ist.time()
+        
+        # Check NSE/BSE (3:20 PM IST)
+        if (current_time >= NSE_BSE_SQUAREOFF_TIME and 
+            current_time < time(hour=15, minute=25) and  # 5-minute window
+            (self._last_run_nse is None or self._last_run_nse.date() < today_date)):
+            logger.info("⏰ Running NSE/BSE MIS auto-square-off (3:20 PM IST)")
+            result = await self.run_once(exchanges=['NSE_EQ', 'NSE_FNO', 'BSE_EQ'])
+            self._last_run_nse = now_ist
+            self.last_run_at = now_ist
+            self.last_run_result = result
+            self.last_run_error = None
+            return
+        
+        # Check MCX (11:20 PM IST)
+        if (current_time >= MCX_SQUAREOFF_TIME and 
+            current_time < time(hour=23, minute=25) and  # 5-minute window
+            (self._last_run_mcx is None or self._last_run_mcx.date() < today_date)):
+            logger.info("⏰ Running MCX MIS auto-square-off (11:20 PM IST)")
+            result = await self.run_once(exchanges=['MCX_COMM'])
+            self._last_run_mcx = now_ist
+            self.last_run_at = now_ist
+            self.last_run_result = result
+            self.last_run_error = None
+    
+    async def run_once(self, exchanges: list[str] | None = None) -> dict:
+        """
+        Execute auto square-off for all open MIS positions.
+        
+        Args:
+            exchanges: List of exchange segments to process (e.g., ['NSE_EQ', 'NSE_FNO'])
+                      If None, processes all exchanges.
+        
+        Returns:
+            dict with 'positions_closed' and 'errors' counts
+        """
+        start_time = datetime.now(IST)
+        pool = get_pool()
+        
+        positions_closed = 0
+        errors = 0
+        error_details = []
+        
+        try:
+            # Find all open MIS positions
+            query = """
+                SELECT 
+                    position_id, user_id, instrument_token, symbol, 
+                    exchange_segment, quantity, avg_price, product_type
+                FROM paper_positions
+                WHERE status = 'OPEN'
+                  AND product_type = 'MIS'
+                  AND quantity != 0
+            """
+            params = []
+            
+            if exchanges:
+                query += " AND exchange_segment = ANY($1::text[])"
+                params.append(exchanges)
+            
+            positions = await pool.fetch(query, *params)
+            
+            logger.info(f"Found {len(positions)} open MIS positions to square-off")
+            
+            # Place exit orders for each position
+            for pos in positions:
+                try:
+                    position_id = pos['position_id']
+                    user_id = pos['user_id']
+                    instrument_token = pos['instrument_token']
+                    symbol = pos['symbol']
+                    exchange_segment = pos['exchange_segment']
+                    quantity = int(pos['quantity'])
+                    avg_price = float(pos['avg_price'])
+                    
+                    # Determine exit side (opposite of current position)
+                    if quantity > 0:
+                        exit_side = 'SELL'
+                        exit_qty = quantity
+                    else:
+                        exit_side = 'BUY'
+                        exit_qty = abs(quantity)
+                    
+                    # Get current LTP for the instrument from market_data table
+                    ltp_row = await pool.fetchrow(
+                        "SELECT ltp FROM market_data WHERE instrument_token = $1",
+                        instrument_token
+                    )
+                    ltp = float(ltp_row['ltp']) if ltp_row and ltp_row['ltp'] else avg_price
+                    
+                    # Place market exit order via the orders router logic
+                    import uuid
+                    order_id = str(uuid.uuid4())
+                    
+                    async with pool.acquire() as conn:
+                        async with conn.transaction():
+                            # Insert exit order as FILLED
+                            await conn.execute(
+                                """
+                                INSERT INTO paper_orders
+                                    (order_id, user_id, instrument_token, symbol, exchange_segment,
+                                     side, order_type, quantity, fill_price, filled_qty,
+                                     status, product_type, security_id, placed_at, remarks)
+                                VALUES ($1, $2, $3, $4, $5, $6, 'MARKET', $7, $8, $7, 'FILLED', 'MIS', $3, NOW(), 'Auto square-off')
+                                """,
+                                order_id, user_id, instrument_token, symbol, exchange_segment,
+                                exit_side, exit_qty, ltp
+                            )
+                            
+                            # Calculate realized P&L
+                            if quantity > 0:  # Long position
+                                realized_pnl = (ltp - avg_price) * exit_qty
+                            else:  # Short position
+                                realized_pnl = (avg_price - ltp) * exit_qty
+                            
+                            # Close the position
+                            await conn.execute(
+                                """
+                                UPDATE paper_positions
+                                SET quantity = 0,
+                                    status = 'CLOSED',
+                                    realized_pnl = COALESCE(realized_pnl, 0) + $1,
+                                    closed_at = NOW()
+                                WHERE position_id = $2
+                                """,
+                                realized_pnl, position_id
+                            )
+                    
+                    positions_closed += 1
+                    logger.info(
+                        f"✓ Auto-squared-off MIS position: user={user_id}, symbol={symbol}, "
+                        f"qty={quantity}, exit_price={ltp:.2f}, pnl={realized_pnl:.2f}"
+                    )
+                    
+                except Exception as e:
+                    errors += 1
+                    error_msg = f"Failed to square-off position {pos.get('position_id')}: {str(e)}"
+                    error_details.append(error_msg)
+                    logger.error(error_msg)
+            
+            # Update stats
+            self._stats['total_squared_off'] += positions_closed
+            self._stats['total_errors'] += errors
+            self._stats['last_run_at'] = start_time
+            self._stats['positions_closed'] = positions_closed
+            
+            duration = (datetime.now(IST) - start_time).total_seconds()
+            
+            logger.info(
+                f"✓ MIS auto-square-off completed: {positions_closed} positions closed, "
+                f"{errors} errors, duration={duration:.1f}s"
+            )
+            
+            result = {
+                'positions_closed': positions_closed,
+                'errors': errors,
+                'error_details': error_details,
+                'duration_seconds': duration,
+                'run_at': start_time.isoformat()
+            }
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Critical error in MIS auto-square-off: {e}", exc_info=True)
+            self._stats['total_errors'] += 1
+            self.last_run_error = str(e)
+            raise
+    
+    def get_stats(self) -> dict:
+        """Get scheduler statistics."""
+        return {
+            **self._stats,
+            'running': self._running,
+            'last_run_nse': self._last_run_nse.isoformat() if self._last_run_nse else None,
+            'last_run_mcx': self._last_run_mcx.isoformat() if self._last_run_mcx else None,
+        }
+
+
+# Singleton instance
+mis_auto_squareoff = MISAutoSquareoffScheduler()

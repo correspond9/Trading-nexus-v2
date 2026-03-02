@@ -54,6 +54,7 @@ from app.market_data.static_auth_monitor import static_auth_monitor
 from app.positions.eod_archiver               import eod_closed_position_archiver
 from app.runtime.market_timing                import market_timing_controller
 from app.schedulers.charge_calculation_scheduler import charge_calculation_scheduler
+from app.schedulers.mis_auto_squareoff        import mis_auto_squareoff
 
 log = logging.getLogger(__name__)
 cfg = get_settings()
@@ -268,6 +269,9 @@ async def lifespan(app: FastAPI):
 
         log.info("[16] Starting EOD closed-position archiver (16:00 IST) …")
         await eod_closed_position_archiver.start()
+
+        log.info("[16b] Starting MIS auto-square-off scheduler (15:20 IST NSE/BSE, 23:20 IST MCX) …")
+        await mis_auto_squareoff.start()
 
         log.info("[17] Starting charge calculation scheduler (16:00 IST NSE/BSE, 00:00 IST MCX) …")
         await charge_calculation_scheduler.start()

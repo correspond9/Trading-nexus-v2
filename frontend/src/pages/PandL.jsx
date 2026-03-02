@@ -5,6 +5,12 @@ import { useAuth } from '../contexts/AuthContext';
 // ── Helpers ───────────────────────────────────────────────────────────────
 const today = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
 
+const daysAgo = (n) => {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toLocaleDateString("en-CA");
+};
+
 const INR = (n) => {
   const v = Number(n);
   return (v < 0 ? "-₹" : "₹") +
@@ -49,7 +55,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
   const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || user?.role === "SUPER_USER";
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
 
-  const [fromDate,  setFromDate]  = useState(today());
+  const [fromDate,  setFromDate]  = useState(daysAgo(90)); // default: last 90 days
   const [toDate,    setToDate]    = useState(today());
   const [targetUid, setTargetUid] = useState("");  // "" = self
   const [userList,  setUserList]  = useState([]);
@@ -168,7 +174,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Symbol","Exchange","Product","Entry Price","Closed Qty","Realized P&L","Platform Cost","Trade Expense","Net P&L","Opened","Closed"].map(h => (
+                      {["Symbol","Exchange","Product","Entry Price","Closed Qty","Realized P&L","Trade Charges","Platform Cost","Net P&L","Opened","Closed"].map(h => (
                         <th key={h} style={S.th}>{h}</th>
                       ))}
                     </tr>
@@ -176,9 +182,9 @@ const PandLPage = ({ hideUserSelect = false }) => {
                   <tbody>
                     {data.closed.map((p, i) => {
                       const pl = Number(p.realized_pnl || 0);
+                      const tradeCharges = Number(p.total_charges || 0);
                       const platformCost = Number(p.platform_cost || 0);
-                      const tradeExp = Number(p.trade_expense || 0);
-                      const netPnl = pl - platformCost - tradeExp;
+                      const netPnl = pl - tradeCharges - platformCost;
                       return (
                         <tr key={i}>
                           <td style={{ ...S.td, fontWeight: 700 }}>{p.symbol || "—"}</td>
@@ -195,10 +201,10 @@ const PandLPage = ({ hideUserSelect = false }) => {
                             {INR(pl)}
                           </td>
                           <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
-                            {INR(platformCost)}
+                            {INR(tradeCharges)}
                           </td>
                           <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
-                            {INR(tradeExp)}
+                            {INR(platformCost)}
                           </td>
                           <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: numColor(netPnl) }}>
                             {INR(netPnl)}

@@ -111,6 +111,9 @@ class ChargeCalculator:
     
     def __init__(self):
         self.rates = ChargeRates()
+        self.allowed_exchange_segments = {'NSE_EQ', 'NSE_FNO', 'BSE_EQ', 'MCX_COMM'}
+        self.allowed_instrument_types = {'EQUITY', 'FUTIDX', 'FUTSTK', 'OPTIDX', 'OPTSTK', 'FUTCOM', 'OPTCOM'}
+        self.allowed_product_types = {'MIS', 'NORMAL'}
     
     def calculate_all_charges(
         self,
@@ -150,6 +153,34 @@ class ChargeCalculator:
             Dict with all charge components
         """
         try:
+            exchange_segment = exchange_segment.upper().strip()
+            product_type = product_type.upper().strip()
+            instrument_type = instrument_type.upper().strip()
+
+            logger.info(
+                "Charge input routing: exchange_segment=%s, product_type=%s, instrument_type=%s, is_option=%s, is_commodity=%s",
+                exchange_segment,
+                product_type,
+                instrument_type,
+                is_option,
+                is_commodity,
+            )
+
+            if exchange_segment not in self.allowed_exchange_segments:
+                raise ValueError(
+                    f"Invalid exchange_segment '{exchange_segment}'. Allowed: {sorted(self.allowed_exchange_segments)}"
+                )
+
+            if instrument_type not in self.allowed_instrument_types:
+                raise ValueError(
+                    f"Invalid instrument_type '{instrument_type}'. Allowed: {sorted(self.allowed_instrument_types)}"
+                )
+
+            if product_type not in self.allowed_product_types:
+                raise ValueError(
+                    f"Invalid product_type '{product_type}'. Allowed: {sorted(self.allowed_product_types)}"
+                )
+
             # Convert inputs to Decimal for precision
             buy_price_dec = Decimal(str(buy_price))
             sell_price_dec = Decimal(str(sell_price))
@@ -211,7 +242,7 @@ class ChargeCalculator:
             
             # === 6. DP CHARGES (Delivery equity sell) ===
             dp_charge = Decimal('0')
-            if apply_dp_charges and 'EQ' in exchange_segment and product_type.upper() == 'NORMAL':
+            if apply_dp_charges and exchange_segment in {'NSE_EQ', 'BSE_EQ'} and product_type == 'NORMAL':
                 # Flat ₹13.50 per ISIN on sell side (delivery)
                 dp_charge = self.rates.DP_CHARGE_PER_ISIN
             
@@ -260,20 +291,7 @@ class ChargeCalculator:
             
         except Exception as e:
             logger.error(f"Error calculating charges: {e}", exc_info=True)
-            # Return zeros on error
-            return {
-                'brokerage_charge': 0.0,
-                'stt_ctt_charge': 0.0,
-                'stamp_duty': 0.0,
-                'exchange_charge': 0.0,
-                'sebi_charge': 0.0,
-                'dp_charge': 0.0,
-                'clearing_charge': 0.0,
-                'gst_charge': 0.0,
-                'platform_cost': 0.0,
-                'trade_expense': 0.0,
-                'total_charges': 0.0,
-            }
+            raise
     
     # ========== CALCULATION METHODS ==========
     
@@ -311,24 +329,24 @@ class ChargeCalculator:
         """
         
         # EQUITY - Intraday
-        if 'EQ' in exchange_segment and product_type.upper() == 'MIS':
+        if exchange_segment in {'NSE_EQ', 'BSE_EQ'} and product_type == 'MIS' and instrument_type == 'EQUITY':
             # Only 0.025% on sell side
             return sell_value * self.rates.STT_RATES['EQ_INTRADAY_SELL']
         
         # EQUITY - Delivery
-        if 'EQ' in exchange_segment and product_type.upper() == 'NORMAL':
+        if exchange_segment in {'NSE_EQ', 'BSE_EQ'} and product_type == 'NORMAL' and instrument_type == 'EQUITY':
             # 0.1% on BUY + 0.1% on SELL
             buy_stt = buy_value * self.rates.STT_RATES['EQ_DELIVERY_BUY']
             sell_stt = sell_value * self.rates.STT_RATES['EQ_DELIVERY_SELL']
             return buy_stt + sell_stt
         
         # FUTURES - Index and Stock
-        if 'FUT' in instrument_type and not is_commodity:
+        if exchange_segment == 'NSE_FNO' and instrument_type in {'FUTIDX', 'FUTSTK'} and not is_commodity:
             # 0.0125% on sell side only
             return sell_value * self.rates.STT_RATES['FUT_INTRADAY_SELL']
         
         # OPTIONS - Index and Stock
-        if is_option and not is_commodity:
+        if exchange_segment == 'NSE_FNO' and instrument_type in {'OPTIDX', 'OPTSTK'} and is_option and not is_commodity:
             if premium_value is None:
                 return Decimal('0')
             
@@ -343,7 +361,7 @@ class ChargeCalculator:
                 return premium_sell * self.rates.STT_RATES['OPT_NORMAL_SELL']
         
         # COMMODITIES - Futures
-        if 'FUT' in instrument_type and is_commodity:
+        if exchange_segment == 'MCX_COMM' and instrument_type == 'FUTCOM' and is_commodity:
             if is_agricultural_commodity:
                 # 0.05% for agricultural commodities
                 rate = self.rates.STT_RATES['COM_FUT_SELL_AGRI']
@@ -353,7 +371,7 @@ class ChargeCalculator:
             return sell_value * rate
         
         # COMMODITIES - Options
-        if is_option and is_commodity:
+        if exchange_segment == 'MCX_COMM' and instrument_type == 'OPTCOM' and is_option and is_commodity:
             if premium_value is None:
                 return Decimal('0')
             
@@ -383,8 +401,8 @@ class ChargeCalculator:
         """
         
         # EQUITY
-        if 'EQ' in instrument_type or instrument_type == 'EQUITY':
-            if product_type.upper() == 'MIS':
+        if instrument_type == 'EQUITY':
+            if product_type == 'MIS':
                 # 0.003% on buy side for intraday
                 rate = self.rates.STAMP_DUTY_RATES['EQ_INTRADAY']
             else:
@@ -393,18 +411,15 @@ class ChargeCalculator:
             return buy_value * rate
         
         # FUTURES (both equity and commodity)
-        if 'FUT' in instrument_type:
+        if instrument_type in {'FUTIDX', 'FUTSTK', 'FUTCOM'}:
             # 0.002% on buy side
             rate = self.rates.STAMP_DUTY_RATES['FUT'] if not is_commodity else self.rates.STAMP_DUTY_RATES['COM_FUT']
             return buy_value * rate
         
         # OPTIONS (both equity and commodity)
-        if is_option:
-            if premium_value is None:
-                return Decimal('0')
-            
-            # Buy premium only
-            premium_buy = premium_value / Decimal('2')
+        if is_option and instrument_type in {'OPTIDX', 'OPTSTK', 'OPTCOM'}:
+            # Buy premium only (buy side premium value)
+            premium_buy = buy_value
             rate = self.rates.STAMP_DUTY_RATES['OPT'] if not is_commodity else self.rates.STAMP_DUTY_RATES['COM_OPT']
             return premium_buy * rate
         
@@ -429,31 +444,46 @@ class ChargeCalculator:
         """
         
         # EQUITY
-        if 'EQ' in exchange_segment:
+        if exchange_segment == 'NSE_EQ':
             rate = self.rates.EXCHANGE_RATES['NSE_EQ_INTRADAY']
+            return total_turnover * rate
+        if exchange_segment == 'BSE_EQ':
+            rate = self.rates.EXCHANGE_RATES['BSE_EQ']
             return total_turnover * rate
         
         # OPTIONS (charged on premium)
-        if is_option:
+        if exchange_segment == 'NSE_FNO' and is_option:
             if premium_value is None:
                 return Decimal('0')
-            
-            if 'BSE' in exchange_segment:
-                rate = self.rates.EXCHANGE_RATES['BSE_FNO_OPTIONS']
-            else:
-                rate = self.rates.EXCHANGE_RATES['NSE_FNO_OPTIONS']
+            rate = self.rates.EXCHANGE_RATES['NSE_FNO_OPTIONS']
             return premium_value * rate
         
+        if exchange_segment == 'BSE_EQ' and is_option:
+            if premium_value is None:
+                return Decimal('0')
+            rate = self.rates.EXCHANGE_RATES['BSE_FNO_OPTIONS']
+            return premium_value * rate
+
         # FUTURES
-        if 'FUT' in instrument_type:
-            if 'MCX' in exchange_segment:
-                rate = self.rates.EXCHANGE_RATES['MCX_COMMODITY_FUTURES']
-            else:
-                rate = self.rates.EXCHANGE_RATES['NSE_FNO_FUTURES']
+        if exchange_segment == 'NSE_FNO' and instrument_type in {'FUTIDX', 'FUTSTK'}:
+            rate = self.rates.EXCHANGE_RATES['NSE_FNO_FUTURES']
             return total_turnover * rate
+
+        if exchange_segment == 'MCX_COMM' and instrument_type == 'FUTCOM':
+            rate = self.rates.EXCHANGE_RATES['MCX_COMMODITY_FUTURES']
+            return total_turnover * rate
+
+        if exchange_segment == 'MCX_COMM' and instrument_type == 'OPTCOM':
+            if premium_value is None:
+                return Decimal('0')
+            rate = self.rates.EXCHANGE_RATES['MCX_COMMODITY_OPTIONS']
+            return premium_value * rate
         
         # Default
-        return total_turnover * self.rates.EXCHANGE_RATES['NSE_EQ_INTRADAY']
+        raise ValueError(
+            f"Unsupported exchange routing combination: exchange_segment={exchange_segment}, "
+            f"instrument_type={instrument_type}, is_option={is_option}"
+        )
     
     def _calculate_sebi_charge(self, turnover: Decimal) -> Decimal:
         """
@@ -474,7 +504,7 @@ class ChargeCalculator:
         Usually low or zero (often included in brokerage for futures/options).
         """
         # For equity, slight clearing charge
-        if 'EQ' in instrument_type or instrument_type == 'EQUITY':
+        if instrument_type == 'EQUITY':
             return total_turnover * self.rates.CLEARING_CHARGE_EQ
         
         # Futures and options typically no separate clearing charge

@@ -231,25 +231,33 @@ class ChargeCalculationScheduler:
     async def _calculate_and_update_charges(self, position: dict, pool):
         """
         Calculate charges for a position and update database.
+        
+        IMPORTANT: Charges are ALWAYS calculated, even for zero-brokerage plans.
+        Statutory charges (STT, exchange charges, SEBI, etc.) are regulatory requirements
+        and must be deducted from P&L regardless of brokerage plan.
         """
         try:
             # Get brokerage plan
             is_futures = 'FUT' in (position.get('instrument_type') or '')
             plan_id = position.get('brokerage_plan_futures_id') if is_futures else position.get('brokerage_plan_equity_id')
             
-            if not plan_id:
-                logger.warning(f"No brokerage plan for user {position['user_id']}, skipping position {position['position_id']}")
-                return
+            # Fetch brokerage plan details if available
+            plan = None
+            if plan_id:
+                plan = await pool.fetchrow(
+                    "SELECT flat_fee, percent_fee FROM brokerage_plans WHERE plan_id = $1",
+                    plan_id
+                )
             
-            # Fetch brokerage plan details
-            plan = await pool.fetchrow(
-                "SELECT flat_fee, percent_fee FROM brokerage_plans WHERE plan_id = $1",
-                plan_id
-            )
-            
+            # If NO plan or plan not found, use ZERO brokerage (but still calculate statutory charges)
+            # This ensures that traders on zero-brokerage plans still have stat charges applied to P&L
             if not plan:
-                logger.warning(f"Brokerage plan {plan_id} not found")
-                return
+                logger.info(f"No valid brokerage plan for user {position['user_id']}, using zero brokerage")
+                flat_fee = 0.0
+                percent_fee = 0.0
+            else:
+                flat_fee = float(plan['flat_fee'] or 0)
+                percent_fee = float(plan['percent_fee'] or 0)
             
             # Determine exit price (use LTP or avg_price as last resort)
             ltp_row = await pool.fetchrow(
@@ -258,7 +266,8 @@ class ChargeCalculationScheduler:
             )
             exit_price = float(ltp_row['ltp']) if ltp_row and ltp_row['ltp'] else float(position['avg_price'])
             
-            # Calculate charges
+            # Calculate charges (ALWAYS, even for zero-brokerage plans)
+            # Statutory charges are mandatory regulatory requirements
             is_option = position.get('option_type') in ('CE', 'PE')
             charges = calculate_position_charges(
                 quantity=position['quantity'],
@@ -267,8 +276,8 @@ class ChargeCalculationScheduler:
                 exchange_segment=position['exchange_segment'] or 'NSE_FNO',
                 product_type=position['product_type'] or 'MIS',
                 instrument_type=position.get('instrument_type') or 'EQUITY',
-                brokerage_flat=float(plan['flat_fee'] or 0),
-                brokerage_percent=float(plan['percent_fee'] or 0),
+                brokerage_flat=flat_fee,
+                brokerage_percent=percent_fee,
                 is_option=is_option
             )
             

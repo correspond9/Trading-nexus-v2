@@ -23,9 +23,18 @@ export function useAuthoritativeOptionChain(
   const [error, setError]         = useState(null);
   const [servedExpiry, setServedExpiry] = useState(expiry);
 
-  const wsRef    = useRef(null);
-  const timerRef = useRef(null);
-  const mountedRef = useRef(true);
+  const wsRef          = useRef(null);
+  const timerRef       = useRef(null);
+  const mountedRef     = useRef(true);
+
+  // ── ATM drift detection ──────────────────────────────────────────────────
+  // Tracks the ATM at the time of the last full calibration (re-fetch).
+  // When the live ATM drifts ≥ ATM_DRIFT_THRESHOLD strikes away from that
+  // baseline, a fresh REST fetch is triggered so the backend can return a
+  // correctly-centred strike window.
+  const ATM_DRIFT_THRESHOLD = 7;   // strikes before re-centering
+  const baseAtmRef      = useRef(null);  // ATM at last calibration
+  const driftFetchingRef = useRef(false); // prevent concurrent drift re-fetches
 
   // ── REST fetch ──────────────────────────────────────────────────────────
   const fetchData = useCallback(async (ul = underlying, exp = expiry) => {
@@ -118,6 +127,53 @@ export function useAuthoritativeOptionChain(
     };
   }, [underlying, expiry, fetchData, connectWS, autoRefresh, refreshInterval]);
 
+  // ── ATM drift detection effects ───────────────────────────────────────────
+
+  // Reset baseline whenever the user switches index or expiry so the new
+  // instrument starts fresh (first data load sets a new baseline).
+  useEffect(() => {
+    baseAtmRef.current     = null;
+    driftFetchingRef.current = false;
+  }, [underlying, expiry]);
+
+  // After every REST update, check whether the live ATM has drifted far
+  // enough from the last-calibrated baseline to warrant a fresh fetch.
+  useEffect(() => {
+    if (!data) return;
+
+    const ltp      = data.underlying_ltp;
+    const interval = Number(data.strike_interval || getStrikeInterval(underlying) || 0);
+
+    // Skip if we don't have a meaningful price or interval yet
+    if (!ltp || ltp <= 0 || !interval) return;
+
+    const liveAtm = Math.round(ltp / interval) * interval;
+
+    if (baseAtmRef.current === null) {
+      // First data load — set baseline silently, no re-fetch
+      baseAtmRef.current = liveAtm;
+      return;
+    }
+
+    const driftInStrikes = Math.abs(liveAtm - baseAtmRef.current) / interval;
+
+    if (driftInStrikes >= ATM_DRIFT_THRESHOLD && !driftFetchingRef.current) {
+      driftFetchingRef.current = true;
+      console.log(
+        `[OptionChain] ATM drift ≥ ${ATM_DRIFT_THRESHOLD} strikes detected for ${underlying}: ` +
+        `${baseAtmRef.current} → ${liveAtm} (${driftInStrikes} strikes). ` +
+        `Triggering fresh fetch to re-centre strike window.`
+      );
+      // Update baseline before the fetch completes to prevent re-triggering
+      // on the in-flight response if LTP is still in the same neighbourhood.
+      baseAtmRef.current = liveAtm;
+      fetchData().finally(() => {
+        if (mountedRef.current) driftFetchingRef.current = false;
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.underlying_ltp, data?.strike_interval]);
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getATMStrike = useCallback((ltp) => {
     const interval = Number(data?.strike_interval || getStrikeInterval(underlying) || 0);
@@ -130,7 +186,19 @@ export function useAuthoritativeOptionChain(
 
   const refresh = useCallback(() => fetchData(), [fetchData]);
 
-  return { data, loading, error, refresh, getATMStrike, getLotSize: () => lotSize, servedExpiry };
+  /**
+   * recalibrate — manually resets the ATM drift baseline to null so that the
+   * very next data response re-establishes it from the current live LTP.
+   * Use this when you want to force a fresh ATM-centred window on demand.
+   */
+  const recalibrate = useCallback(() => {
+    baseAtmRef.current      = null;
+    driftFetchingRef.current = false;
+    console.log(`[OptionChain] Manual recalibration triggered for ${underlying}`);
+    fetchData();
+  }, [fetchData, underlying]);
+
+  return { data, loading, error, refresh, recalibrate, getATMStrike, getLotSize: () => lotSize, servedExpiry };
 }
 
 export default useAuthoritativeOptionChain;

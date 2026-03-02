@@ -26,6 +26,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     loading: chainLoading,
     error: chainError,
     refresh: refreshChain,
+    recalibrate: recalibrateChain,
   } = useAuthoritativeOptionChain(symbol, expiry, {
     autoRefresh: true,
     refreshInterval: 1000, // 1 second real-time updates
@@ -279,6 +280,12 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     refreshChain();
   };
 
+  const handleRecalibrate = () => {
+    setCenterStrike(null);
+    didInitialScroll.current = false;
+    recalibrateChain();
+  };
+
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--surface)', color: 'var(--text)' }}>
       {/* Header with center strike info */}
@@ -297,6 +304,14 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
           )}
         </div>
         <div className="flex items-center space-x-2">
+          <button
+            onClick={handleRecalibrate}
+            disabled={chainLoading}
+            className="px-2 py-0.5 text-xs font-semibold rounded border border-indigo-400 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+            title="Re-centre strikes to current ATM"
+          >
+            Re-centre
+          </button>
           <button
             onClick={handleRefresh}
             disabled={chainLoading}

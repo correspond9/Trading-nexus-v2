@@ -22,7 +22,7 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
     return 'NSE_FNO';
   };
 
-  const { data: chainData, loading: chainLoading, error: chainError, refresh: refreshChain, getATMStrike } =
+  const { data: chainData, loading: chainLoading, error: chainError, refresh: refreshChain, recalibrate: recalibrateChain, getATMStrike } =
     useAuthoritativeOptionChain(symbol, expiry, { autoRefresh: true, refreshInterval: 1000 });
 
   const lotSize = React.useMemo(() => {
@@ -247,6 +247,9 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
           {lotSize && <span className="text-xs text-blue-600 font-medium">Lot: {lotSize}</span>}
           {expiry && <span className="text-xs text-orange-600 font-medium">Exp: {expiry}</span>}
         </div>
+        <button onClick={recalibrateChain} disabled={chainLoading} className="px-2 py-0.5 text-xs font-semibold rounded border border-indigo-400 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50" title="Re-centre strikes to current ATM">
+          Re-centre
+        </button>
         <button onClick={refreshChain} disabled={chainLoading} className="p-1 hover:bg-gray-200 rounded transition-colors disabled:opacity-50" title="Refresh data">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
         </button>

@@ -414,8 +414,8 @@ async def pnl_historic(
             WHERE po.user_id = pp.user_id
               AND po.instrument_token = pp.instrument_token
               AND po.status = 'FILLED'
-              AND po.created_at >= pp.opened_at
-              AND po.created_at <= pp.closed_at
+              AND po.placed_at >= pp.opened_at
+              AND po.placed_at <= pp.closed_at
         ) os ON TRUE
         WHERE pp.user_id = $1::uuid
           AND pp.status  = 'CLOSED'

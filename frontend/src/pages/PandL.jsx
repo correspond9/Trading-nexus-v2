@@ -181,9 +181,11 @@ const PandLPage = ({ hideUserSelect = false }) => {
                   <tbody>
                     {data.closed.map((p, i) => {
                       const pl = Number(p.realized_pnl || 0);
-                      const tradeCharges = Number(p.trade_expense ?? ((Number(p.total_charges || 0)) - (Number(p.platform_cost || 0))) || 0);
+                      const tradeCharges = p.trade_expense != null 
+                        ? Number(p.trade_expense) 
+                        : (Number(p.total_charges || 0) - Number(p.platform_cost || 0));
                       const platformCost = Number(p.platform_cost || 0);
-                      const netPnl = Number(p.net_pnl ?? (pl - tradeCharges - platformCost));
+                      const netPnl = p.net_pnl != null ? Number(p.net_pnl) : (pl - tradeCharges - platformCost);
                       return (
                         <tr key={i}>
                           <td style={{ ...S.td, fontWeight: 700 }}>{p.symbol || "—"}</td>

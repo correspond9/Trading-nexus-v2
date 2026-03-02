@@ -122,10 +122,11 @@ const StatusBadge = ({ label }) => {
 
 const OrdersTab = () => {
   const { user } = useAuth();
-  const [orders,     setOrders]     = useState([]);
-  const [loading,    setLoading]    = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
-  const [isMobile,   setIsMobile]   = useState(() => window.innerWidth <= 900);
+  const [orders,       setOrders]       = useState([]);
+  const [loading,      setLoading]      = useState(false);
+  const [selectedId,   setSelectedId]   = useState(null);
+  const [cancellingId, setCancellingId] = useState(null);
+  const [isMobile,     setIsMobile]     = useState(() => window.innerWidth <= 900);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 900);
@@ -161,6 +162,22 @@ const OrdersTab = () => {
     window.addEventListener("orders:updated", handler);
     return () => window.removeEventListener("orders:updated", handler);
   }, [fetchOrders]);
+
+  // ── cancel a pending order ────────────────────────────────────────────────
+  const handleCancel = useCallback(async (orderId, e) => {
+    e.stopPropagation();
+    if (cancellingId) return;
+    setCancellingId(orderId);
+    try {
+      await apiService.delete(`/trading/orders/${orderId}`);
+      await fetchOrders();
+    } catch (err) {
+      console.error("Cancel order failed:", err);
+      alert("Could not cancel order. " + (err?.message || ""));
+    } finally {
+      setCancellingId(null);
+    }
+  }, [cancellingId, fetchOrders]);
 
   // ── bucket ────────────────────────────────────────────────────────────────
   const pending  = orders.filter(isPending);
@@ -241,10 +258,11 @@ const OrdersTab = () => {
               <th style={thRight}>Qty</th>
               <th style={thRight}>Price</th>
               <th style={thStyle}>Status</th>
+              <th style={thStyle}>Action</th>
             </tr>
           </thead>
           <tbody>
-            {pending.length === 0 ? emptyRow(7) : pending.map((o) => (
+            {pending.length === 0 ? emptyRow(8) : pending.map((o) => (
               <tr key={o.id} style={selectedId === o.id ? rowSelStyle : rowClick}
                   onClick={() => setSelectedId(prev => prev === o.id ? null : o.id)}>
                 <td style={tdStyle}>{o.time}</td>
@@ -254,6 +272,25 @@ const OrdersTab = () => {
                 <td style={tdRight}>{o.qty.toLocaleString("en-IN")}</td>
                 <td style={tdRight}>{o.inputPrice > 0 ? o.inputPrice.toFixed(2) : "—"}</td>
                 <td style={tdStyle}><span style={{ fontWeight: 700, fontSize: "12px", color: "#3b82f6" }}>PENDING</span></td>
+                <td style={tdStyle} onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={(e) => handleCancel(o.id, e)}
+                    disabled={cancellingId === o.id}
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid #dc2626",
+                      background: cancellingId === o.id ? "#fee2e2" : "transparent",
+                      color: "#dc2626",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      cursor: cancellingId === o.id ? "not-allowed" : "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {cancellingId === o.id ? "…" : "Cancel"}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

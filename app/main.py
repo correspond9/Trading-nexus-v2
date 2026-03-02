@@ -49,6 +49,7 @@ from app.execution_simulator.super_order_monitor import (
     start_monitor   as start_super_order_monitor,
     stop_monitor    as stop_super_order_monitor,
 )
+from app.execution_simulator.execution_engine import reconcile_pending_orders
 from app.market_data.static_auth_monitor import static_auth_monitor
 from app.positions.eod_archiver               import eod_closed_position_archiver
 from app.runtime.market_timing                import market_timing_controller
@@ -93,6 +94,13 @@ async def lifespan(app: FastAPI):
 
         log.info("[1] Initialising database pool + running migrations…")
         await init_db()
+
+        log.info("[1c] Re-queueing PENDING paper orders from previous session…")
+        try:
+            requeued = await reconcile_pending_orders()
+            log.info("[1c] ✓ Re-queued %d PENDING paper orders", requeued)
+        except Exception as exc:
+            log.warning("[1c] reconcile_pending_orders failed: %s", exc)
 
         log.info("[1b] Syncing trading holidays from exchange websites…")
         try:

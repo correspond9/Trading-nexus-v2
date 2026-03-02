@@ -25,8 +25,9 @@ from .order_queue_manager         import (
 
 log = logging.getLogger(__name__)
 
-# Shared mock_mode flag — set by Admin router at runtime
-_mock_mode: bool = False
+# Shared mock_mode flag — always True for this paper-trading platform.
+# Kept as a flag so the Admin toggle still works; default changed to True.
+_mock_mode: bool = True
 
 
 def set_mock_mode(enabled: bool) -> None:
@@ -180,6 +181,57 @@ async def cancel_order(order_id: str, user_id: str) -> dict:
         order_id,
     )
     return {"success": True}
+
+
+# ── Startup reconciliation ────────────────────────────────────────────────
+
+
+async def reconcile_pending_orders() -> int:
+    """
+    Called once at startup: re-enqueue any PENDING orders that already exist
+    in the database (e.g. survive a container restart).
+    Returns the number of orders re-queued.
+    """
+    pool = get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT order_id, user_id, instrument_token, exchange_segment, symbol,
+               side, order_type, quantity, remaining_qty, limit_price, trigger_price
+        FROM   paper_orders
+        WHERE  status = 'PENDING'
+        """
+    )
+    if not rows:
+        return 0
+
+    from .execution_config import get_tick_size as _get_tick_size
+
+    count = 0
+    for row in rows:
+        try:
+            tick_size = _get_tick_size(row["exchange_segment"] or "NSE_FNO")
+            # SLM effective limit is the trigger price (market fill on trigger)
+            raw_limit = Decimal(str(row["limit_price"] or 0))
+            queued = QueuedOrder(
+                order_id         = str(row["order_id"]),
+                user_id          = str(row["user_id"]),
+                instrument_token = int(row["instrument_token"]),
+                side             = row["side"],
+                order_type       = row["order_type"],
+                exchange_segment = row["exchange_segment"] or "",
+                symbol           = row["symbol"] or "",
+                limit_price      = raw_limit,
+                trigger_price    = Decimal(str(row["trigger_price"] or 0)),
+                quantity         = int(row["quantity"]),
+                tick_size        = tick_size,
+            )
+            await enqueue(queued)
+            count += 1
+        except Exception as exc:
+            log.warning("reconcile_pending_orders: skipped order %s — %s", row["order_id"], exc)
+
+    log.info("reconcile_pending_orders: re-queued %d PENDING orders", count)
+    return count
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────

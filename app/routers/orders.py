@@ -374,6 +374,10 @@ async def place_paper_order(
                 detail=f"Market is {market_state.value}. Orders can only be placed during market hours."
             )
 
+        # Track any PENDING SL orders that need to be removed from the in-memory queue
+        # after the position is fully closed in the transaction below.
+        _sl_to_cancel: list[dict] = []
+
         # ── Margin enforcement & Order placement in transaction (prevents race condition) ──
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -592,6 +596,24 @@ async def place_paper_order(
                                         existing_realized + realized_delta,
                                         open_pos["position_id"],
                                     )
+                                    # Cancel any remaining PENDING orders for this instrument/user
+                                    pending_sl_rows = await conn.fetch(
+                                        """
+                                        UPDATE paper_orders
+                                        SET status = 'CANCELLED', updated_at = NOW()
+                                        WHERE user_id = $1 AND instrument_token = $2
+                                          AND status = 'PENDING'
+                                        RETURNING order_id, side, limit_price
+                                        """,
+                                        user_id, int(token or 0),
+                                    )
+                                    for prow in pending_sl_rows:
+                                        _sl_to_cancel.append({
+                                            "order_id":         str(prow["order_id"]),
+                                            "instrument_token": int(token or 0),
+                                            "side":             prow["side"],
+                                            "limit_price":      Decimal(str(prow["limit_price"] or 0)),
+                                        })
                                 elif (new_qty > 0 and existing_qty > 0) or (new_qty < 0 and existing_qty < 0):
                                     # Partial close, direction unchanged
                                     await conn.execute(
@@ -622,6 +644,18 @@ async def place_paper_order(
                                         existing_realized + realized_delta,
                                         open_pos["position_id"],
                                     )
+
+        # After transaction: flush auto-cancelled SL orders from in-memory queue
+        if _sl_to_cancel:
+            from app.execution_simulator.order_queue_manager import cancel as _queue_cancel
+            for _item in _sl_to_cancel:
+                await _queue_cancel(
+                    _item["instrument_token"],
+                    _item["side"],
+                    _item["limit_price"],
+                    _item["order_id"],
+                )
+                log.info("Auto-cancelled pending SL order %s (position fully closed)", _item["order_id"])
 
         # ── SL order: enqueue for trigger-based fill, return PENDING ──────────
         if ord_type in {"SLM", "SLL"}:
@@ -820,10 +854,12 @@ async def cancel_order(
             detail=f"Cannot cancel order with status {row['status']}. Only PENDING orders can be cancelled."
         )
     
-    n = await pool.execute(
-        "UPDATE paper_orders SET status='CANCELLED' WHERE order_id=$1",
-        order_id,
-    )
+    # Delegate to execution engine — removes from in-memory queue AND updates DB
+    from app.execution_simulator.execution_engine import cancel_order as _engine_cancel
+    owner_id = str(row["user_id"])
+    result = await _engine_cancel(order_id, owner_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("reason", "Cancel failed"))
     return {"success": True, "order_id": order_id}
 
 

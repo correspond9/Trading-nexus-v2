@@ -14,6 +14,7 @@ const HistoricOrdersPage = () => {
   const [fromDate, setFromDate] = useState(today());
   const [toDate, setToDate] = useState(today());
   const [userIdOrMobile, setUserIdOrMobile] = useState("");
+  const [orderIdFilter, setOrderIdFilter] = useState("");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [sortConfig, setSortConfig] = useState({ key: "placed_at", direction: "desc" });
@@ -71,7 +72,16 @@ const HistoricOrdersPage = () => {
   }, [fromDate, toDate, userIdOrMobile]);
 
   const sortedOrders = useMemo(() => {
-    const data = [...orders];
+    let data = [...orders];
+    
+    // Filter by order ID if specified
+    if (orderIdFilter.trim()) {
+      const searchTerm = orderIdFilter.trim().toLowerCase();
+      data = data.filter(o => 
+        (o.order_id || '').toLowerCase().includes(searchTerm)
+      );
+    }
+    
     if (!sortConfig.key) return data;
     
     data.sort((a, b) => {
@@ -83,7 +93,7 @@ const HistoricOrdersPage = () => {
       return 0;
     });
     return data;
-  }, [orders, sortConfig]);
+  }, [orders, orderIdFilter, sortConfig]);
 
   const onHeaderClick = (key) => {
     setSortConfig((prev) => ({
@@ -154,6 +164,16 @@ const HistoricOrdersPage = () => {
               style={{...s.input, minWidth: isMobile ? '220px' : '150px', width: isMobile ? '100%' : 'auto'}} 
             />
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={s.label}>Order ID</span>
+            <input 
+              type="text" 
+              placeholder="Search by Order ID" 
+              value={orderIdFilter} 
+              onChange={e => setOrderIdFilter(e.target.value)} 
+              style={{...s.input, minWidth: isMobile ? '220px' : '180px', width: isMobile ? '100%' : 'auto'}} 
+            />
+          </div>
           <button onClick={fetchOrders} disabled={loading} style={s.button}>
             {loading ? "Loading…" : "Apply"}
           </button>
@@ -167,12 +187,16 @@ const HistoricOrdersPage = () => {
               <thead style={s.thead}>
                 <tr>
                   {sortableHeader("Placed At", "placed_at")}
-                  {sortableHeader("User ID", "user_id")}
+                  {sortableHeader("User ID", "user_no")}
                   {sortableHeader("Symbol", "symbol")}
                   {sortableHeader("Side", "side")}
                   {sortableHeader("Type", "order_type")}
-                  {sortableHeader("Qty", "quantity")}
-                  {sortableHeader("Price", "fill_price")}
+                  <th key="quantity" style={{...s.th, textAlign: 'right', color: sortConfig.key === 'quantity' ? 'var(--accent)' : 'var(--muted)'}} onClick={() => onHeaderClick('quantity')}>
+                    Qty {sortConfig.key === 'quantity' && <span style={{ marginLeft: 4, fontSize: '10px' }}>{sortConfig.direction === "asc" ? "▲" : "▼"}</span>}
+                  </th>
+                  <th key="fill_price" style={{...s.th, textAlign: 'right', color: sortConfig.key === 'fill_price' ? 'var(--accent)' : 'var(--muted)'}} onClick={() => onHeaderClick('fill_price')}>
+                    Price {sortConfig.key === 'fill_price' && <span style={{ marginLeft: 4, fontSize: '10px' }}>{sortConfig.direction === "asc" ? "▲" : "▼"}</span>}
+                  </th>
                   {sortableHeader("Status", "status")}
                 </tr>
               </thead>
@@ -184,7 +208,7 @@ const HistoricOrdersPage = () => {
                     onClick={() => handleRowClick(o.order_id)}
                   >
                     <td style={s.td}>{formatDateTime(o.placed_at)}</td>
-                    <td style={{...s.td, fontSize: '10px', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis'}} title={o.user_id}>{o.user_id}</td>
+                    <td style={{...s.td, color: 'var(--text)'}}>{o.user_no || '—'}</td>
                     <td style={s.td}>{o.symbol || '—'}</td>
                     <td style={s.td}><span style={{padding: '2px 8px', borderRadius: '3px', background: o.side === 'BUY' ? '#1e40af33' : '#b91c1c33', color: o.side === 'BUY' ? '#60a5fa' : '#f87171'}}>{o.side}</span></td>
                     <td style={s.td}>{o.order_type || '—'}</td>
@@ -207,7 +231,24 @@ const HistoricOrdersPage = () => {
 
         {selectedOrder && (
           <div style={s.details}>
-            <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: 'var(--text)' }}>Order Details</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text)' }}>Order Details</div>
+              <button 
+                onClick={() => setSelectedOrderId(null)} 
+                style={{ 
+                  background: 'none', 
+                  border: '1px solid var(--border)', 
+                  borderRadius: '4px', 
+                  padding: '4px 8px', 
+                  color: 'var(--muted)', 
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '600'
+                }}
+              >
+                ✕ Close
+              </button>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
               <div><span style={{ color: 'var(--muted)' }}>Order ID:</span> <code style={{ fontSize: '10px', background: 'var(--surface2)', padding: '2px 6px', borderRadius: '3px' }}>{selectedOrder.order_id}</code></div>
               <div><span style={{ color: 'var(--muted)' }}>User ID:</span> <code style={{ fontSize: '10px', background: 'var(--surface2)', padding: '2px 6px', borderRadius: '3px' }}>{selectedOrder.user_id}</code></div>

@@ -152,9 +152,12 @@ const TradeHistoryPage = () => {
                   {sortableHeader("Symbol", "symbol")}
                   {sortableHeader("Side", "side")}
                   {sortableHeader("Type", "order_type")}
-                  {sortableHeader("Qty", "quantity")}
-                  {sortableHeader("Price", "execution_price")}
-                  {sortableHeader("Value", "qty")}
+                  <th key="quantity" style={{...s.th, textAlign: 'right', color: sortConfig.key === 'quantity' ? 'var(--accent)' : 'var(--muted)'}} onClick={() => onHeaderClick('quantity')}>
+                    Qty {sortConfig.key === 'quantity' && <span style={{ marginLeft: 4, fontSize: '10px' }}>{sortConfig.direction === "asc" ? "▲" : "▼"}</span>}
+                  </th>
+                  <th key="execution_price" style={{...s.th, textAlign: 'right', color: sortConfig.key === 'execution_price' ? 'var(--accent)' : 'var(--muted)'}} onClick={() => onHeaderClick('execution_price')}>
+                    Price {sortConfig.key === 'execution_price' && <span style={{ marginLeft: 4, fontSize: '10px' }}>{sortConfig.direction === "asc" ? "▲" : "▼"}</span>}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -174,13 +177,12 @@ const TradeHistoryPage = () => {
                       <td style={s.td}>{t.order_type || t.orderMode || '—'}</td>
                       <td style={{...s.td, textAlign: 'right'}}>{qty.toLocaleString('en-IN')}</td>
                       <td style={{...s.td, textAlign: 'right'}}>{formatCurrency(price)}</td>
-                      <td style={{...s.td, textAlign: 'right'}}>{formatCurrency(value)}</td>
                     </tr>
                   );
                 })}
                 {sortedTrades.length === 0 && (
                   <tr>
-                    <td colSpan="7" style={{...s.td, textAlign: 'center', padding: '20px', color: 'var(--text)'}}>
+                    <td colSpan="6" style={{...s.td, textAlign: 'center', padding: '20px', color: 'var(--text)'}}>
                       No executed trades found for the selected period.
                     </td>
                   </tr>
@@ -192,7 +194,24 @@ const TradeHistoryPage = () => {
 
         {selectedTrade && (
           <div style={s.details}>
-            <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: 'var(--text)' }}>Trade Details</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text)' }}>Trade Details</div>
+              <button 
+                onClick={() => setSelectedTradeId(null)} 
+                style={{ 
+                  background: 'none', 
+                  border: '1px solid var(--border)', 
+                  borderRadius: '4px', 
+                  padding: '4px 8px', 
+                  color: 'var(--muted)', 
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '600'
+                }}
+              >
+                ✕ Close
+              </button>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
               <div><span style={{ color: 'var(--muted)' }}>Order ID:</span> <code style={{ fontSize: '10px', background: 'var(--surface2)', padding: '2px 6px', borderRadius: '3px' }}>{selectedTrade.id}</code></div>
               <div><span style={{ color: 'var(--muted)' }}>Symbol:</span> {selectedTrade.symbol || '—'}</div>

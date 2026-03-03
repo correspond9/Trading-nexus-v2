@@ -1,0 +1,65 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - link "Logo" [ref=e58] [cursor=pointer]:
+        - /url: /trade
+        - img "Logo" [ref=e59]
+      - navigation [ref=e7]:
+        - link "Trade" [ref=e8] [cursor=pointer]:
+          - /url: /trade
+        - link "Portfolio" [ref=e9] [cursor=pointer]:
+          - /url: /portfolio
+        - link "P.MIS" [ref=e10] [cursor=pointer]:
+          - /url: /trade/all-positions
+        - link "P.Normal" [ref=e11] [cursor=pointer]:
+          - /url: /all-positions-normal
+        - link "P.Userwise" [ref=e12] [cursor=pointer]:
+          - /url: /all-positions-userwise
+        - link "Users" [ref=e13] [cursor=pointer]:
+          - /url: /users
+        - link "Payouts" [ref=e14] [cursor=pointer]:
+          - /url: /payouts
+        - link "Ledger" [ref=e15] [cursor=pointer]:
+          - /url: /ledger
+        - link "Trade History" [ref=e16] [cursor=pointer]:
+          - /url: /trade-history
+        - link "P&L" [ref=e17] [cursor=pointer]:
+          - /url: /pandl
+        - link "Dashboard" [ref=e18] [cursor=pointer]:
+          - /url: /dashboard
+      - generic [ref=e19]:
+        - group "Theme selector" [ref=e20]:
+          - button "Light" [ref=e21] [cursor=pointer]
+          - button "Dark" [ref=e22] [cursor=pointer]
+          - button "Grey" [ref=e23] [cursor=pointer]
+        - generic [ref=e24]: Super
+        - button "👤" [ref=e25] [cursor=pointer]
+        - button "Logout" [ref=e26] [cursor=pointer]
+  - generic [ref=e27]:
+    - generic [ref=e28]:
+      - heading "Trade History" [level=1] [ref=e29]
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - generic [ref=e32]: From
+          - textbox [ref=e33]: 2026-03-01
+        - generic [ref=e34]:
+          - generic [ref=e35]: To
+          - textbox [ref=e36]: 2026-03-03
+        - generic [ref=e37]:
+          - generic [ref=e38]: User ID / Mobile
+          - textbox "User ID or Mobile" [ref=e39]
+        - button "Apply" [ref=e40] [cursor=pointer]
+    - table [ref=e44]:
+      - rowgroup [ref=e45]:
+        - row "Placed At ▼ User ID Symbol Side Type Qty Price Status" [ref=e46]:
+          - columnheader "Placed At ▼" [ref=e47] [cursor=pointer]
+          - columnheader "User ID" [ref=e48] [cursor=pointer]
+          - columnheader "Symbol" [ref=e49] [cursor=pointer]
+          - columnheader "Side" [ref=e50] [cursor=pointer]
+          - columnheader "Type" [ref=e51] [cursor=pointer]
+          - columnheader "Qty" [ref=e52] [cursor=pointer]
+          - columnheader "Price" [ref=e53] [cursor=pointer]
+          - columnheader "Status" [ref=e54] [cursor=pointer]
+      - rowgroup [ref=e55]:
+        - row "No orders found for the selected criteria." [ref=e56]:
+          - cell "No orders found for the selected criteria." [ref=e57]

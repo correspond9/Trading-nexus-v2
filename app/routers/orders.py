@@ -826,7 +826,13 @@ async def get_historic_orders(
         )
     
     # Build query - filter by FILLED status (executed trades)
-    q = "SELECT o.* FROM paper_orders o WHERE o.status = 'FILLED'"
+    # Join with users table to get user_no for display
+    q = """
+        SELECT o.*, u.user_no 
+        FROM paper_orders o 
+        LEFT JOIN users u ON o.user_id = u.id 
+        WHERE o.status = 'FILLED'
+    """
     args = []
     
     # Date range filtering (convert strings to date objects)

@@ -2905,6 +2905,105 @@ async def run_charge_calculation(
     return {"success": True, "data": result}
 
 
+@router.post("/charge-calculation/recompute-historic")
+async def recompute_historic_charge_calculation(
+    current_user: CurrentUser = Depends(get_admin_user),
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    user_id: Optional[str] = None,
+    include_zero: bool = True,
+    include_uniform_360: bool = True,
+):
+    """
+    Force-reset stale historical charge rows and recompute in one call.
+
+    Defaults target known-bad rows:
+    - trade_expense = 0.00
+    - trade_expense = 3.60 (uniform stale value)
+    """
+    from app.database import get_pool
+    from app.schedulers.charge_calculation_scheduler import charge_calculation_scheduler
+
+    pool = get_pool()
+    if pool is None:
+        raise HTTPException(status_code=500, detail="Database pool not initialized")
+
+    stale_conditions = []
+    if include_zero:
+        stale_conditions.append("COALESCE(pp.trade_expense, 0) = 0")
+    if include_uniform_360:
+        stale_conditions.append("pp.trade_expense = 3.60")
+
+    if not stale_conditions:
+        raise HTTPException(status_code=400, detail="At least one stale condition must be enabled")
+
+    closed_from = None
+    closed_to = None
+    try:
+        if from_date:
+            fd = datetime.fromisoformat(from_date).date()
+            closed_from = datetime(fd.year, fd.month, fd.day, 0, 0, 0)
+        if to_date:
+            td = datetime.fromisoformat(to_date).date()
+            closed_to = datetime(td.year, td.month, td.day, 23, 59, 59)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    where_parts = [
+        "pp.status = 'CLOSED'",
+        "pp.closed_at IS NOT NULL",
+        "(" + " OR ".join(stale_conditions) + ")",
+    ]
+    params = []
+
+    if user_id:
+        params.append(str(user_id))
+        where_parts.append(f"pp.user_id = ${len(params)}::uuid")
+
+    if closed_from is not None:
+        params.append(closed_from)
+        where_parts.append(f"pp.closed_at >= ${len(params)}")
+
+    if closed_to is not None:
+        params.append(closed_to)
+        where_parts.append(f"pp.closed_at <= ${len(params)}")
+
+    reset_sql = f"""
+        WITH updated AS (
+            UPDATE paper_positions pp
+            SET charges_calculated = FALSE,
+                charges_calculated_at = NULL
+            WHERE {' AND '.join(where_parts)}
+            RETURNING 1
+        )
+        SELECT COUNT(*) FROM updated
+    """
+
+    reset_count = await pool.fetchval(reset_sql, *params)
+
+    recalc_result = await charge_calculation_scheduler.run_once(
+        exchanges=None,
+        user_id=str(user_id) if user_id else None,
+        closed_from=closed_from,
+        closed_to=closed_to,
+    )
+
+    return {
+        "success": True,
+        "data": {
+            "reset_rows": int(reset_count or 0),
+            "recalculation": recalc_result,
+            "filters": {
+                "user_id": user_id,
+                "from_date": from_date,
+                "to_date": to_date,
+                "include_zero": include_zero,
+                "include_uniform_360": include_uniform_360,
+            },
+        },
+    }
+
+
 # ── Logo Management ─────────────────────────────────────────────────────────
 
 @router.post("/logo/upload")

@@ -212,6 +212,33 @@ const PandLPage = ({ hideUserSelect = false }) => {
                         </tr>
                       );
                     })}
+                    {data.closed.length > 0 && (
+                      <tr style={{ background: "var(--surface2)", fontWeight: 700 }}>
+                        <td style={{ ...S.td, fontWeight: 700 }}>Total</td>
+                        <td style={{ ...S.td }}></td>
+                        <td style={{ ...S.td }}></td>
+                        <td style={{ ...S.td }}></td>
+                        <td style={{ ...S.td }}></td>
+                        <td style={{ ...S.td }}></td>
+                        <td style={{ ...S.td }}></td>
+                        <td style={{ ...S.td }}></td>
+                        <td style={{ ...S.td }}></td>
+                        <td style={{ ...S.td }}></td>
+                        <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: numColor(data.closed.reduce((sum, p) => {
+                          const tradeCharges = p.trade_expense != null ? Number(p.trade_expense) : (Number(p.total_charges || 0) - Number(p.platform_cost || 0));
+                          const platformCost = Number(p.platform_cost || 0);
+                          const netPnl = p.net_pnl != null ? Number(p.net_pnl) : (Number(p.realized_pnl || 0) - tradeCharges - platformCost);
+                          return sum + netPnl;
+                        }, 0)) }}>
+                          {INR(data.closed.reduce((sum, p) => {
+                            const tradeCharges = p.trade_expense != null ? Number(p.trade_expense) : (Number(p.total_charges || 0) - Number(p.platform_cost || 0));
+                            const platformCost = Number(p.platform_cost || 0);
+                            const netPnl = p.net_pnl != null ? Number(p.net_pnl) : (Number(p.realized_pnl || 0) - tradeCharges - platformCost);
+                            return sum + netPnl;
+                          }, 0))}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

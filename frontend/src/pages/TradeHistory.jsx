@@ -37,7 +37,11 @@ const TradeHistoryPage = () => {
       };
       
       const res = await apiService.get('/trading/orders/executed', params);
-      const filledOrders = res?.data || [];
+      const filledOrders = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.data)
+          ? res.data.data
+          : [];
       setTrades(filledOrders);
     } catch (err) {
       console.error('Error fetching trade history:', err);

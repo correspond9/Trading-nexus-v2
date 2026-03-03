@@ -826,7 +826,7 @@ async def get_historic_orders(
         )
     
     # Build query - filter by FILLED status (executed trades)
-    q = "SELECT o.* FROM paper_orders o LEFT JOIN paper_accounts pa ON o.user_id = pa.user_id WHERE o.status = 'FILLED'"
+    q = "SELECT o.* FROM paper_orders o WHERE o.status = 'FILLED'"
     args = []
     
     # Date range filtering (convert strings to date objects)
@@ -842,8 +842,15 @@ async def get_historic_orders(
         q += f" AND o.user_id = ${len(args)+1}::uuid"
         args.append(user_id)
     elif mobile:
-        q += f" AND pa.mobile = ${len(args)+1}"
-        args.append(mobile)
+        # Resolve mobile to user_id first to avoid join/cast edge cases that can cause 500s
+        mobile_user_id = await pool.fetchval(
+            "SELECT id FROM users WHERE mobile = $1 LIMIT 1",
+            mobile,
+        )
+        if not mobile_user_id:
+            return {"data": []}
+        q += f" AND o.user_id = ${len(args)+1}::uuid"
+        args.append(mobile_user_id)
     
     # Status filtering (optional, defaults to FILLED)
     if status_filter and status_filter.upper() != 'FILLED':

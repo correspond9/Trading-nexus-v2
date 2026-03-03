@@ -46,16 +46,22 @@ const HistoricOrdersPage = () => {
       };
       
       // Determine if input is UUID or mobile
-      if (userIdOrMobile) {
-        if (userIdOrMobile.includes('-') || userIdOrMobile.length === 36) {
-          params.user_id = userIdOrMobile;
+      const filterValue = String(userIdOrMobile || '').trim();
+      if (filterValue) {
+        if (filterValue.includes('-') || filterValue.length === 36) {
+          params.user_id = filterValue;
         } else {
-          params.mobile = userIdOrMobile;
+          params.mobile = filterValue;
         }
       }
       
       const res = await apiService.get('/trading/orders/historic/orders', params);
-      setOrders(res?.data || []);
+      const rows = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.data?.data)
+          ? res.data.data
+          : [];
+      setOrders(rows);
     } catch (err) {
       console.error('Error fetching historic orders:', err);
       setOrders([]);

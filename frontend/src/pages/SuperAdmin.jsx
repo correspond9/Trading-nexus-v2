@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiService } from '../services/apiService';
 import { useAuthSettings } from '../hooks/useAuthSettings';
 import SystemMonitoring from '../components/SystemMonitoring';
-import HistoricOrdersPage from './HistoricOrders';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const API = '/api/v2';
@@ -29,7 +28,6 @@ const TABS = [
   { id: 'settings',  label: 'Settings & Monitoring' },
   { id: 'authCheck', label: 'User Auth Check' },
   { id: 'historic',  label: 'Historic Position' },
-  { id: 'orders', label: 'Historic Orders' },
   { id: 'portalUsers', label: 'Portal Signups' },
   { id: 'schedulers', label: 'Schedulers' },
 ];
@@ -1302,11 +1300,6 @@ const SuperAdminDashboard = () => {
             </div>
           </div>
         </div>
-      )}
-
-      {/* ── Historic Orders ── */}
-      {activeTab === 'orders' && (
-        <HistoricOrdersPage />
       )}
 
     </div>

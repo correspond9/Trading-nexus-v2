@@ -759,8 +759,9 @@ async def get_historic_orders(
     status_filter: Optional[str] = Query(None),
 ):
     """
-    Get historic orders (archived) for admin/super admin.
+    Get historic executed trades for admin/super admin.
     Allows filtering by date range and user ID or mobile number.
+    Returns all FILLED (executed) trades.
     
     Only ADMIN and SUPER_ADMIN roles can access this.
     """
@@ -772,11 +773,11 @@ async def get_historic_orders(
     if current_user.role not in ("ADMIN", "SUPER_ADMIN"):
         raise HTTPException(
             status_code=403,
-            detail="Only admins can access historic orders."
+            detail="Only admins can access historic trades."
         )
     
-    # Build query
-    q = "SELECT o.* FROM paper_orders o LEFT JOIN paper_accounts pa ON o.user_id = pa.user_id WHERE archived_at IS NOT NULL"
+    # Build query - filter by FILLED status (executed trades)
+    q = "SELECT o.* FROM paper_orders o LEFT JOIN paper_accounts pa ON o.user_id = pa.user_id WHERE o.status = 'FILLED'"
     args = []
     
     # Date range filtering (convert strings to date objects)
@@ -795,8 +796,8 @@ async def get_historic_orders(
         q += f" AND pa.mobile = ${len(args)+1}"
         args.append(mobile)
     
-    # Status filtering
-    if status_filter:
+    # Status filtering (optional, defaults to FILLED)
+    if status_filter and status_filter.upper() != 'FILLED':
         q += f" AND o.status = ${len(args)+1}"
         args.append(status_filter.upper())
     

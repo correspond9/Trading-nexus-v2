@@ -128,7 +128,7 @@ const HistoricOrdersPage = () => {
   return (
     <div style={s.page}>
       <div style={s.header}>
-        <h1 style={s.title}>Historic Orders</h1>
+        <h1 style={s.title}>Trade History</h1>
         <div style={s.filterBar}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={s.label}>From</span>

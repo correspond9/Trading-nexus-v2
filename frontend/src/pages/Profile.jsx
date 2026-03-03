@@ -4,7 +4,7 @@ import { apiService } from '../services/apiService';
 
 import LedgerPage from './Ledger';
 import PandLPage from './PandL';
-import OrdersTab from './Orders';
+import TradeHistoryPage from './TradeHistory';
 
 const ProfilePage = () => {
   const { user, logout } = useAuth();
@@ -93,7 +93,7 @@ const ProfilePage = () => {
 
           {active === 'trades' && (
             <div style={{ margin: isMobile ? '-12px' : '-18px' }}>
-              <OrdersTab />
+              <TradeHistoryPage />
             </div>
           )}
 

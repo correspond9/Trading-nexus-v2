@@ -36,9 +36,8 @@ const TradeHistoryPage = () => {
         // No user_id parameter - API will use current user from auth context
       };
       
-      const res = await apiService.get('/trading/orders', params);
-      // Filter for FILLED status only (executed trades)
-      const filledOrders = (res?.data?.data || []).filter(o => o.status === 'FILLED');
+      const res = await apiService.get('/trading/orders/executed', params);
+      const filledOrders = res?.data || [];
       setTrades(filledOrders);
     } catch (err) {
       console.error('Error fetching trade history:', err);

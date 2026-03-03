@@ -749,6 +749,55 @@ async def list_orders(
     return {"data": [_fmt(r) for r in rows]}
 
 
+@router.get("/executed")
+async def get_executed_trades(
+    current_user: CurrentUser = Depends(get_current_user),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    user_id: Optional[str] = Query(None),
+):
+    """
+    Get executed (FILLED) trades for the authenticated user.
+    Regular users can only see their own trades.
+    Admin/Super Admin can optionally specify user_id to see other users' trades.
+    
+    All users can access this endpoint for viewing their own executed trades.
+    """
+    from datetime import datetime
+    
+    pool = get_pool()
+    
+    # Determine which user's trades to fetch
+    target_uid = user_id
+    
+    # Non-admin users can only see their own trades
+    if current_user.role not in ("ADMIN", "SUPER_ADMIN"):
+        if user_id and str(user_id) != str(current_user.id):
+            raise HTTPException(status_code=403, detail="You can only view your own executed trades")
+        target_uid = current_user.id
+    
+    # If no user_id specified and user is admin, default to their own trades
+    if not target_uid:
+        target_uid = current_user.id
+    
+    # Build query - filter by FILLED status (executed trades)
+    q = "SELECT * FROM paper_orders WHERE user_id = $1 AND status = 'FILLED'"
+    args = [target_uid]
+    
+    # Date range filtering (convert strings to date objects)
+    if from_date:
+        q += f" AND DATE(placed_at AT TIME ZONE 'Asia/Kolkata') >= ${len(args)+1}"
+        args.append(datetime.strptime(from_date, '%Y-%m-%d').date())
+    if to_date:
+        q += f" AND DATE(placed_at AT TIME ZONE 'Asia/Kolkata') <= ${len(args)+1}"
+        args.append(datetime.strptime(to_date, '%Y-%m-%d').date())
+    
+    q += " ORDER BY placed_at DESC LIMIT 1000"
+    
+    rows = await pool.fetch(q, *args)
+    return {"data": [_fmt(r) for r in rows]}
+
+
 @router.get("/historic/orders")
 async def get_historic_orders(
     current_user: CurrentUser = Depends(get_current_user),

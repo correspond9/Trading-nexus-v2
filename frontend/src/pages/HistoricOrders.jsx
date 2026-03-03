@@ -55,7 +55,7 @@ const HistoricOrdersPage = () => {
       }
       
       const res = await apiService.get('/trading/orders/historic/orders', params);
-      setOrders(res?.data?.data || []);
+      setOrders(res?.data || []);
     } catch (err) {
       console.error('Error fetching historic orders:', err);
       setOrders([]);

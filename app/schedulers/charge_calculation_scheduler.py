@@ -426,7 +426,9 @@ class ChargeCalculationScheduler:
             
             
         except Exception as e:
-            logger.error(f"Error calculating charges for position {position.get('position_id')}: {e}")
+            logger.error(f"ERROR calculating charges for position {position.get('position_id')}: {e}", exc_info=True)
+            if isinstance(e, KeyError):
+                logger.error(f"  Missing key in charges dict. Available keys: {list(charges.keys()) if 'charges' in locals() else 'charges not calculated'}")
             raise
     
     def get_stats(self) -> dict:

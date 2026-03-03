@@ -280,6 +280,7 @@ class ChargeCalculator:
                 'sebi_charge': self._round_to_2decimals(sebi_charge),
                 'dp_charge': self._round_to_2decimals(dp_charge),
                 'clearing_charge': self._round_to_2decimals(clearing_charge),
+                'ipft_charge': Decimal('0'),  # IPFT = Investments & Profits Fund Tax (rarely applied, set to 0)
                 'gst_charge': self._round_to_2decimals(gst_charge),
                 'platform_cost': self._round_to_2decimals(platform_cost),
                 'trade_expense': self._round_to_2decimals(trade_expense),

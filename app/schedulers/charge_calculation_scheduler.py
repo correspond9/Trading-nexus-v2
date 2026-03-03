@@ -230,6 +230,7 @@ class ChargeCalculationScheduler:
                     pp.exchange_segment,
                     pp.product_type,
                     pp.instrument_token,
+                    pp.opened_at,
                     pp.closed_at,
                     u.brokerage_plan_equity_id,
                     u.brokerage_plan_futures_id,
@@ -328,6 +329,41 @@ class ChargeCalculationScheduler:
                 position['instrument_token']
             )
             exit_price = float(ltp_row['ltp']) if ltp_row and ltp_row['ltp'] else float(position['avg_price'])
+
+            # Closed rows often have pp.quantity=0 after square-off.
+            # Derive effective traded quantity and side-wise prices from filled orders.
+            order_stats = await pool.fetchrow(
+                """
+                SELECT
+                    COALESCE(SUM(CASE WHEN po.side = 'BUY'  THEN COALESCE(po.filled_qty, 0) ELSE 0 END), 0) AS buy_qty,
+                    COALESCE(SUM(CASE WHEN po.side = 'BUY'  THEN COALESCE(po.filled_qty, 0) * COALESCE(po.fill_price, 0) ELSE 0 END), 0) AS buy_value,
+                    COALESCE(SUM(CASE WHEN po.side = 'SELL' THEN COALESCE(po.filled_qty, 0) ELSE 0 END), 0) AS sell_qty,
+                    COALESCE(SUM(CASE WHEN po.side = 'SELL' THEN COALESCE(po.filled_qty, 0) * COALESCE(po.fill_price, 0) ELSE 0 END), 0) AS sell_value
+                FROM paper_orders po
+                WHERE po.user_id = $1::uuid
+                  AND po.instrument_token = $2
+                  AND po.status = 'FILLED'
+                  AND ($3::timestamptz IS NULL OR po.placed_at >= $3)
+                  AND ($4::timestamptz IS NULL OR po.placed_at <= $4)
+                """,
+                str(position['user_id']),
+                position['instrument_token'],
+                position.get('opened_at'),
+                position.get('closed_at'),
+            )
+
+            buy_qty = int(order_stats['buy_qty'] or 0) if order_stats else 0
+            sell_qty = int(order_stats['sell_qty'] or 0) if order_stats else 0
+            buy_value = float(order_stats['buy_value'] or 0) if order_stats else 0.0
+            sell_value = float(order_stats['sell_value'] or 0) if order_stats else 0.0
+
+            effective_qty = max(abs(int(position.get('quantity') or 0)), buy_qty, sell_qty)
+            if effective_qty <= 0:
+                logger.warning(f"Skipping {position['position_id']}: effective quantity is zero")
+                return
+
+            effective_buy_price = (buy_value / buy_qty) if buy_qty > 0 else float(position['avg_price'])
+            effective_sell_price = (sell_value / sell_qty) if sell_qty > 0 else exit_price
             
             # Calculate charges (ALWAYS, even for zero-brokerage plans)
             # Statutory charges are mandatory regulatory requirements
@@ -343,9 +379,9 @@ class ChargeCalculationScheduler:
             logger.info(f"Processing {position['position_id']}: {seg_norm}/{prod_norm}/{inst_norm}, is_option={is_option}")
             
             charges = calculate_position_charges(
-                quantity=position['quantity'],
-                buy_price=float(position['avg_price']),
-                sell_price=exit_price,
+                quantity=effective_qty,
+                buy_price=effective_buy_price,
+                sell_price=effective_sell_price,
                 exchange_segment=seg_norm,
                 product_type=prod_norm,
                 instrument_type=inst_norm,

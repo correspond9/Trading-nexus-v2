@@ -57,7 +57,21 @@ async def get_ledger(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
 
-    # ── 1. Wallet entries (deposits, withdrawals, fees — NOT P&L rows) ────────
+    # ── 1. Get opening balance (last entry before from_date) ──────────────────
+    opening_balance_row = await pool.fetchrow(
+        """
+        SELECT balance_after
+        FROM   ledger_entries
+        WHERE  user_id     = $1::uuid
+          AND  created_at <  $2::date
+          AND  description NOT LIKE '%Realized P&L%'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        target_user_id, fd,
+    )
+
+    # ── 2. Wallet entries (deposits, withdrawals, fees — NOT P&L rows) ────────
     wallet_rows = await pool.fetch(
         """
         SELECT created_at, description, debit, credit, balance_after
@@ -72,7 +86,7 @@ async def get_ledger(
         target_user_id, fd, td, limit, offset,
     )
 
-    # ── 2. Realized P&L — pulled directly from closed positions ──────────────
+    # ── 3. Realized P&L — pulled directly from closed positions ──────────────
     #   This ensures coverage for all historical positions regardless of
     #   whether the charge scheduler has processed them.
     pnl_rows = await pool.fetch(
@@ -101,8 +115,20 @@ async def get_ledger(
         target_user_id, fd, td, limit, offset,
     )
 
-    # ── 3. Build unified response ─────────────────────────────────────────────
+    # ── 4. Build unified response ─────────────────────────────────────────────
     data = []
+
+    # Add opening balance entry if available
+    if opening_balance_row and opening_balance_row["balance_after"] is not None:
+        opening_balance = float(opening_balance_row["balance_after"] or 0)
+        data.append({
+            "date":        fd.isoformat(),
+            "type":        "wallet",
+            "description": "Opening balance",
+            "debit":       None,
+            "credit":      round(opening_balance, 2),
+            "balance":     round(opening_balance, 2),
+        })
 
     for r in wallet_rows:
         created_at = r["created_at"]
@@ -124,13 +150,7 @@ async def get_ledger(
         total_charges= float(r["total_charges"]  or 0)
         net_pnl      = realized_pnl - total_charges
 
-        symbol = r["symbol"]           or "—"
-        seg    = r["exchange_segment"] or ""
-        prod   = r["product_type"]     or "MIS"
-        qty    = r["quantity"]
-        avg    = float(r["avg_price"] or 0)
-
-        desc = f"Realized P&L — {symbol} ({seg}, {prod}) | Qty {qty} @ ₹{avg:.2f}"
+        desc = "Realized profit/loss"
 
         data.append({
             "date":        created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
@@ -140,9 +160,6 @@ async def get_ledger(
             "credit":      round(net_pnl,      2) if net_pnl >= 0 else None,
             "balance":     None,   # position P&L rows don't carry a running wallet balance
             # Extra fields for richer UI display
-            "symbol":         symbol,
-            "exchange":       seg,
-            "product":        prod,
             "realized_pnl":   round(realized_pnl,   2),
             "total_charges":  round(total_charges,   2),
             "net_pnl":        round(net_pnl,         2),
@@ -151,4 +168,35 @@ async def get_ledger(
     # Sort merged list newest-first
     data.sort(key=lambda x: x["date"], reverse=True)
 
+    # ── 5. Calculate running wallet balance including P&L entries ──────────────
+    # Process in chronological order (oldest first) to build accurate running balance
+    data_sorted_asc = sorted(data, key=lambda x: x["date"])
+    running_balance = 0.0
+
+    for entry in data_sorted_asc:
+        # Add/subtract based on transaction type
+        if entry["type"] == "wallet":
+            # Wallet entries have balance_after from database
+            if entry["balance"] is not None:
+                running_balance = float(entry["balance"])
+        elif entry["type"] == "trade_pnl":
+            # P&L entries affect wallet but don't have balance_after in database
+            # Add the net P&L to running balance
+            if entry["credit"] is not None:
+                running_balance += float(entry["credit"])
+            elif entry["debit"] is not None:
+                running_balance -= float(entry["debit"])
+
+    # Now apply the running balance in reverse chronological order for display
+    data_sorted_desc = sorted(data, key=lambda x: x["date"], reverse=True)
+    for entry in data_sorted_desc:
+        if entry["type"] == "trade_pnl":
+            entry["balance"] = round(running_balance, 2)
+            # Update running balance backwards for the next (previously earlier) entry
+            if entry["credit"] is not None:
+                running_balance -= float(entry["credit"])
+            elif entry["debit"] is not None:
+                running_balance += float(entry["debit"])
+
+    # data is already sorted newest-first, return it
     return {"data": data}

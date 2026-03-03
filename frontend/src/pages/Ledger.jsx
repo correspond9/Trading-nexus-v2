@@ -82,8 +82,10 @@ const LedgerPage = () => {
   const totalDebit  = entries.reduce((s, e) => s + (e.debit  != null ? Number(e.debit)  : 0), 0);
   const tradePnl    = entries.filter(e => e.type === 'trade_pnl')
                              .reduce((s, e) => s + (e.net_pnl != null ? Number(e.net_pnl) : (e.credit != null ? Number(e.credit) : -Number(e.debit || 0))), 0);
-  const walletNet   = entries.filter(e => e.type === 'wallet')
-                             .reduce((s, e) => s + (e.credit != null ? Number(e.credit) : 0) - (e.debit != null ? Number(e.debit) : 0), 0);
+  // Get current wallet balance from the latest entry's balance field
+  const currentBalance = entries.length > 0 
+    ? (entries[0].balance != null ? Number(entries[0].balance) : 0)
+    : 0;
 
   const s = {
     page:      { padding: isMobile ? '12px' : '24px', fontFamily: 'system-ui,sans-serif', color: 'var(--text)' },
@@ -168,9 +170,9 @@ const LedgerPage = () => {
             <div style={s.summaryLabel}>Trade P&L (Net)</div>
             <div style={s.summaryValue(tradePnl)}>{INR(tradePnl)}</div>
           </div>
-          <div style={s.summaryCard(walletNet >= 0 ? '#3b82f6' : '#f97316')}>
-            <div style={s.summaryLabel}>Wallet Movements</div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>{INR(walletNet)}</div>
+          <div style={s.summaryCard(currentBalance >= 0 ? '#3b82f6' : '#f97316')}>
+            <div style={s.summaryLabel}>Current Wallet Balance</div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>{INR(currentBalance)}</div>
           </div>
         </div>
       )}

@@ -169,34 +169,26 @@ async def get_ledger(
     data.sort(key=lambda x: x["date"], reverse=True)
 
     # ── 5. Calculate running wallet balance including P&L entries ──────────────
-    # Process in chronological order (oldest first) to build accurate running balance
+    # Single forward pass (oldest → newest).
+    # Wallet entries carry ground-truth balance_after from the DB — use them as
+    # anchor points.  P&L entries have no stored balance, so we derive theirs by
+    # adding/subtracting from whichever wallet anchor preceded them.
     data_sorted_asc = sorted(data, key=lambda x: x["date"])
-    running_balance = 0.0
+    running_balance = float(opening_balance_row["balance_after"]) if opening_balance_row and opening_balance_row["balance_after"] is not None else 0.0
 
     for entry in data_sorted_asc:
-        # Add/subtract based on transaction type
         if entry["type"] == "wallet":
-            # Wallet entries have balance_after from database
+            # Ground truth: use the stored balance_after as the new anchor
             if entry["balance"] is not None:
                 running_balance = float(entry["balance"])
         elif entry["type"] == "trade_pnl":
-            # P&L entries affect wallet but don't have balance_after in database
-            # Add the net P&L to running balance
+            # Advance running balance by the P&L and stamp it on this entry
             if entry["credit"] is not None:
                 running_balance += float(entry["credit"])
             elif entry["debit"] is not None:
                 running_balance -= float(entry["debit"])
-
-    # Now apply the running balance in reverse chronological order for display
-    data_sorted_desc = sorted(data, key=lambda x: x["date"], reverse=True)
-    for entry in data_sorted_desc:
-        if entry["type"] == "trade_pnl":
             entry["balance"] = round(running_balance, 2)
-            # Update running balance backwards for the next (previously earlier) entry
-            if entry["credit"] is not None:
-                running_balance -= float(entry["credit"])
-            elif entry["debit"] is not None:
-                running_balance += float(entry["debit"])
 
-    # data is already sorted newest-first, return it
+    # Return newest-first
+    data.sort(key=lambda x: x["date"], reverse=True)
     return {"data": data}

@@ -190,7 +190,7 @@ const LedgerPage = () => {
             <table style={{ width: '100%', minWidth: '860px', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Date & Time', 'Description', 'Type', 'Debit (Loss)', 'Credit (Profit)', 'Net P&L', 'Wallet Balance'].map(h => (
+                  {['Date & Time', 'Description', 'Type', 'Debits', 'Credits', 'Wallet Balance'].map(h => (
                     <th key={h} style={s.th}>{h}</th>
                   ))}
                 </tr>
@@ -198,9 +198,6 @@ const LedgerPage = () => {
               <tbody>
                 {entries.map((e, i) => {
                   const isTradeEntry = e.type === 'trade_pnl';
-                  const netPnl = e.net_pnl != null
-                    ? Number(e.net_pnl)
-                    : e.credit != null ? Number(e.credit) : e.debit != null ? -Number(e.debit) : null;
 
                   // Format date/time
                   const rawDate = e.date || "";
@@ -247,12 +244,7 @@ const LedgerPage = () => {
                         {e.credit != null ? INR(e.credit) : '—'}
                       </td>
 
-                      {/* Net P&L (trade rows only) */}
-                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: netPnl != null ? (netPnl >= 0 ? 'var(--positive-text, #22c55e)' : 'var(--negative-text, #ef4444)') : 'var(--muted)', fontWeight: isTradeEntry ? 700 : 400 }}>
-                        {isTradeEntry && netPnl != null ? INR(netPnl) : '—'}
-                      </td>
-
-                      {/* Wallet balance (wallet rows only) */}
+                      {/* Wallet balance */}
                       <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: 'var(--text)' }}>
                         {e.balance != null ? INR(e.balance) : '—'}
                       </td>

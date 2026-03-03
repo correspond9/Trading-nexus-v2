@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, memo, useCallback } from 'react';
 import { apiService } from '../services/apiService';
 import { useAuthoritativeOptionChain } from '../hooks/useAuthoritativeOptionChain';
 import normalizeUnderlying from '../utils/underlying';
@@ -276,15 +276,15 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     didInitialScroll.current = true;
   }, [displayedStraddles]);
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     refreshChain();
-  };
+  }, [refreshChain]);
 
-  const handleRecalibrate = () => {
+  const handleRecalibrate = useCallback(() => {
     setCenterStrike(null);
     didInitialScroll.current = false;
     recalibrateChain();
-  };
+  }, [recalibrateChain]);
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--surface)', color: 'var(--text)' }}>
@@ -308,6 +308,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
             onClick={handleRecalibrate}
             disabled={chainLoading}
             className="px-2 py-0.5 text-xs font-semibold rounded border border-indigo-400 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+            style={{ willChange: 'transform' }}
             title="Re-centre strikes to current ATM"
           >
             Re-centre

@@ -153,6 +153,8 @@ const UsersPage = () => {
   const [loading,     setLoading]     = useState(true);
   const [search,      setSearch]      = useState("");
   const [showEntries, setShowEntries] = useState(50);
+  const [selectedUserTypes, setSelectedUserTypes] = useState([]);
+  const [showUserTypeDropdown, setShowUserTypeDropdown] = useState(false);
 
   // Modal
   const [showModal, setShowModal]   = useState(false);
@@ -309,17 +311,43 @@ const UsersPage = () => {
 
   // ── Filter ────────────────────────────────────────────────────────────
   const q = search.toLowerCase();
-  const filtered = users.filter(u =>
-    !q ||
-    String(u.user_no || "").includes(q) ||
-    (u.first_name || "").toLowerCase().includes(q) ||
-    (u.last_name  || "").toLowerCase().includes(q) ||
-    (u.email      || "").toLowerCase().includes(q) ||
-    (u.mobile     || "").toLowerCase().includes(q) ||
-    (u.role       || "").toLowerCase().includes(q) ||
-    (u.status     || "").toLowerCase().includes(q)
-  );
+  const filtered = users.filter(u => {
+    // Text search filter
+    const matchesSearch = !q ||
+      String(u.user_no || "").includes(q) ||
+      (u.first_name || "").toLowerCase().includes(q) ||
+      (u.last_name  || "").toLowerCase().includes(q) ||
+      (u.email      || "").toLowerCase().includes(q) ||
+      (u.mobile     || "").toLowerCase().includes(q) ||
+      (u.role       || "").toLowerCase().includes(q) ||
+      (u.status     || "").toLowerCase().includes(q);
+    
+    // User Type filter
+    const matchesUserType = selectedUserTypes.length === 0 || selectedUserTypes.includes(u.role);
+    
+    return matchesSearch && matchesUserType;
+  });
   const displayed = filtered.slice(0, showEntries);
+
+  // User type filter toggle handler
+  const toggleUserType = (type) => {
+    setSelectedUserTypes(prev => 
+      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+    );
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (showUserTypeDropdown && !e.target.closest('.usertype-dropdown-container')) {
+        setShowUserTypeDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showUserTypeDropdown]);
+
+  const allUserTypes = ["USER", "ADMIN", "SUPER_USER", "SUPER_ADMIN"];
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
@@ -341,6 +369,120 @@ const UsersPage = () => {
               </select>{" "}
               entries
             </label>
+            
+            {/* User Type Multi-Select Filter */}
+            <div className="usertype-dropdown-container" style={{ position: "relative" }}>
+              <button
+                onClick={() => setShowUserTypeDropdown(!showUserTypeDropdown)}
+                style={{
+                  ...S.btn(selectedUserTypes.length > 0 ? "#2563eb" : "#374151"),
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  position: "relative",
+                }}
+              >
+                User Type
+                {selectedUserTypes.length > 0 && (
+                  <span style={{
+                    background: "#fbbf24",
+                    color: "#000",
+                    borderRadius: "999px",
+                    padding: "1px 6px",
+                    fontSize: "10px",
+                    fontWeight: 700,
+                  }}>
+                    {selectedUserTypes.length}
+                  </span>
+                )}
+                <svg style={{ width: "12px", height: "12px" }} fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+              
+              {showUserTypeDropdown && (
+                <div style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "8px",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                  minWidth: "180px",
+                  zIndex: 1000,
+                  padding: "8px",
+                }}>
+                  {allUserTypes.map(type => (
+                    <label
+                      key={type}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        padding: "8px 10px",
+                        cursor: "pointer",
+                        borderRadius: "4px",
+                        fontSize: "13px",
+                        color: "var(--text)",
+                        transition: "background 0.15s",
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--surface2)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedUserTypes.includes(type)}
+                        onChange={() => toggleUserType(type)}
+                        style={{
+                          marginRight: "8px",
+                          cursor: "pointer",
+                          width: "14px",
+                          height: "14px",
+                        }}
+                      />
+                      <span style={{
+                        padding: "2px 8px",
+                        borderRadius: "999px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        color: (type === "SUPER_USER" || type === "USER") ? "#111827" : "#fff",
+                        background: ROLE_COLORS[type] || "#6b7280",
+                      }}>
+                        {type}
+                      </span>
+                    </label>
+                  ))}
+                  
+                  {selectedUserTypes.length > 0 && (
+                    <div style={{
+                      borderTop: "1px solid var(--border)",
+                      marginTop: "4px",
+                      paddingTop: "4px",
+                    }}>
+                      <button
+                        onClick={() => setSelectedUserTypes([])}
+                        style={{
+                          width: "100%",
+                          padding: "6px",
+                          background: "transparent",
+                          border: "1px solid var(--border)",
+                          borderRadius: "4px",
+                          color: "var(--muted)",
+                          fontSize: "11px",
+                          cursor: "pointer",
+                          fontWeight: 600,
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = "var(--surface2)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            
             <input
               placeholder="Search…"
               value={search}

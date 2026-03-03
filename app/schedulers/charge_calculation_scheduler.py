@@ -17,7 +17,7 @@ from datetime import datetime, time, timedelta
 from typing import List, Optional, Tuple
 import pytz
 
-from app.database import get_pool
+from app.database import get_pool, init_db
 from app.services.charge_calculator import calculate_position_charges
 
 logger = logging.getLogger(__name__)
@@ -183,6 +183,13 @@ class ChargeCalculationScheduler:
         
         try:
             pool = get_pool()
+            if pool is None:
+                logger.error("❌ Database pool not initialized! Calling init_db()...")
+                await init_db()
+                pool = get_pool()
+            
+            if pool is None:
+                raise RuntimeError("Database pool initialization failed - pool is still None after init_db()")
             
             # Build optional filters safely
             filters = []
@@ -346,6 +353,12 @@ class ChargeCalculationScheduler:
                 brokerage_percent=percent_fee,
                 is_option=is_option
             )
+            
+            logger.info(f"  Charges breakdown: STT={charges['stt_ctt_charge']:.2f}, "
+                       f"Stamp={charges['stamp_duty']:.2f}, Exchange={charges['exchange_charge']:.2f}, "
+                       f"SEBI={charges['sebi_charge']:.2f}, GST={charges['gst_charge']:.2f}, "
+                       f"Platform={charges['platform_cost']:.2f}, Trade_Expense={charges['trade_expense']:.2f}, "
+                       f"Total={charges['total_charges']:.2f}")
             
             # Update position with calculated charges
             await pool.execute(

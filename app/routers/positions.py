@@ -360,15 +360,19 @@ async def pnl_historic(
     if int(pending_count or 0) > 0:
         try:
             from app.schedulers.charge_calculation_scheduler import charge_calculation_scheduler
-            await charge_calculation_scheduler.run_once(
+            result = await charge_calculation_scheduler.run_once(
                 exchanges=None,
                 user_id=str(uid),
                 closed_from=from_utc,
                 closed_to=to_utc,
             )
-        except Exception:
+            log.info(f"✅ Charge backfill for user {uid}: {result['processed']} processed, {result['errors']} errors")
+        except Exception as e:
             # Do not fail P&L response if backfill fails; report will still return available data
-            pass
+            # But DO log the error for debugging purposes
+            log.warning(f"⚠️ Charge backfill FAILED for user {uid}: {str(e)}")
+            import traceback
+            log.debug(f"Exception traceback: {traceback.format_exc()}")
 
     # ── Closed positions within range ──────────────────────────────────
     closed_rows = await pool.fetch(

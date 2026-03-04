@@ -57,7 +57,13 @@ async def get_ledger(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
 
-    # ── 1. Get opening balance (last entry before from_date) ──────────────────
+    # ── 1. Get opening balance ────────────────────────────────────────────────
+    # Strategy:
+    # a) If there are ledger entries before the date range → use the last one's balance_after
+    # b) If no entries before date range but user has "Opening Balance" entry → use that
+    # c) Otherwise → 0 (user has no balance set)
+    
+    # Check for any ledger entry before the date range
     opening_balance_row = await pool.fetchrow(
         """
         SELECT balance_after
@@ -70,6 +76,22 @@ async def get_ledger(
         """,
         target_user_id, fd,
     )
+
+    if opening_balance_row and opening_balance_row["balance_after"] is not None:
+        opening_balance_value = float(opening_balance_row["balance_after"])
+    else:
+        # No ledger entries before date range - check if user has "Opening Balance" entry
+        opening_entry = await pool.fetchrow(
+            """
+            SELECT balance_after
+            FROM   ledger_entries
+            WHERE  user_id      = $1::uuid
+              AND  ref_type     = 'OPENING_BALANCE'
+            LIMIT 1
+            """,
+            target_user_id,
+        )
+        opening_balance_value = float(opening_entry["balance_after"] or 0) if opening_entry else 0.0
 
     # ── 2. Wallet entries (deposits, withdrawals, fees — NOT P&L rows) ────────
     wallet_rows = await pool.fetch(
@@ -118,16 +140,20 @@ async def get_ledger(
     # ── 4. Build unified response ─────────────────────────────────────────────
     data = []
 
-    # Add opening balance entry if available
-    if opening_balance_row and opening_balance_row["balance_after"] is not None:
-        opening_balance = float(opening_balance_row["balance_after"] or 0)
+    # Add opening balance entry ONLY if it's not already in the fetched wallet_rows
+    # (i.e., only show it when viewing dates after the account's opening balance was set)
+    showing_opening_entry = any(
+        r["description"] == "Opening Balance" for r in wallet_rows
+    )
+    
+    if opening_balance_value != 0 and not showing_opening_entry:
         data.append({
             "date":        fd.isoformat(),
             "type":        "wallet",
             "description": "Opening balance",
             "debit":       None,
-            "credit":      round(opening_balance, 2),
-            "balance":     round(opening_balance, 2),
+            "credit":      None,  # Don't add as credit, just display the balance
+            "balance":     round(opening_balance_value, 2),
         })
 
     for r in wallet_rows:
@@ -174,7 +200,7 @@ async def get_ledger(
     # credits/debits sequentially. We cannot trust the DB's balance_after for
     # wallet entries because it was calculated without P&L transactions.
     data_sorted_asc = sorted(data, key=lambda x: x["date"])
-    running_balance = float(opening_balance_row["balance_after"]) if opening_balance_row and opening_balance_row["balance_after"] is not None else 0.0
+    running_balance = opening_balance_value
 
     for entry in data_sorted_asc:
         # Apply the transaction to running balance

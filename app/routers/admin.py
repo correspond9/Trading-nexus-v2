@@ -3078,3 +3078,157 @@ async def delete_logo(current_user: CurrentUser = Depends(get_super_admin_user))
     )
     
     return {"success": True, "message": "Logo deleted successfully"}
+
+
+# ── Option Chain ATM Controls ────────────────────────────────────────────────
+
+_OC_STRIKE_INTERVALS = {"NIFTY": 50, "BANKNIFTY": 100, "SENSEX": 100}
+_OC_UNDERLYINGS      = ["NIFTY", "BANKNIFTY", "SENSEX"]
+
+
+@router.post("/option-chain/recalibrate-atm")
+async def recalibrate_atm(
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    """
+    Button 1 — Frontend ATM Reset.
+    Reads the current underlying LTP from the market_data DB table and
+    updates the in-memory ATM cache (atm_calculator) for each index.
+    The next /options/live request will use this fresh ATM to slice the
+    strike window so the frontend re-centres correctly.
+    """
+    from app.database import get_pool as _pool
+    from app.instruments.atm_calculator import update_atm, get_atm
+
+    pool = _pool()
+    results = []
+
+    for underlying in _OC_UNDERLYINGS:
+        step = _OC_STRIKE_INTERVALS.get(underlying, 50)
+        old_atm = get_atm(underlying)
+        try:
+            row = await pool.fetchrow(
+                """
+                SELECT md.ltp
+                FROM market_data md
+                JOIN instrument_master im ON im.instrument_token = md.instrument_token
+                WHERE im.symbol = $1
+                  AND im.instrument_type = 'INDEX'
+                LIMIT 1
+                """,
+                underlying,
+            )
+            ltp = float(row["ltp"]) if (row and row["ltp"]) else None
+            if ltp and ltp > 0:
+                new_atm = update_atm(underlying, ltp, step)
+                results.append({
+                    "underlying": underlying,
+                    "ltp": ltp,
+                    "old_atm": float(old_atm) if old_atm is not None else None,
+                    "new_atm": float(new_atm),
+                    "status": "updated",
+                })
+            else:
+                results.append({"underlying": underlying, "status": "no_ltp", "ltp": None})
+        except Exception as exc:
+            results.append({"underlying": underlying, "status": "error", "error": str(exc)})
+
+    return {
+        "success": True,
+        "message": "ATM cache updated from DB LTP. Next /options/live fetch will use these ATM values.",
+        "results": results,
+    }
+
+
+@router.post("/option-chain/rebuild-skeleton")
+async def rebuild_option_chain_skeleton(
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    """
+    Button 2 — Full Backend Rebuild.
+    1. Fetches the current underlying spot price directly from DhanHQ REST API
+       for each index (fresh, not from DB cache).
+    2. Updates the ATM cache with the live price.
+    3. Calls greeks_poller.build_skeleton() to rebuild option_chain_data rows
+       centred on the fresh ATM.
+    4. Triggers an immediate forced Greeks poll (force_once) to re-hydrate
+       prices from the Dhan WS snapshot.
+    """
+    from app.instruments.atm_calculator import update_atm, get_atm
+
+    _IDX_SECURITY_IDS = {"NIFTY": 13, "BANKNIFTY": 25, "SENSEX": 51}
+    _IDX_SEG          = "IDX_I"
+
+    atm_results = []
+    for underlying in _OC_UNDERLYINGS:
+        step = _OC_STRIKE_INTERVALS.get(underlying, 50)
+        old_atm = get_atm(underlying)
+        security_id = _IDX_SECURITY_IDS.get(underlying)
+        if not security_id:
+            atm_results.append({"underlying": underlying, "status": "no_security_id"})
+            continue
+        try:
+            # Get the nearest expiry for this underlying to call Dhan's /optionchain
+            from app.database import get_pool as _pool
+            pool = _pool()
+            exp_row = await pool.fetchrow(
+                """
+                SELECT MIN(expiry_date) AS expiry
+                FROM option_chain_data
+                WHERE underlying = $1 AND expiry_date >= CURRENT_DATE
+                """,
+                underlying,
+            )
+            if not exp_row or not exp_row["expiry"]:
+                atm_results.append({"underlying": underlying, "status": "no_expiry"})
+                continue
+            expiry_str = str(exp_row["expiry"])
+
+            resp = await dhan_client.post(
+                "/optionchain",
+                json={
+                    "UnderlyingScrip": security_id,
+                    "UnderlyingSeg":   _IDX_SEG,
+                    "Expiry":          expiry_str,
+                },
+            )
+            if resp.status_code != 200:
+                atm_results.append({
+                    "underlying": underlying,
+                    "status": f"dhan_error_{resp.status_code}",
+                })
+                continue
+
+            data    = resp.json().get("data", {})
+            ltp     = data.get("last_price")
+            if not ltp or float(ltp) <= 0:
+                atm_results.append({"underlying": underlying, "status": "no_ltp_from_dhan"})
+                continue
+
+            ltp_f   = float(ltp)
+            new_atm = update_atm(underlying, ltp_f, step)
+            atm_results.append({
+                "underlying": underlying,
+                "dhan_ltp":   ltp_f,
+                "old_atm":    float(old_atm) if old_atm is not None else None,
+                "new_atm":    float(new_atm),
+                "status":     "atm_updated",
+            })
+        except Exception as exc:
+            atm_results.append({"underlying": underlying, "status": "error", "error": str(exc)})
+
+    # Rebuild the skeleton centred on the fresh ATMs
+    skeleton_status = "ok"
+    try:
+        await greeks_poller.build_skeleton()
+        # Trigger an immediate poll to re-hydrate prices from Dhan WS snapshot
+        greeks_poller._force_once = True
+    except Exception as exc:
+        skeleton_status = f"skeleton_error: {exc}"
+
+    return {
+        "success": True,
+        "message": "ATM updated from Dhan REST. Skeleton rebuilt. Forced Greeks poll queued.",
+        "atm_updates": atm_results,
+        "skeleton_rebuild": skeleton_status,
+    }

@@ -135,6 +135,12 @@ const SuperAdminDashboard = () => {
   const [logoMsg, setLogoMsg]           = useState('');
   const [currentLogo, setCurrentLogo]   = useState(null);
 
+  // ── Option Chain Controls ──
+  const [ocAtmLoading,     setOcAtmLoading]     = useState(false);
+  const [ocAtmResult,      setOcAtmResult]      = useState(null);
+  const [ocRebuildLoading, setOcRebuildLoading] = useState(false);
+  const [ocRebuildResult,  setOcRebuildResult]  = useState(null);
+
   // ── Save error ──
   const [saveError, setSaveError] = useState('');
 
@@ -161,6 +167,34 @@ const SuperAdminDashboard = () => {
   }, []);
 
   useEffect(() => { fetchMarketConfig(); }, [fetchMarketConfig]);
+
+  const handleOcRecalibrateAtm = async () => {
+    setOcAtmLoading(true);
+    setOcAtmResult(null);
+    try {
+      const res = await req('/admin/option-chain/recalibrate-atm', { method: 'POST' });
+      const data = await res.json();
+      setOcAtmResult(data);
+    } catch (e) {
+      setOcAtmResult({ success: false, message: e?.message || 'Request failed' });
+    } finally {
+      setOcAtmLoading(false);
+    }
+  };
+
+  const handleOcRebuildSkeleton = async () => {
+    setOcRebuildLoading(true);
+    setOcRebuildResult(null);
+    try {
+      const res = await req('/admin/option-chain/rebuild-skeleton', { method: 'POST' });
+      const data = await res.json();
+      setOcRebuildResult(data);
+    } catch (e) {
+      setOcRebuildResult({ success: false, message: e?.message || 'Request failed' });
+    } finally {
+      setOcRebuildLoading(false);
+    }
+  };
 
   const fetchSchedulers = useCallback(async () => {
     setSchedLoading(true);
@@ -679,6 +713,72 @@ const SuperAdminDashboard = () => {
                   connectMsg.type === 'warn'    ? 'text-yellow-400' : 'text-red-400'
                 }`}>{connectMsg.text}</p>
               )}
+            </div>
+
+            {/* Option Chain Controls */}
+            <div className="rounded-xl p-5 space-y-5 bg-zinc-800 border border-zinc-700">
+              <h2 className="text-base font-semibold">Option Chain Controls</h2>
+
+              {/* Button 1 — Frontend ATM Reset */}
+              <div className="space-y-2">
+                <p className="text-xs text-gray-400">
+                  <span className="font-semibold text-blue-400">Reset ATM Cache</span> — reads current underlying LTP from the FastAPI DB and refreshes the in-memory ATM. The next Options/Straddle page load will slice strikes around the corrected ATM.
+                </p>
+                <button
+                  onClick={handleOcRecalibrateAtm}
+                  disabled={ocAtmLoading}
+                  className={btnCls('blue')}
+                >
+                  {ocAtmLoading ? 'Resetting…' : '↺  Reset ATM Cache (DB LTP)'}
+                </button>
+                {ocAtmResult && (
+                  <div className={`text-xs rounded p-2 mt-1 ${
+                    ocAtmResult.success ? 'bg-green-900/40 text-green-300 border border-green-700' : 'bg-red-900/40 text-red-300 border border-red-700'
+                  }`}>
+                    <div className="font-semibold mb-1">{ocAtmResult.message}</div>
+                    {(ocAtmResult.results || []).map(r => (
+                      <div key={r.underlying} className="font-mono">
+                        {r.underlying}: {r.status === 'updated'
+                          ? `LTP=${r.ltp} | ATM ${r.old_atm} → ${r.new_atm}`
+                          : r.status}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <hr className="border-zinc-700" />
+
+              {/* Button 2 — Full Backend Rebuild */}
+              <div className="space-y-2">
+                <p className="text-xs text-gray-400">
+                  <span className="font-semibold text-orange-400">Rebuild Skeleton from Dhan</span> — calls DhanHQ REST API for a live spot price snapshot, updates ATM cache, rebuilds the <code className="text-xs text-zinc-300">option_chain_data</code> skeleton centred on the fresh ATM, and queues an immediate Greeks poll to re-hydrate live prices from the Dhan WS.
+                </p>
+                <button
+                  onClick={handleOcRebuildSkeleton}
+                  disabled={ocRebuildLoading}
+                  className={btnCls('red')}
+                >
+                  {ocRebuildLoading ? 'Rebuilding…' : '⟳  Rebuild Skeleton from Dhan REST'}
+                </button>
+                {ocRebuildResult && (
+                  <div className={`text-xs rounded p-2 mt-1 ${
+                    ocRebuildResult.success ? 'bg-green-900/40 text-green-300 border border-green-700' : 'bg-red-900/40 text-red-300 border border-red-700'
+                  }`}>
+                    <div className="font-semibold mb-1">{ocRebuildResult.message}</div>
+                    {(ocRebuildResult.atm_updates || []).map(r => (
+                      <div key={r.underlying} className="font-mono">
+                        {r.underlying}: {r.status === 'atm_updated'
+                          ? `Dhan LTP=${r.dhan_ltp} | ATM ${r.old_atm} → ${r.new_atm}`
+                          : r.status}
+                      </div>
+                    ))}
+                    {ocRebuildResult.skeleton_rebuild && (
+                      <div className="mt-1">Skeleton: {ocRebuildResult.skeleton_rebuild}</div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Market Hours */}

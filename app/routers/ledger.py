@@ -170,24 +170,21 @@ async def get_ledger(
 
     # ── 5. Calculate running wallet balance including P&L entries ──────────────
     # Single forward pass (oldest → newest).
-    # Wallet entries carry ground-truth balance_after from the DB — use them as
-    # anchor points.  P&L entries have no stored balance, so we derive theirs by
-    # adding/subtracting from whichever wallet anchor preceded them.
+    # Calculate running balance for ALL entries (wallet + P&L) by processing
+    # credits/debits sequentially. We cannot trust the DB's balance_after for
+    # wallet entries because it was calculated without P&L transactions.
     data_sorted_asc = sorted(data, key=lambda x: x["date"])
     running_balance = float(opening_balance_row["balance_after"]) if opening_balance_row and opening_balance_row["balance_after"] is not None else 0.0
 
     for entry in data_sorted_asc:
-        if entry["type"] == "wallet":
-            # Ground truth: use the stored balance_after as the new anchor
-            if entry["balance"] is not None:
-                running_balance = float(entry["balance"])
-        elif entry["type"] == "trade_pnl":
-            # Advance running balance by the P&L and stamp it on this entry
-            if entry["credit"] is not None:
-                running_balance += float(entry["credit"])
-            elif entry["debit"] is not None:
-                running_balance -= float(entry["debit"])
-            entry["balance"] = round(running_balance, 2)
+        # Apply the transaction to running balance
+        if entry["credit"] is not None:
+            running_balance += float(entry["credit"])
+        elif entry["debit"] is not None:
+            running_balance -= float(entry["debit"])
+        
+        # Update balance for this entry
+        entry["balance"] = round(running_balance, 2)
 
     # Return newest-first
     data.sort(key=lambda x: x["date"], reverse=True)

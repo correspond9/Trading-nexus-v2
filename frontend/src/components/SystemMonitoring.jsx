@@ -69,6 +69,8 @@ const SystemMonitoring = () => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [reconnecting, setReconnecting] = useState(false);
+  const [rollingOver, setRollingOver] = useState(false);
+  const [rolloverResult, setRolloverResult] = useState(null);
   const [lastRefreshed, setLastRefreshed] = useState(null);
 
   const fetchAll = useCallback(async () => {
@@ -129,6 +131,25 @@ const SystemMonitoring = () => {
     }
   };
 
+  const handleRollover = async () => {
+    setRollingOver(true);
+    setRolloverResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/admin/subscriptions/rollover`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setRolloverResult(data);
+        setTimeout(fetchAll, 1000);
+      } else {
+        setRolloverResult({ error: `HTTP ${res.status}` });
+      }
+    } catch (err) {
+      setRolloverResult({ error: err.message });
+    } finally {
+      setRollingOver(false);
+    }
+  };
+
   const dbStatus = health?.database || health?.db || 'unknown';
   const apiStatus = health?.status || 'unknown';
   const dhanStatus = health?.dhan_api || health?.dhan || 'unknown';
@@ -180,6 +201,27 @@ const SystemMonitoring = () => {
         {statusCards.map((card) => (
           <StatusCard key={card.title} {...card} />
         ))}
+      </div>
+
+      {/* Admin Actions */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={handleRollover}
+          disabled={rollingOver}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border border-zinc-600 bg-zinc-700 hover:bg-zinc-600 transition-colors disabled:opacity-50"
+          title="Unsubscribe expired contracts from Dhan WS and clean up the active subscription map"
+        >
+          <RefreshCw size={11} className={rollingOver ? 'animate-spin' : ''} />
+          {rollingOver ? 'Purging...' : 'Purge Expired Subs'}
+        </button>
+        {rolloverResult && !rolloverResult.error && (
+          <span className="text-xs text-green-400">
+            ✓ {rolloverResult.evicted} evicted &nbsp;·&nbsp; {rolloverResult.tokens_before} → {rolloverResult.tokens_after} subs
+          </span>
+        )}
+        {rolloverResult?.error && (
+          <span className="text-xs text-red-400">✗ {rolloverResult.error}</span>
+        )}
       </div>
 
       {/* Reconnect */}

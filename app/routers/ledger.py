@@ -139,6 +139,7 @@ async def get_ledger(
 
     # ── 4. Build unified response ─────────────────────────────────────────────
     data = []
+    seq = 0  # Sequence number to preserve insertion order for same-timestamp entries
 
     # Add opening balance entry ONLY if it's not already in the fetched wallet_rows
     # (i.e., only show it when viewing dates after the account's opening balance was set)
@@ -148,6 +149,7 @@ async def get_ledger(
     
     if opening_balance_value != 0 and not showing_opening_entry:
         data.append({
+            "_seq":        seq,
             "date":        fd.isoformat(),
             "type":        "wallet",
             "description": "Opening balance",
@@ -155,6 +157,7 @@ async def get_ledger(
             "credit":      None,  # Don't add as credit, just display the balance
             "balance":     round(opening_balance_value, 2),
         })
+        seq += 1
 
     for r in wallet_rows:
         created_at = r["created_at"]
@@ -162,6 +165,7 @@ async def get_ledger(
         credit = r["credit"]
         bal    = r["balance_after"]
         data.append({
+            "_seq":        seq,
             "date":        created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
             "type":        "wallet",
             "description": r["description"],
@@ -169,6 +173,7 @@ async def get_ledger(
             "credit":      float(credit) if credit is not None else None,
             "balance":     float(bal)    if bal    is not None else None,
         })
+        seq += 1
 
     for r in pnl_rows:
         created_at   = r["closed_at"]
@@ -179,6 +184,7 @@ async def get_ledger(
         desc = "Realized profit/loss"
 
         data.append({
+            "_seq":        seq,
             "date":        created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
             "type":        "trade_pnl",
             "description": desc,
@@ -190,16 +196,16 @@ async def get_ledger(
             "total_charges":  round(total_charges,   2),
             "net_pnl":        round(net_pnl,         2),
         })
+        seq += 1
 
-    # Sort merged list newest-first
-    data.sort(key=lambda x: x["date"], reverse=True)
+    # Sort merged list newest-first, using _seq as tiebreaker for same timestamps
+    data.sort(key=lambda x: (x["date"], -x["_seq"]), reverse=True)
 
     # ── 5. Calculate running wallet balance including P&L entries ──────────────
     # Single forward pass (oldest → newest).
     # Calculate running balance for ALL entries (wallet + P&L) by processing
-    # credits/debits sequentially. We cannot trust the DB's balance_after for
-    # wallet entries because it was calculated without P&L transactions.
-    data_sorted_asc = sorted(data, key=lambda x: x["date"])
+    # credits/debits sequentially. Use _seq as tiebreaker for same timestamps.
+    data_sorted_asc = sorted(data, key=lambda x: (x["date"], x["_seq"]))
     running_balance = opening_balance_value
 
     for entry in data_sorted_asc:
@@ -212,6 +218,10 @@ async def get_ledger(
         # Update balance for this entry
         entry["balance"] = round(running_balance, 2)
 
-    # Return newest-first
-    data.sort(key=lambda x: x["date"], reverse=True)
+    # Return newest-first, using _seq as tiebreaker for same timestamps
+    # Remove _seq before sending to frontend
+    data.sort(key=lambda x: (x["date"], -x["_seq"]), reverse=True)
+    for entry in data:
+        del entry["_seq"]
+    
     return {"data": data}

@@ -66,7 +66,6 @@ const PositionsTab = ({ productFilter = null }) => {
           (userRow.positions || []).forEach((position, index) => {
             const positionProduct = String(position.product_type || 'MIS').toUpperCase();
             if (positionProduct !== normalizedFilter) return;
-            if (!isDerivativePosition(position)) return;
 
             const status = String(position.status || 'OPEN').toUpperCase();
             if (status !== 'OPEN' && status !== 'CLOSED') return;

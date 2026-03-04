@@ -42,7 +42,11 @@ export function useAuthoritativeOptionChain(
     setLoading(true);
     setError(null);
     try {
-      const result = await apiService.get('/options/live', { underlying: ul, expiry: exp });
+      // Request strikes_around=50 to get the full available range from the backend.
+      // The frontend already slices to ATM±15 for display, so having 101 strikes ensures
+      // the true ATM (derived from live option premiums) is always inside the dataset,
+      // even when the backend's cached ATM or the index LTP is stale.
+      const result = await apiService.get('/options/live', { underlying: ul, expiry: exp, strikes_around: 50 });
       if (!mountedRef.current) return;
       // Backend returns an object: { underlying, expiry, underlying_ltp, lot_size, strike_interval, atm, strikes }
       if (result && typeof result === 'object' && !Array.isArray(result)) {
@@ -136,43 +140,62 @@ export function useAuthoritativeOptionChain(
     driftFetchingRef.current = false;
   }, [underlying, expiry]);
 
-  // After every REST update, check whether the live ATM has drifted far
-  // enough from the last-calibrated baseline to warrant a fresh fetch.
+  // After every REST update, check whether the min-premium ATM (derived from live
+  // option prices — reliable even when the index LTP in the DB is stale) has drifted
+  // far from the midpoint of the returned strike range. If so, a re-fetch is triggered.
+  // NOTE: We no longer rely on data.underlying_ltp because that field is sourced from
+  // the market_data table for the index token, which may not receive live ticks and
+  // can stay at yesterday's close all day.
   useEffect(() => {
-    if (!data) return;
+    if (!data?.strikes || Object.keys(data.strikes).length === 0) return;
 
-    const ltp      = data.underlying_ltp;
     const interval = Number(data.strike_interval || getStrikeInterval(underlying) || 0);
+    if (!interval) return;
 
-    // Skip if we don't have a meaningful price or interval yet
-    if (!ltp || ltp <= 0 || !interval) return;
+    // Derive the true ATM from live option premiums (min straddle) — this is always reliable.
+    let minPremiumStrike = null;
+    let minPremium      = null;
+    Object.entries(data.strikes).forEach(([k, v]) => {
+      const strike = parseFloat(k);
+      const ce = v?.CE?.ltp || 0;
+      const pe = v?.PE?.ltp || 0;
+      if (ce <= 0 && pe <= 0) return;
+      const sum = ce + pe;
+      if (minPremium === null || sum < minPremium) { minPremium = sum; minPremiumStrike = strike; }
+    });
+    if (minPremiumStrike === null) return;
 
-    const liveAtm = Math.round(ltp / interval) * interval;
+    const allStrikes   = Object.keys(data.strikes).map(Number).sort((a, b) => a - b);
+    const midStrike    = allStrikes[Math.floor(allStrikes.length / 2)];
+    const driftInStrikes = Math.abs(minPremiumStrike - midStrike) / interval;
 
     if (baseAtmRef.current === null) {
-      // First data load — set baseline silently, no re-fetch
-      baseAtmRef.current = liveAtm;
+      // First data load — record where we are, no re-fetch needed.
+      baseAtmRef.current = minPremiumStrike;
+      if (driftInStrikes > 0) {
+        console.log(
+          `[OptionChain] Initial load: min-premium ATM ${minPremiumStrike} is ${driftInStrikes} strikes ` +
+          `from centre of returned range (mid=${midStrike}). Data range covers it.`
+        );
+      }
       return;
     }
 
-    const driftInStrikes = Math.abs(liveAtm - baseAtmRef.current) / interval;
-
+    // Re-fetch if the premium-derived ATM is more than threshold strikes from the
+    // midpoint of what the backend returned.
     if (driftInStrikes >= ATM_DRIFT_THRESHOLD && !driftFetchingRef.current) {
       driftFetchingRef.current = true;
       console.log(
-        `[OptionChain] ATM drift ≥ ${ATM_DRIFT_THRESHOLD} strikes detected for ${underlying}: ` +
-        `${baseAtmRef.current} → ${liveAtm} (${driftInStrikes} strikes). ` +
-        `Triggering fresh fetch to re-centre strike window.`
+        `[OptionChain] Premium-ATM drift ≥ ${ATM_DRIFT_THRESHOLD} strikes for ${underlying}: ` +
+        `ATM=${minPremiumStrike}, range-mid=${midStrike}, drift=${driftInStrikes} strikes. Re-fetching.`
       );
-      // Update baseline before the fetch completes to prevent re-triggering
-      // on the in-flight response if LTP is still in the same neighbourhood.
-      baseAtmRef.current = liveAtm;
+      baseAtmRef.current = minPremiumStrike;
       fetchData().finally(() => {
         if (mountedRef.current) driftFetchingRef.current = false;
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.underlying_ltp, data?.strike_interval]);
+  }, [data?.strikes]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getATMStrike = useCallback((ltp) => {

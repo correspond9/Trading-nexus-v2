@@ -102,7 +102,7 @@ async def get_ledger(
           AND  created_at >= $2::date
           AND  created_at <  $3::date + INTERVAL '1 day'
           AND  description NOT LIKE '%Realized P&L%'
-        ORDER BY created_at DESC
+        ORDER BY created_at ASC
         LIMIT $4 OFFSET $5
         """,
         target_user_id, fd, td, limit, offset,
@@ -131,7 +131,7 @@ async def get_ledger(
           AND pp.closed_at IS NOT NULL
           AND pp.closed_at >= $2::date
           AND pp.closed_at <  $3::date + INTERVAL '1 day'
-        ORDER BY pp.closed_at DESC
+        ORDER BY pp.closed_at ASC
         LIMIT $4 OFFSET $5
         """,
         target_user_id, fd, td, limit, offset,
@@ -199,7 +199,8 @@ async def get_ledger(
         seq += 1
 
     # Sort merged list newest-first, using _seq as tiebreaker for same timestamps
-    data.sort(key=lambda x: (x["date"], -x["_seq"]), reverse=True)
+    # (entries are now in chronological order, so higher _seq = newer)
+    data.sort(key=lambda x: (x["date"], x["_seq"]), reverse=True)
 
     # ── 5. Calculate running wallet balance including P&L entries ──────────────
     # Single forward pass (oldest → newest).
@@ -220,7 +221,7 @@ async def get_ledger(
 
     # Return newest-first, using _seq as tiebreaker for same timestamps
     # Remove _seq before sending to frontend
-    data.sort(key=lambda x: (x["date"], -x["_seq"]), reverse=True)
+    data.sort(key=lambda x: (x["date"], x["_seq"]), reverse=True)
     for entry in data:
         del entry["_seq"]
     

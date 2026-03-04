@@ -28,6 +28,7 @@ from app.market_data.websocket_manager        import ws_manager
 from app.market_data.depth_ws_manager         import depth_ws_manager
 from app.market_data.greeks_poller            import greeks_poller
 from app.market_data.close_price_rollover     import close_price_rollover
+from app.market_data.close_price_capture      import close_price_capture
 from app.market_data.rate_limiter             import dhan_client
 from app.routers                              import admin, market_data, option_chain, watchlist, orders, positions, ws_feed
 from app.routers                              import ledger
@@ -156,6 +157,9 @@ async def lifespan(app: FastAPI):
             log.info("[11] Starting close price rollover scheduler (Dhan disabled)…")
             await close_price_rollover.start()
 
+            log.info("[11b] Starting market close price capture scheduler (3:46 PM IST)…")
+            await close_price_capture.start()
+
             log.warning(
                 "[⚠] DHAN CONNECTIONS DISABLED — token refresher, WebSocket managers, "
                 "Greeks poller, and daily CDN refresh are all off. "
@@ -221,6 +225,9 @@ async def lifespan(app: FastAPI):
 
                 log.info("[11] Starting close price rollover scheduler…")
                 await close_price_rollover.start()
+
+                log.info("[11b] Starting market close price capture scheduler (3:46 PM IST)…")
+                await close_price_capture.start()
 
 
 
@@ -301,9 +308,11 @@ async def lifespan(app: FastAPI):
     await watchlist_cleanup_scheduler.stop()
     await market_timing_controller.stop()
     await charge_calculation_scheduler.stop()
+    await mis_auto_squareoff.stop()
     await eod_closed_position_archiver.stop()
     await static_auth_monitor.stop()
     await close_price_rollover.stop()
+    await close_price_capture.stop()
     await stop_super_order_monitor()
     await nse_margin_scheduler.stop()
     if not cfg.dhan_disabled:

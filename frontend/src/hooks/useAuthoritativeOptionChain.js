@@ -140,55 +140,45 @@ export function useAuthoritativeOptionChain(
     driftFetchingRef.current = false;
   }, [underlying, expiry]);
 
-  // After every REST update, check whether the min-premium ATM (derived from live
-  // option prices — reliable even when the index LTP in the DB is stale) has drifted
-  // far from the midpoint of the returned strike range. If so, a re-fetch is triggered.
-  // NOTE: We no longer rely on data.underlying_ltp because that field is sourced from
-  // the market_data table for the index token, which may not receive live ticks and
-  // can stay at yesterday's close all day.
+  // After every data update (REST or WS), check whether the premium-derived ATM has
+  // drifted ≥ ATM_DRIFT_THRESHOLD strikes from the LAST CALIBRATION POINT (baseAtmRef).
+  // NOTE: We compare vs baseAtmRef — NOT vs the midpoint of the returned range — so that
+  // after one re-fetch the baseline advances and the check cannot loop endlessly.
   useEffect(() => {
     if (!data?.strikes || Object.keys(data.strikes).length === 0) return;
 
     const interval = Number(data.strike_interval || getStrikeInterval(underlying) || 0);
     if (!interval) return;
 
-    // Derive the true ATM from live option premiums (min straddle) — this is always reliable.
+    // Derive the true ATM from live option premiums (min straddle) — always reliable.
     let minPremiumStrike = null;
     let minPremium      = null;
     Object.entries(data.strikes).forEach(([k, v]) => {
-      const strike = parseFloat(k);
       const ce = v?.CE?.ltp || 0;
       const pe = v?.PE?.ltp || 0;
       if (ce <= 0 && pe <= 0) return;
       const sum = ce + pe;
-      if (minPremium === null || sum < minPremium) { minPremium = sum; minPremiumStrike = strike; }
+      if (minPremium === null || sum < minPremium) { minPremium = sum; minPremiumStrike = parseFloat(k); }
     });
     if (minPremiumStrike === null) return;
 
-    const allStrikes   = Object.keys(data.strikes).map(Number).sort((a, b) => a - b);
-    const midStrike    = allStrikes[Math.floor(allStrikes.length / 2)];
-    const driftInStrikes = Math.abs(minPremiumStrike - midStrike) / interval;
-
     if (baseAtmRef.current === null) {
-      // First data load — record where we are, no re-fetch needed.
+      // First data load — set baseline silently, no re-fetch.
       baseAtmRef.current = minPremiumStrike;
-      if (driftInStrikes > 0) {
-        console.log(
-          `[OptionChain] Initial load: min-premium ATM ${minPremiumStrike} is ${driftInStrikes} strikes ` +
-          `from centre of returned range (mid=${midStrike}). Data range covers it.`
-        );
-      }
       return;
     }
 
-    // Re-fetch if the premium-derived ATM is more than threshold strikes from the
-    // midpoint of what the backend returned.
+    // Drift = how many strikes the premium-ATM has moved since last calibration.
+    const driftInStrikes = Math.abs(minPremiumStrike - baseAtmRef.current) / interval;
+
     if (driftInStrikes >= ATM_DRIFT_THRESHOLD && !driftFetchingRef.current) {
       driftFetchingRef.current = true;
       console.log(
-        `[OptionChain] Premium-ATM drift ≥ ${ATM_DRIFT_THRESHOLD} strikes for ${underlying}: ` +
-        `ATM=${minPremiumStrike}, range-mid=${midStrike}, drift=${driftInStrikes} strikes. Re-fetching.`
+        `[OptionChain] ATM drift ≥ ${ATM_DRIFT_THRESHOLD} strikes for ${underlying}: ` +
+        `${baseAtmRef.current} → ${minPremiumStrike} (${driftInStrikes} strikes). Re-fetching.`
       );
+      // Update baseline BEFORE the fetch completes so that the next data event
+      // (arriving while the fetch is in flight) does not re-trigger the same drift.
       baseAtmRef.current = minPremiumStrike;
       fetchData().finally(() => {
         if (mountedRef.current) driftFetchingRef.current = false;

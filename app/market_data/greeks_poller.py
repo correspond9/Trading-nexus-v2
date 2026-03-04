@@ -44,7 +44,9 @@ _STRIKE_INTERVALS = {
     "BANKEX": 100,
 }
 
-_STRIKES_EACH_SIDE = 15  # ATM ± 15 = 31 strikes
+_STRIKES_EACH_SIDE = 50  # ATM ± 50 = 101 strikes — wide enough so the true ATM
+                          # (from live option premiums) is always within the skeleton
+                          # even after large intraday index moves (e.g. BANKNIFTY ±1500pts)
 
 
 class _GreeksPoller:

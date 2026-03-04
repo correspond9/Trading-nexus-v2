@@ -53,8 +53,9 @@ from app.execution_simulator.execution_engine import reconcile_pending_orders
 from app.market_data.static_auth_monitor import static_auth_monitor
 from app.positions.eod_archiver               import eod_closed_position_archiver
 from app.runtime.market_timing                import market_timing_controller
-from app.schedulers.charge_calculation_scheduler import charge_calculation_scheduler
-from app.schedulers.mis_auto_squareoff        import mis_auto_squareoff
+from app.schedulers.charge_calculation_scheduler  import charge_calculation_scheduler
+from app.schedulers.mis_auto_squareoff             import mis_auto_squareoff
+from app.schedulers.watchlist_cleanup_scheduler    import watchlist_cleanup_scheduler
 
 log = logging.getLogger(__name__)
 cfg = get_settings()
@@ -88,8 +89,7 @@ async def lifespan(app: FastAPI):
      12b. MCX and BSE margin data initial load
      13.  NSE margin daily scheduler (08:45 IST) — always enabled
      14.  Market hours updated with cached holidays
-     15.  Super Order monitor (Target + SL + Trailing)
-    """
+     15.  Super Order monitor (Target + SL + Trailing)     18b. Watchlist cleanup scheduler (06:30 IST)    """
     try:
         log.info("─── Startup ────────────────────────────────────────────────")
 
@@ -286,6 +286,9 @@ async def lifespan(app: FastAPI):
         log.info("[18] Starting market timing controller (auto START/STOP) …")
         await market_timing_controller.start()
 
+        log.info("[18b] Starting watchlist cleanup scheduler (06:30 IST) …")
+        await watchlist_cleanup_scheduler.start()
+
         log.info("─── Application ready ─────────────────────────────────────")
 
     except Exception as exc:
@@ -295,6 +298,7 @@ async def lifespan(app: FastAPI):
     yield  # ── Application runs here ──────────────────────────────────────
 
     log.info("─── Shutdown ───────────────────────────────────────────────")
+    await watchlist_cleanup_scheduler.stop()
     await market_timing_controller.stop()
     await charge_calculation_scheduler.stop()
     await eod_closed_position_archiver.stop()

@@ -42,7 +42,8 @@ async def initialise_tier_b() -> dict:
     try:
         rows = await pool.fetch(
             "SELECT instrument_token, ws_slot FROM instrument_master "
-            "WHERE tier = 'B' AND ws_slot IS NOT NULL"
+            "WHERE tier = 'B' AND ws_slot IS NOT NULL "
+            "AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)"
         )
     except Exception as exc:
         log.error(f"Database query failed during Tier-B init: {exc}")
@@ -200,11 +201,15 @@ async def _is_safe_to_unsubscribe(instrument_token: int) -> bool:
 async def handle_expiry_rollover() -> None:
     """
     Called daily after market close.
-    Evaluates all active Tier-A tokens — unsubscribes those that are
-    now expired with no watchlist or position.
+    1. Unsubscribes expired Tier-A tokens (no watchlist / no open position).
+    2. Evicts expired Tier-B tokens from _active and sends unsubscribe to Dhan WS.
+       Equity cash / ETF instruments have no expiry (expiry_date IS NULL) and are
+       never evicted here.
     """
     pool = get_pool()
-    expired_tokens = await pool.fetch(
+
+    # ── Tier-A cleanup ───────────────────────────────────────────────────────
+    expired_a = await pool.fetch(
         """
         SELECT DISTINCT ss.instrument_token
         FROM subscription_state ss
@@ -214,8 +219,53 @@ async def handle_expiry_rollover() -> None:
           AND im.expiry_date <= CURRENT_DATE
         """
     )
-    for row in expired_tokens:
+    for row in expired_a:
         await unsubscribe_tier_a(row["instrument_token"])
+
+    # ── Tier-B cleanup ───────────────────────────────────────────────────────
+    # Find Tier-B tokens in _active whose expiry has passed.
+    from app.market_data.websocket_manager import ws_manager
+
+    async with _lock:
+        snapshot = {t: s for t, s in _token_to_slot.items()}
+
+    if not snapshot:
+        return
+
+    expired_b_rows = await pool.fetch(
+        """
+        SELECT instrument_token, ws_slot
+        FROM instrument_master
+        WHERE tier = 'B'
+          AND expiry_date IS NOT NULL
+          AND expiry_date < CURRENT_DATE
+          AND instrument_token = ANY($1::bigint[])
+        """,
+        list(snapshot.keys()),
+    )
+
+    if not expired_b_rows:
+        return
+
+    # Group by slot for efficient batch unsubscribe
+    by_slot: dict[int, list[int]] = {}
+    for row in expired_b_rows:
+        token = row["instrument_token"]
+        slot  = row["ws_slot"]
+        if slot is not None:
+            by_slot.setdefault(slot, []).append(token)
+
+    async with _lock:
+        for slot, tokens in by_slot.items():
+            for t in tokens:
+                _active[slot].discard(t)
+                _token_to_slot.pop(t, None)
+
+    for slot, tokens in by_slot.items():
+        await ws_manager.unsubscribe_tokens(slot, tokens)
+
+    total_evicted = sum(len(v) for v in by_slot.values())
+    log.info(f"Expiry rollover: evicted {total_evicted} expired Tier-B tokens from WS.")
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

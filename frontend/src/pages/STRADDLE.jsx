@@ -27,6 +27,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     error: chainError,
     refresh: refreshChain,
     recalibrate: recalibrateChain,
+    getATMStrike,
   } = useAuthoritativeOptionChain(symbol, expiry, {
     autoRefresh: true,
     refreshInterval: 1000, // 1 second real-time updates
@@ -52,38 +53,15 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
   }, [symbol]);
 
   // ATM RULE (unified for both OPTIONS and STRADDLE):
-  // Real-time calculation: find strike with minimum CE+PE premium (dynamic, updates each tick)
-  // Fallback to cached ATM if real-time ticks unavailable
+  // Primary = underlying LTP rounded to strike interval (from hook helper).
+  // Fallback = backend ATM cache.
   const straddleAtmStrike = useMemo(() => {
-    // Prefer backend's ATM during closed hours or when LTP data is unavailable
+    const fromLtp = getATMStrike();
+    if (typeof fromLtp === 'number' && fromLtp > 0) return fromLtp;
+
     const backendAtm = chainData?.atm_strike || chainData?.atm || null;
-    
-    if (chainData?.strikes && Object.keys(chainData.strikes).length > 0) {
-      let bestStrike = null;
-      let bestPremium = null;
-
-      Object.entries(chainData.strikes).forEach(([strikeStr, strikeData]) => {
-        const strike = parseFloat(strikeStr);
-        const ce = strikeData.CE?.ltp || 0;
-        const pe = strikeData.PE?.ltp || 0;
-        if (strike <= 0) return;
-        // During closed hours, LTP might be 0 - skip those for calculation
-        if (ce <= 0 && pe <= 0) return;
-
-        const straddle = ce + pe;
-        if (straddle > 0 && (bestPremium === null || straddle < bestPremium)) {
-          bestPremium = straddle;
-          bestStrike = strike;
-        }
-      });
-
-      // Use calculated ATM if found valid strikes, otherwise use backend ATM
-      if (bestStrike !== null) return bestStrike;
-    }
-
-    // Fallback to backend ATM
-    return backendAtm;
-  }, [chainData]);
+    return (typeof backendAtm === 'number' && backendAtm > 0) ? backendAtm : null;
+  }, [getATMStrike, chainData?.atm_strike, chainData?.atm]);
 
   // Compute center strike from straddle ATM (exclusive logic for this tab)
   useEffect(() => {

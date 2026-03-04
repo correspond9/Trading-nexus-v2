@@ -346,6 +346,30 @@ async def force_close_price_rollover(
     }
 
 
+@router.post("/subscriptions/rollover")
+async def force_subscription_rollover(
+    caller: CurrentUser = Depends(get_super_admin_user),
+):
+    """
+    Immediately evict expired instruments from active WS subscriptions
+    and send unsubscribe to Dhan (SUPER_ADMIN only).
+    Use this to clean up bloated subscription counts without restarting.
+    """
+    from app.instruments import subscription_manager as sm
+
+    stats_before = sm.get_stats()
+    await sm.handle_expiry_rollover()
+    stats_after = sm.get_stats()
+
+    evicted = stats_before["total_tokens"] - stats_after["total_tokens"]
+    return {
+        "status": "completed",
+        "tokens_before": stats_before["total_tokens"],
+        "tokens_after":  stats_after["total_tokens"],
+        "evicted":       evicted,
+    }
+
+
 @router.get("/users")
 async def list_users(
     caller: CurrentUser = Depends(get_admin_user),

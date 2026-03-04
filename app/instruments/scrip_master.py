@@ -600,6 +600,13 @@ class ScripMasterScheduler:
                 await refresh_instruments(download=True)
                 self.last_run_at = datetime.now(IST)
                 self.last_run_error = None
+                # Evict expired contracts from active WS subscriptions right
+                # after the scrip master is refreshed with today's data.
+                try:
+                    from app.instruments.subscription_manager import handle_expiry_rollover
+                    await handle_expiry_rollover()
+                except Exception as exc:
+                    log.error(f"ScripMasterScheduler: expiry rollover failed: {exc}")
             except asyncio.CancelledError:
                 break
             except Exception as exc:

@@ -12,9 +12,33 @@ const INR = (v) => {
   return (n < 0 ? "-₹" : "₹") + Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+const csvEscape = (value) => {
+  if (value === null || value === undefined) return "";
+  const str = String(value).replace(/"/g, '""');
+  return /[",\n]/.test(str) ? `"${str}"` : str;
+};
+
+const downloadCsv = (filename, headers, rows) => {
+  const csv = [
+    headers.map(csvEscape).join(","),
+    ...rows.map((row) => row.map(csvEscape).join(",")),
+  ].join("\n");
+
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
 const LedgerPage = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || user?.role === "SUPER_USER";
+  const canSaveCsv = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
   const [entries,  setEntries]  = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -87,6 +111,23 @@ const LedgerPage = () => {
     ? (entries[0].balance != null ? Number(entries[0].balance) : 0)
     : 0;
 
+  const handleSaveAsCsv = () => {
+    const rows = entries.map((e) => [
+      e.date || "",
+      e.description || "",
+      e.type === "trade_pnl" ? "TRADE P&L" : "WALLET",
+      e.debit ?? "",
+      e.credit ?? "",
+      e.balance ?? "",
+    ]);
+
+    downloadCsv(
+      `ledger_${fromDate}_to_${toDate}.csv`,
+      ["Date & Time", "Description", "Type", "Debits", "Credits", "Wallet Balance"],
+      rows,
+    );
+  };
+
   const s = {
     page:      { padding: isMobile ? '12px' : '24px', fontFamily: 'system-ui,sans-serif', color: 'var(--text)' },
     header:    { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' },
@@ -95,6 +136,7 @@ const LedgerPage = () => {
     input:     { padding: '7px 10px', background: 'var(--control-bg)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px' },
     label:     { fontSize: '12px', color: 'var(--muted)' },
     button:    { padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer', opacity: loading ? 0.6 : 1 },
+    csvButton: { padding: '8px 14px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontWeight: '700', fontSize: '12px', cursor: 'pointer' },
     card:      { background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)', padding: isMobile ? '12px' : '20px' },
     th:        { padding: '10px 14px', textAlign: 'left', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontWeight: '600', color: 'var(--muted)', fontSize: '12px', whiteSpace: 'nowrap' },
     td:        { padding: '9px 14px', borderBottom: '1px solid var(--border)', fontSize: '12px', color: 'var(--text)', verticalAlign: 'middle', whiteSpace: 'nowrap' },
@@ -145,6 +187,11 @@ const LedgerPage = () => {
           <button onClick={fetchLedger} disabled={loading} style={s.button}>
             {loading ? "Loading…" : "Apply"}
           </button>
+          {canSaveCsv && (
+            <button onClick={handleSaveAsCsv} style={s.csvButton}>
+              save as csv
+            </button>
+          )}
         </div>
       </div>
 

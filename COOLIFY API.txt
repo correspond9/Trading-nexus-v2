@@ -1,0 +1,14 @@
+API TOKEN:
+1|GQq5Q1JESHaawnDJ5kvW0lFevUgU4o2abzcH27y2b3b38466
+
+APP_UUID:
+ x8gg0og8440wkgc8ow0ococs
+
+url:
+http://72.62.228.112:8000/
+
+
+
+hostinger
+
+VeqBZsHg4by4sk2KKI1TjCoktz2NTsqc1N81EVEZ1b80f8d3

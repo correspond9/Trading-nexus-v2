@@ -27,6 +27,29 @@ const isDerivativePosition = (position = {}) => {
   );
 };
 
+const csvEscape = (value) => {
+  if (value === null || value === undefined) return '';
+  const str = String(value).replace(/"/g, '""');
+  return /[",\n]/.test(str) ? `"${str}"` : str;
+};
+
+const downloadCsv = (filename, headers, rows) => {
+  const csv = [
+    headers.map(csvEscape).join(','),
+    ...rows.map((row) => row.map(csvEscape).join(',')),
+  ].join('\n');
+
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
 const PositionsTab = ({ productFilter = null }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
@@ -172,6 +195,38 @@ const PositionsTab = ({ productFilter = null }) => {
   const totalMtm = openPositions.reduce((sum, p) => sum + parseFloat(p.mtm), 0);
   const totalClosed = closedPositions.reduce((sum, p) => sum + p.realizedPnl, 0);
 
+  const handleSaveAsCsv = () => {
+    const rows = [
+      ...openPositions.map((p) => [
+        'OPEN',
+        p.productType || '',
+        isAdminScopedView ? `${p.userName || ''} (${p.userNo || '—'})` : '',
+        p.symbol || '',
+        Number(p.qty || 0),
+        Number(p.avgEntry || 0),
+        Number(p.currentLtp || 0),
+        Number(p.mtm || 0),
+      ]),
+      ...closedPositions.map((p) => [
+        'CLOSED',
+        p.productType || '',
+        isAdminScopedView ? `${p.userName || ''} (${p.userNo || '—'})` : '',
+        p.symbol || '',
+        Number(p.qty || 0),
+        Number(p.avgEntry || 0),
+        Number(p.exitPrice || 0),
+        Number(p.realizedPnl || 0),
+      ]),
+    ];
+
+    const suffix = String(productFilter || 'positions').toLowerCase();
+    downloadCsv(
+      `${suffix}_positions.csv`,
+      ['Status', 'Product', 'User', 'Instrument', 'Qty', 'Avg', 'LTP/Exit', 'P&L'],
+      rows,
+    );
+  };
+
   const toggleSelectOne = (id) => {
     setSelectedOpenIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   };
@@ -302,6 +357,7 @@ const PositionsTab = ({ productFilter = null }) => {
   const pageStyle = { minHeight: "100vh", margin: 0, padding: isMobile ? "12px" : "24px", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "transparent" };
   const mainCardStyle = { maxWidth: "1200px", margin: "0 auto", background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: isMobile ? "14px" : "24px 24px 32px 24px", border: "1px solid var(--border)" };
   const sectionHeaderRowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", marginTop: "8px", flexWrap: "wrap", gap: "8px" };
+  const topHeaderRowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" };
   const sectionTitleStyle = { fontSize: "14px", fontWeight: 600, color: "var(--text)" };
   const totalTextStyle = { fontSize: "13px", fontWeight: 600, color: "var(--text)" };
   const totalValueStyle = { fontWeight: 700 };
@@ -326,6 +382,7 @@ const PositionsTab = ({ productFilter = null }) => {
   const inputStyle = { width: '100%', border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', borderRadius: '6px', padding: '8px 10px', fontSize: '12px' };
   const labelStyle = { fontSize: '11px', color: 'var(--muted)', marginBottom: '4px', display: 'block' };
   const btnBase = { border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer' };
+  const csvButtonStyle = { border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: 700, background: 'var(--surface2)', color: 'var(--text)' };
 
   const formatMoney = (v) => "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
   const getExitQtyOptions = (row) => {
@@ -344,6 +401,15 @@ const PositionsTab = ({ productFilter = null }) => {
   return (
     <div style={pageStyle}>
       <div style={mainCardStyle}>
+        {isAdminScopedView && (
+          <div style={topHeaderRowStyle}>
+            <div style={{ ...sectionTitleStyle, fontSize: '16px' }}>{`P.${String(productFilter || '').toLowerCase()}`}</div>
+            <button onClick={handleSaveAsCsv} style={csvButtonStyle}>
+              save as csv
+            </button>
+          </div>
+        )}
+
         <div style={sectionHeaderRowStyle}>
           <div style={{ ...sectionTitleStyle, display: 'flex', alignItems: 'center', gap: '8px' }}>
             {isAdminScopedView

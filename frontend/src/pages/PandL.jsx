@@ -32,6 +32,29 @@ const fmtDate = (iso) => {
   return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 };
 
+const csvEscape = (value) => {
+  if (value === null || value === undefined) return "";
+  const str = String(value).replace(/"/g, '""');
+  return /[",\n]/.test(str) ? `"${str}"` : str;
+};
+
+const downloadCsv = (filename, headers, rows) => {
+  const csv = [
+    headers.map(csvEscape).join(","),
+    ...rows.map((row) => row.map(csvEscape).join(",")),
+  ].join("\n");
+
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
 // ── Reusable styles ───────────────────────────────────────────────────────
 const S = {
   input:  { padding: "7px 10px", background: "var(--control-bg)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--text)", fontSize: "13px" },
@@ -58,6 +81,7 @@ function SummaryCard({ label, value, colored = true, sub = null }) {
 const PandLPage = ({ hideUserSelect = false }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || user?.role === "SUPER_USER";
+  const canSaveCsv = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
 
   const [fromDate,  setFromDate]  = useState(daysAgo(90)); // default: last 90 days
@@ -96,6 +120,37 @@ const PandLPage = ({ hideUserSelect = false }) => {
       setData(null);
     } finally { setLoading(false); }
   }, [fromDate, toDate, targetUid, isAdmin]);
+
+  const handleSaveAsCsv = () => {
+    const closed = Array.isArray(data?.closed) ? data.closed : [];
+    const rows = closed.map((p) => {
+      const tradeCharges = p.trade_expense != null
+        ? Number(p.trade_expense)
+        : (Number(p.total_charges || 0) - Number(p.platform_cost || 0));
+      const platformCost = Number(p.platform_cost || 0);
+      const netPnl = p.net_pnl != null ? Number(p.net_pnl) : (Number(p.realized_pnl || 0) - tradeCharges - platformCost);
+
+      return [
+        p.closed_at || p.report_date || "",
+        p.symbol || "",
+        Number(p.buy_qty || 0),
+        Number(p.buy_price || 0),
+        Number(p.buy_value || 0),
+        Number(p.sell_qty || 0),
+        Number(p.sell_price || 0),
+        Number(p.sell_value || 0),
+        platformCost,
+        tradeCharges,
+        netPnl,
+      ];
+    });
+
+    downloadCsv(
+      `pnl_${fromDate}_to_${toDate}.csv`,
+      ["Date", "Symbol", "Buy Qty", "Buy Price", "Buy Value", "Sell Qty", "Sell Price", "Sell Value", "Platform Cost", "Trade Expense", "Net P&L"],
+      rows,
+    );
+  };
 
   useEffect(() => { fetchPnl(); }, []); // eslint-disable-line
 
@@ -146,6 +201,14 @@ const PandLPage = ({ hideUserSelect = false }) => {
           >
             {loading ? "Loading…" : "Apply"}
           </button>
+          {canSaveCsv && (
+            <button
+              onClick={handleSaveAsCsv}
+              style={{ padding: "8px 14px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontWeight: 700, fontSize: "12px", cursor: "pointer" }}
+            >
+              save as csv
+            </button>
+          )}
         </div>
       </div>
 

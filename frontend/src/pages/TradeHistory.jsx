@@ -10,8 +10,32 @@ const daysAgo = (n) => {
 
 const today = () => new Date().toLocaleDateString("en-CA");
 
+const csvEscape = (value) => {
+  if (value === null || value === undefined) return "";
+  const str = String(value).replace(/"/g, '""');
+  return /[",\n]/.test(str) ? `"${str}"` : str;
+};
+
+const downloadCsv = (filename, headers, rows) => {
+  const csv = [
+    headers.map(csvEscape).join(","),
+    ...rows.map((row) => row.map(csvEscape).join(",")),
+  ].join("\n");
+
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
 const TradeHistoryPage = () => {
   const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
   const [fromDate, setFromDate] = useState(daysAgo(30)); // Default: last 30 days
   const [toDate, setToDate] = useState(today());
   const [trades, setTrades] = useState([]);
@@ -93,6 +117,23 @@ const TradeHistoryPage = () => {
     );
   };
 
+  const handleSaveAsCsv = () => {
+    const rows = sortedTrades.map((t) => [
+      t.placed_at || t.created_at || "",
+      t.symbol || "",
+      t.side || "",
+      t.order_type || t.orderMode || "",
+      Number(t.qty || t.quantity || 0),
+      Number(t.execution_price || t.price || 0),
+    ]);
+
+    downloadCsv(
+      `trade_history_${fromDate}_to_${toDate}.csv`,
+      ["Date & Time", "Symbol", "Side", "Type", "Qty", "Price"],
+      rows,
+    );
+  };
+
   const s = {
     page: { padding: isMobile ? '12px' : '24px', fontFamily: 'system-ui,sans-serif', color: 'var(--text)', minHeight: '100vh' },
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' },
@@ -101,6 +142,7 @@ const TradeHistoryPage = () => {
     input: { padding: '7px 10px', background: 'var(--control-bg)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px' },
     label: { fontSize: '12px', color: 'var(--muted)' },
     button: { padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer', opacity: loading ? 0.6 : 1 },
+    csvButton: { padding: '8px 14px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontWeight: '700', fontSize: '12px', cursor: 'pointer' },
     card: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: isMobile ? '12px' : '20px', overflow: 'hidden' },
     table: { width: '100%', minWidth: '980px', borderCollapse: 'collapse', fontSize: '12px' },
     thead: { background: 'var(--surface2)', borderBottom: '1px solid var(--border)' },
@@ -139,6 +181,11 @@ const TradeHistoryPage = () => {
           <button onClick={fetchTrades} disabled={loading} style={s.button}>
             {loading ? "Loading…" : "Apply"}
           </button>
+          {isAdmin && (
+            <button onClick={handleSaveAsCsv} style={s.csvButton}>
+              save as csv
+            </button>
+          )}
         </div>
       </div>
 

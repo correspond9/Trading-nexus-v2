@@ -34,8 +34,8 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     refreshInterval: 1000, // 1 second real-time updates
   });
 
-  // Keep displayed LTP aligned with the authoritative /options/live payload.
-  // This avoids stale digits from the standalone underlying-ltp endpoint.
+  // Keep displayed LTP aligned only with the authoritative /options/live payload.
+  // Do not fall back to /market/underlying-ltp because it can be stale.
   useEffect(() => {
     const ltp = Number(chainData?.underlying_ltp || 0);
     if (ltp > 0) {
@@ -43,23 +43,8 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
       return;
     }
 
-    // Fallback only when the chain payload has no usable underlying_ltp.
-    const fetchFallbackLtp = async () => {
-      try {
-        const response = await apiService.get(`/market/underlying-ltp/${symbol}`);
-        const fallbackLtp = Number(response?.ltp || 0);
-        if (fallbackLtp > 0) {
-          setUnderlyingPrice(fallbackLtp);
-        }
-      } catch {
-        // Silent fallback failure; UI still relies on chain ATM/strikes.
-      }
-    };
-
-    if (symbol) {
-      fetchFallbackLtp();
-    }
-  }, [symbol, chainData?.underlying_ltp]);
+    setUnderlyingPrice(null);
+  }, [chainData?.underlying_ltp]);
 
   // ATM RULE (unified for both OPTIONS and STRADDLE):
   // Primary = underlying LTP rounded to strike interval (from hook helper).

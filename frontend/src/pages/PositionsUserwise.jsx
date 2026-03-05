@@ -80,7 +80,8 @@ function UserPositions({ row, onExitDone, liveTickByToken = {} }) {
   // Show all positions returned by backend (OPEN + intraday CLOSED)
   const positions = (row.positions || []);
   const openPositions = positions.filter(p => p.status === "OPEN");
-  const allOpen       = openPositions.map(p => p.instrument_token);
+  const rowKey = (p) => p.position_id || p.instrument_token;
+  const allOpen       = openPositions.map(rowKey);
   const anyChecked    = allOpen.some(t => checked[t]);
 
   const toggleAll = (e) => {
@@ -99,14 +100,14 @@ function UserPositions({ row, onExitDone, liveTickByToken = {} }) {
     setExiting(true);
     try {
       await Promise.all(
-        targets.map(token =>
-          apiService.post(`/portfolio/positions/${token}/close?user_id=${row.user_id}`, {})
+        targets.map(key =>
+          apiService.post(`/portfolio/positions/${key}/close?user_id=${row.user_id}`, {})
         )
       );
       setChecked({});
       if (onExitDone) onExitDone();
     } catch (err) {
-      alert(err?.response?.data?.detail || "Failed to exit position(s).");
+      alert(err?.data?.detail || err?.message || "Failed to exit position(s).");
     } finally {
       setExiting(false);
     }
@@ -168,19 +169,20 @@ function UserPositions({ row, onExitDone, liveTickByToken = {} }) {
             ) : positions.map(p => {
               const isOpen  = p.status === "OPEN";
               const token   = p.instrument_token;
+              const key     = rowKey(p);
               const curQty  = exitQty[token] ?? String(Math.abs(p.quantity));
               // Use live tick if available, fallback to position's ltp
               const liveTick = liveTickByToken[token];
               const currentLTP = liveTick?.ltp !== undefined && liveTick?.ltp !== null ? liveTick.ltp : p.ltp;
               const currentPnL = isOpen ? (currentLTP - p.avg_price) * p.quantity : p.pnl;
               return (
-                <tr key={token} style={{ background: checked[token] ? "#1e3a5f22" : "transparent" }}>
+                <tr key={String(key)} style={{ background: checked[key] ? "#1e3a5f22" : "transparent" }}>
                   <td style={SUB_TD}>
                     {isOpen ? (
                       <input
                         type="checkbox"
-                        checked={!!checked[token]}
-                        onChange={() => toggle(token)}
+                        checked={!!checked[key]}
+                        onChange={() => toggle(key)}
                         style={{ accentColor: "#2563eb" }}
                       />
                     ) : null}

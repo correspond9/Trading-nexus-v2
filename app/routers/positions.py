@@ -30,7 +30,7 @@ def _uid(request: Request, user_id_param, current_user: Optional[CurrentUser] = 
 
 def _fmt(r) -> dict:
     d = dict(r)
-    d["id"]           = str(d.get("id") or d.get("instrument_token", ""))
+    d["id"]           = str(d.get("position_id") or d.get("id") or d.get("instrument_token", ""))
     d["product_type"] = d.get("product_type") or "MIS"
     d["quantity"]     = int(d.get("quantity") or d.get("net_qty") or 0)
     d["avg_price"]    = float(d.get("avg_price") or d.get("avg_cost") or 0)
@@ -148,21 +148,51 @@ async def close_position(
                 detail="Your account is blocked. You can only submit payout requests.",
             )
 
-        # position_id is the instrument_token (sent as id from frontend)
-        try:
-            token = int(position_id)
-        except (ValueError, TypeError):
-            log.error(f"Invalid position_id format: {position_id}")
-            raise HTTPException(status_code=400, detail="Invalid position ID format")
+        token = None
+        resolved_position_id = None
 
-        row = await pool.fetchrow(
-            "SELECT * FROM paper_positions WHERE user_id=$1::uuid AND instrument_token=$2",
-            uid, token,
-        )
+        # Accept UUID position_id (preferred) and integer instrument_token (legacy).
+        try:
+            parsed_uuid = uuid.UUID(str(position_id))
+            row = await pool.fetchrow(
+                """
+                SELECT *
+                FROM paper_positions
+                WHERE user_id=$1::uuid
+                  AND position_id=$2::uuid
+                LIMIT 1
+                """,
+                uid,
+                parsed_uuid,
+            )
+        except (ValueError, TypeError):
+            try:
+                token = int(position_id)
+            except (ValueError, TypeError):
+                log.error(f"Invalid position_id format: {position_id}")
+                raise HTTPException(status_code=400, detail="Invalid position ID format")
+
+            # If multiple historical rows exist for same token, always target current OPEN row.
+            row = await pool.fetchrow(
+                """
+                SELECT *
+                FROM paper_positions
+                WHERE user_id=$1::uuid
+                  AND instrument_token=$2
+                  AND status='OPEN'
+                  AND quantity <> 0
+                ORDER BY opened_at DESC
+                LIMIT 1
+                """,
+                uid,
+                token,
+            )
 
         if not row:
-            log.warning(f"Close position failed: Position {position_id} (token={token}) not found for user {uid}")
+            log.warning(f"Close position failed: Position {position_id} not found/open for user {uid}")
             raise HTTPException(status_code=404, detail="Position not found")
+
+        resolved_position_id = row.get("position_id")
 
         # Extract position details
         exchange_segment = row.get("exchange_segment") or "NSE_EQ"
@@ -178,6 +208,7 @@ async def close_position(
         
         # For short positions, qty is negative. Use absolute value for order quantity.
         order_qty = abs(qty)
+        side = 'SELL' if qty > 0 else 'BUY'
         
         # Get current LTP for fill price
         ltp_row = await pool.fetchrow(
@@ -197,10 +228,10 @@ async def close_position(
                 (order_id, user_id, instrument_token, symbol, exchange_segment,
                  side, order_type, quantity, fill_price, filled_qty,
                  status, product_type, placed_at)
-            VALUES ($1, $2, $3, $4, $5, 'SELL', 'MARKET', $6, $7, 0, 'PENDING', $8, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, 'MARKET', $7, $8, 0, 'PENDING', $9, NOW())
             """,
             order_id, uid, instrument_token, symbol, exchange_segment,
-            order_qty, ltp, product_type
+            side, order_qty, ltp, product_type
         )
         
         # ── Market hours validation ────────────────────────────────────────
@@ -232,14 +263,14 @@ async def close_position(
             order_id, order_qty
         )
         
-        # Update position using primary key (user_id, instrument_token)
+        # Close the exact resolved row to avoid touching wrong historical entries.
         await pool.execute(
             """
             UPDATE paper_positions
             SET quantity = 0, status = 'CLOSED', realized_pnl = $1, closed_at = NOW()
-            WHERE user_id = $2::uuid AND instrument_token = $3
+            WHERE user_id = $2::uuid AND position_id = $3::uuid
             """,
-            realized, uid, instrument_token,
+            realized, uid, resolved_position_id,
         )
         
         log.info(f"Position closed successfully: token={instrument_token}, user={uid}, realized_pnl={realized}")

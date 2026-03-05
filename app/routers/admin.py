@@ -2131,6 +2131,7 @@ async def positions_userwise(
             COALESCE(
                 JSON_AGG(
                     JSON_BUILD_OBJECT(
+                        'position_id',     fp.position_id,
                         'instrument_token', fp.instrument_token,
                         'symbol',         fp.symbol,
                         'exchange',       fp.exchange_segment,

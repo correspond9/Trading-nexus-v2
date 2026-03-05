@@ -75,10 +75,11 @@ const PositionsTab = ({ productFilter = null }) => {
             const currentLtp = Number(position.ltp || avgEntry);
             const pnl = Number(position.pnl || 0);
             const token = Number(position.instrument_token || 0);
+            const positionId = position.position_id || null;
 
             mapped.push({
               id: `${userId}:${token}:${position.opened_at || index}:${status}`,
-              closeId: token,
+              closeId: positionId || token,
               instrumentToken: token,
               lotSize: Number(position.lot_size || 1),
               userId,

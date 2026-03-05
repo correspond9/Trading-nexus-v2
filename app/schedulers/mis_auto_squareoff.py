@@ -107,8 +107,10 @@ class MISAutoSquareoffScheduler:
         # Run continuously in equity close window: 15:20 <= time < 15:30 IST
         if current_time >= NSE_BSE_SQUAREOFF_START and current_time < NSE_BSE_SQUAREOFF_END:
             logger.info("⏰ Running NSE/BSE MIS auto-square-off pulse (15:20-15:30 IST)")
-            # Covers all NSE/BSE instrument types (equity and derivatives).
-            result = await self.run_once(exchanges=['NSE_EQ', 'NSE_FNO', 'BSE_EQ', 'BSE_FO'])
+            # Covers NSE/BSE equities + derivatives across known segment label variants.
+            result = await self.run_once(
+                exchanges=['NSE_EQ', 'NSE_FNO', 'NSE_FO', 'NSE', 'BSE_EQ', 'BSE_FO', 'BSE_FNO', 'BSE']
+            )
             self._last_run_nse = now_ist
             self.last_run_at = now_ist
             self.last_run_result = result

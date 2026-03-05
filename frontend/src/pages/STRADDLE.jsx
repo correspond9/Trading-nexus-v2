@@ -34,24 +34,32 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     refreshInterval: 1000, // 1 second real-time updates
   });
 
-  // Fetch underlying price for center strike calculation
+  // Keep displayed LTP aligned with the authoritative /options/live payload.
+  // This avoids stale digits from the standalone underlying-ltp endpoint.
   useEffect(() => {
-    const fetchUnderlyingPrice = async () => {
+    const ltp = Number(chainData?.underlying_ltp || 0);
+    if (ltp > 0) {
+      setUnderlyingPrice(ltp);
+      return;
+    }
+
+    // Fallback only when the chain payload has no usable underlying_ltp.
+    const fetchFallbackLtp = async () => {
       try {
         const response = await apiService.get(`/market/underlying-ltp/${symbol}`);
-        if (response && response.ltp !== undefined) {
-          setUnderlyingPrice(response.ltp);
-          console.log(`📊 [STRADDLE] ${symbol} LTP: ${response.ltp}`);
+        const fallbackLtp = Number(response?.ltp || 0);
+        if (fallbackLtp > 0) {
+          setUnderlyingPrice(fallbackLtp);
         }
-      } catch (err) {
-        console.warn(`[STRADDLE] Could not fetch underlying price for ${symbol}:`, err);
+      } catch {
+        // Silent fallback failure; UI still relies on chain ATM/strikes.
       }
     };
 
     if (symbol) {
-      fetchUnderlyingPrice();
+      fetchFallbackLtp();
     }
-  }, [symbol]);
+  }, [symbol, chainData?.underlying_ltp]);
 
   // ATM RULE (unified for both OPTIONS and STRADDLE):
   // Primary = underlying LTP rounded to strike interval (from hook helper).
@@ -72,53 +80,10 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     }
   }, [straddleAtmStrike]);
 
-  // Fallback snapshot loader when authoritative chain is unavailable
+  // Legacy snapshot endpoint is removed in v2 backend; keep fallback list empty.
   useEffect(() => {
-    const loadSnapshot = async () => {
-      try {
-        // Try v2-style builder: /option-chain/{symbol}?expiry=...&underlying_ltp=...
-        if (underlyingPrice) {
-          const res2 = await apiService.get(`/option-chain/${symbol}`, {
-            expiry: expiry,
-            underlying_ltp: underlyingPrice,
-          });
-          const payload2 = res2?.chain || res2?.data || res2;
-          const arr2 = Array.isArray(payload2) ? payload2 : [];
-          const normalized = arr2.map((item) => ({
-            strike: Number(item.strike || item.strike_price || 0),
-            ltpCE: Number(
-              item?.ce?.ltp ??
-              item?.CE?.ltp ??
-              item?.ce?.close ??
-              item?.CE?.close ??
-              item?.ce?.last_price ??
-              item?.CE?.last_price ??
-              0
-            ),
-            ltpPE: Number(
-              item?.pe?.ltp ??
-              item?.PE?.ltp ??
-              item?.pe?.close ??
-              item?.PE?.close ??
-              item?.pe?.last_price ??
-              item?.PE?.last_price ??
-              0
-            ),
-          }));
-          if (normalized.length) {
-            setSnapshotStrikes(normalized);
-            console.log('[STRADDLE] Loaded snapshot from /option-chain builder', symbol, normalized.length);
-            return;
-          }
-        }
-        setSnapshotStrikes([]);
-      } catch (e) {
-        console.log('[STRADDLE] Snapshot load failed', symbol, e?.message || e);
-        setSnapshotStrikes([]);
-      }
-    };
-    loadSnapshot();
-  }, [symbol, expiry, underlyingPrice]);
+    setSnapshotStrikes([]);
+  }, [symbol, expiry]);
 
   // Convert authoritative chain data to straddle format
   const straddles = useMemo(() => {

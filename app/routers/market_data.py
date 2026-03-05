@@ -34,35 +34,17 @@ async def get_underlying_ltp(symbol: str):
 
     pool = get_pool()
 
-    # Primary: index token (instrument_type='INDEX' with symbol exactly matching underlying)
-    row = await pool.fetchrow(
-        """
-        SELECT md.ltp, md.close, md.updated_at
-        FROM market_data md
-        JOIN instrument_master im ON im.instrument_token = md.instrument_token
-        WHERE im.symbol = $1 AND im.instrument_type = 'INDEX'
-        LIMIT 1
-        """,
-        u,
-    )
-    if row and row["ltp"] is not None:
-        return {
-            "symbol": u,
-            "ltp": float(row["ltp"]),
-            "close": float(row["close"]) if row.get("close") is not None else None,
-            "updated_at": row.get("updated_at"),
-            "source": "INDEX",
-        }
-
-    # Fallback: nearest futures for this underlying
+    # Use nearest futures as source for index LTP (INDEX instruments don't exist in Dhan data)
+    # Futures track spot indices very closely and are subscribed via Tier-B WebSocket
     fut = await pool.fetchrow(
         """
-        SELECT md.ltp, md.close, md.updated_at, im.symbol AS fut_symbol
+        SELECT md.ltp, md.close, md.updated_at, im.symbol AS fut_symbol, im.expiry_date
         FROM instrument_master im
-        LEFT JOIN market_data md ON md.instrument_token = im.instrument_token
+        LEFT JOIN market_data md ON md.instrument_token = md.instrument_token
         WHERE im.underlying = $1
           AND im.instrument_type IN ('FUTIDX','FUTSTK','FUTCOM')
-        ORDER BY im.expiry_date ASC NULLS LAST
+          AND im.expiry_date >= CURRENT_DATE
+        ORDER BY im.expiry_date ASC
         LIMIT 1
         """,
         u,

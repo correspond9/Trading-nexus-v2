@@ -84,12 +84,16 @@ async def get_option_chain(
     except Exception:
         lot_size_csv = None
 
-    # Underlying LTP from index market data
+    # Underlying LTP from nearest futures (INDEX instruments don't exist in Dhan data)
+    # Futures track spot indices very closely and are subscribed via Tier-B WebSocket
     ul_row = await pool.fetchrow(
         """
         SELECT md.ltp FROM market_data md
         JOIN instrument_master im ON im.instrument_token = md.instrument_token
-        WHERE im.symbol = $1 AND im.instrument_type = 'INDEX'
+        WHERE im.underlying = $1
+          AND im.instrument_type IN ('FUTIDX','FUTSTK','FUTCOM')
+          AND im.expiry_date >= CURRENT_DATE
+        ORDER BY im.expiry_date ASC
         LIMIT 1
         """,
         underlying,

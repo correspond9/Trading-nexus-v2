@@ -93,6 +93,17 @@ def _classify(row: dict, lists: dict[str, set[str]]) -> Optional[str]:
     underlying = (row.get("UNDERLYING_SYMBOL") or "").strip().upper()
     exch_id    = (row.get("EXCH_ID") or "").strip().upper()
     seg_code   = (row.get("SEGMENT") or "").strip().upper()
+    # Get symbol for INDEX matching (INDEX instruments use symbol field, not underlying)
+    symbol     = (row.get("DISPLAY_NAME") or row.get("SYMBOL_NAME") or "").strip().upper()
+
+    # ── Index spot — always Tier-B ──────────────────────────────────────────
+    # INDEX instruments for NIFTY, BANKNIFTY, SENSEX etc. must be subscribed
+    # for live LTP updates used in ATM calculations and frontend displays.
+    if itype == "INDEX" and symbol in _TIER_B_INDICES:
+        if exch_id == "NSE":
+            return "B"
+        if exch_id == "BSE" and symbol in {"SENSEX", "BANKEX"}:
+            return "B"
 
     # ── Index options & futures — always Tier-B ─────────────────────────────
     # Default: restrict to NSE derivatives to avoid SECURITY_ID collisions across segments.
@@ -525,8 +536,16 @@ async def _reclassify_in_place() -> None:
     # Index types always B (no list)
     # We'll handle the rest via SQL using the lists + instrument_type
 
-    # Update Tier-B index instruments (always)
+    # Update Tier-B index spot instruments (INDEX type) — always subscribed for live LTP
     tier_b_indices = list(_TIER_B_INDICES)
+    await pool.execute(
+        """UPDATE instrument_master SET tier='B', ws_slot=(instrument_token % 5)
+           WHERE instrument_type = 'INDEX'
+             AND symbol = ANY($1::text[])""",
+        tier_b_indices,
+    )
+
+    # Update Tier-B index derivatives (OPTIDX, FUTIDX) — always subscribed
     await pool.execute(
         """UPDATE instrument_master SET tier='B', ws_slot=(instrument_token % 5)
            WHERE instrument_type IN ('OPTIDX','FUTIDX')

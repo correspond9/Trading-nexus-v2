@@ -23,7 +23,7 @@ class FillEvent:
 
 
 def execute_market_fill(
-    order,                  # duck typing: .side, .quantity, .exchange_segment
+    order,                  # duck typing: .side, .quantity, .exchange_segment, .limit_price
     market_snap: dict,
     tick_size: Decimal,
     lot_size: int = 1,
@@ -35,6 +35,11 @@ def execute_market_fill(
     at a given depth level is deferred to the next level.
     If fills[-1].remaining_qty > 0, the order was not fully satisfied
     by the available depth.
+    
+    CRITICAL FIX: Respects limit price for LIMIT orders:
+      BUY LIMIT: Only fills at prices <= limit_price (never worse)
+      SELL LIMIT: Only fills at prices >= limit_price (never worse)
+      MARKET: Fills at market depth (no limit restriction)
     """
     depth_key = "ask_depth" if order.side == "BUY" else "bid_depth"
     depth     = market_snap.get(depth_key) or []
@@ -42,12 +47,29 @@ def execute_market_fill(
     fills: list[FillEvent] = []
     _lot = max(lot_size, 1)   # guard against 0
 
+    # Get limit price for validation (LIMIT and SL orders have limit_price)
+    limit_price = getattr(order, "limit_price", None)
+    if limit_price:
+        limit_price = Decimal(str(limit_price))
+
     for level in depth:
         if remaining <= 0:
             break
         available   = level.get("qty", 0)
         if available <= 0:
             continue
+        
+        fill_px = Decimal(str(level["price"]))
+        
+        # ── CRITICAL VALIDATION: Check if fill would violate limit price ──
+        if limit_price:
+            if order.side == "BUY" and fill_px > limit_price:
+                # BUY order: depth price is worse (higher) than limit — STOP HERE
+                break
+            elif order.side == "SELL" and fill_px < limit_price:
+                # SELL order: depth price is worse (lower) than limit — STOP HERE
+                break
+        
         # Raw fill capped by both remaining and available depth
         raw_fill    = min(remaining, available)
         # Floor to the nearest whole-lot boundary
@@ -59,9 +81,17 @@ def execute_market_fill(
         slippage = calculate_slippage(
             order.exchange_segment, filled_here, available, tick_size
         )
-        fill_px = Decimal(str(level["price"]))
         # BUY: higher price (adverse), SELL: lower price (adverse)
         fill_px = fill_px + slippage if order.side == "BUY" else fill_px - slippage
+        
+        # ── RE-VALIDATE AFTER SLIPPAGE ──
+        if limit_price:
+            if order.side == "BUY" and fill_px > limit_price:
+                # After slippage, price is worse than limit — REJECT THIS LEVEL
+                continue
+            elif order.side == "SELL" and fill_px < limit_price:
+                # After slippage, price is worse than limit — REJECT THIS LEVEL
+                continue
 
         fills.append(FillEvent(
             fill_price    = fill_px.quantize(tick_size),

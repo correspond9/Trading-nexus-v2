@@ -77,6 +77,8 @@ async def get_ledger(
         target_user_id, fd,
     )
 
+    has_prior_transactions = opening_balance_row is not None
+    
     if opening_balance_row and opening_balance_row["balance_after"] is not None:
         opening_balance_value = float(opening_balance_row["balance_after"])
     else:
@@ -92,6 +94,9 @@ async def get_ledger(
             target_user_id,
         )
         opening_balance_value = float(opening_entry["balance_after"] or 0) if opening_entry else 0.0
+        # If user has an explicit "Opening Balance" entry, count it as having prior transactions
+        if opening_entry:
+            has_prior_transactions = True
 
     # ── 2. Wallet entries (deposits, withdrawals, fees — NOT P&L rows) ────────
     wallet_rows = await pool.fetch(
@@ -141,13 +146,17 @@ async def get_ledger(
     data = []
     seq = 0  # Sequence number to preserve insertion order for same-timestamp entries
 
-    # Add opening balance entry ONLY if it's not already in the fetched wallet_rows
-    # (i.e., only show it when viewing dates after the account's opening balance was set)
+    # Add opening balance entry ONLY if:
+    # 1. The actual "Opening Balance" entry is not already in the fetched rows, AND
+    # 2. There are transactions to display (show starting point)
     showing_opening_entry = any(
         r["description"] == "Opening Balance" for r in wallet_rows
     )
     
-    if opening_balance_value != 0 and not showing_opening_entry:
+    # Show opening balance if there are transactions OR user had explicit opening balance set
+    should_show_opening = (len(wallet_rows) > 0 or len(pnl_rows) > 0 or has_prior_transactions)
+    
+    if should_show_opening and not showing_opening_entry:
         data.append({
             "_seq":        seq,
             "date":        fd.isoformat(),

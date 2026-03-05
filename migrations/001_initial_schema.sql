@@ -146,7 +146,8 @@ CREATE TABLE IF NOT EXISTS paper_orders (
     status            VARCHAR(10)   NOT NULL DEFAULT 'PENDING',
     -- PENDING | FILLED | PARTIAL | REJECTED | CANCELLED
     placed_at         TIMESTAMPTZ   DEFAULT now(),
-    filled_at         TIMESTAMPTZ
+    filled_at         TIMESTAMPTZ,
+    updated_at        TIMESTAMPTZ   DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_po_user_id  ON paper_orders (user_id, placed_at DESC);

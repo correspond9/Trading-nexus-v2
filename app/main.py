@@ -277,7 +277,7 @@ async def lifespan(app: FastAPI):
         log.info("[16] Starting EOD closed-position archiver (16:00 IST) …")
         await eod_closed_position_archiver.start()
 
-        log.info("[16b] Starting MIS auto-square-off scheduler (15:20 IST NSE/BSE, 23:20 IST MCX) …")
+        log.info("[16b] Starting MIS auto-square-off scheduler (15:20-15:30 IST NSE/BSE pulse) …")
         await mis_auto_squareoff.start()
 
         log.info("[17] Starting charge calculation scheduler (16:00 IST NSE/BSE, 00:00 IST MCX) …")

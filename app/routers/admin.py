@@ -1575,6 +1575,12 @@ async def backdate_position(
         valid_exchanges = {"NSE", "BSE", "MCX", "NCDEX"}
         if exchange not in valid_exchanges:
             return {"success": False, "detail": f"Invalid exchange: {exchange}"}
+
+        if exchange in {"MCX", "NCDEX"} and product_type == "MIS":
+            return {
+                "success": False,
+                "detail": "MIS is not allowed for commodity exchanges (MCX/NCDEX). Use NORMAL."
+            }
         
         # Map exchange + instrument_type to exchange_segment
         exchange_segment = exchange

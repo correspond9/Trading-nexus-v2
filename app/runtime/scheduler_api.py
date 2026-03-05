@@ -123,7 +123,7 @@ async def get_scheduler_snapshot() -> dict:
             "id": "mis_auto_squareoff",
             "label": "MIS auto-square-off",
             "kind": "fixed_time",
-            "window": "15:20 IST (NSE/BSE), 23:20 IST (MCX) daily",
+            "window": "15:20-15:30 IST pulse (NSE/BSE)",
             "running": bool(getattr(mis_auto_squareoff, "_task", None) and not mis_auto_squareoff._task.done()),
             "override": "n/a",
             "actions": ["start", "stop", "refresh"],

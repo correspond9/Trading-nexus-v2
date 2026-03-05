@@ -89,6 +89,15 @@ def _extract_underlying(symbol: str) -> str:
     return sym
 
 
+def _is_commodity_segment(exchange_segment: str) -> bool:
+    seg = (exchange_segment or "").upper()
+    return (
+        "MCX" in seg
+        or "NCDEX" in seg
+        or "COMM" in seg
+    )
+
+
 def _calculate_required_margin(
     price: float, 
     qty: int, 
@@ -332,6 +341,13 @@ async def place_paper_order(
         ord_type = body.order_type.upper()
         prod     = body.product_type.upper()
         lp       = body.limit_price or body.price
+
+        # Commodity does not support MIS in this system.
+        if _is_commodity_segment(body.exchange_segment or "") and prod == "MIS":
+            raise HTTPException(
+                status_code=400,
+                detail="MIS is not allowed for commodity instruments. Use NORMAL product type."
+            )
 
         # Get LTP for fill simulation
         ltp_row = await pool.fetchrow(

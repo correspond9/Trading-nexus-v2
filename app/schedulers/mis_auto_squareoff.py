@@ -1,20 +1,22 @@
 """
 MIS Auto Square-Off Scheduler
 
-Automatically exits all open MIS (Intraday) positions before market close:
-- NSE/BSE: 3:20 PM IST (10 minutes before 3:30 PM market close)
-- MCX: 11:20 PM IST (10 minutes before 11:30 PM market close)
+Automatically exits all open MIS (Intraday) positions before equity market close.
+
+Active window (IST):
+- NSE/BSE: 3:20 PM to 3:30 PM (continuous pulse)
 
 Only processes positions that:
 1. Status = 'OPEN'
 2. product_type = 'MIS'
 3. quantity != 0
+4. exchange_segment belongs to NSE/BSE
 
 Places market orders on the opposite side to close positions.
 """
 import asyncio
 import logging
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 from typing import Optional
 import pytz
 from decimal import Decimal
@@ -28,9 +30,13 @@ logger = logging.getLogger(__name__)
 # IST timezone
 IST = pytz.timezone('Asia/Kolkata')
 
-# Square-off times (10 minutes before market close)
-NSE_BSE_SQUAREOFF_TIME = time(hour=15, minute=20)  # 3:20 PM
-MCX_SQUAREOFF_TIME = time(hour=23, minute=20)      # 11:20 PM
+# NSE/BSE square-off active window (10 minutes before 3:30 PM close)
+NSE_BSE_SQUAREOFF_START = time(hour=15, minute=20)
+NSE_BSE_SQUAREOFF_END = time(hour=15, minute=30)
+
+# Pulse intervals
+DEFAULT_PULSE_SECONDS = 60
+ACTIVE_WINDOW_PULSE_SECONDS = 1
 
 
 class MISAutoSquareoffScheduler:
@@ -42,7 +48,6 @@ class MISAutoSquareoffScheduler:
         self._task: Optional[asyncio.Task] = None
         self._running = False
         self._last_run_nse = None
-        self._last_run_mcx = None
         self.last_run_at: Optional[datetime] = None
         self.last_run_result: Optional[dict] = None
         self.last_run_error: Optional[str] = None
@@ -61,7 +66,7 @@ class MISAutoSquareoffScheduler:
         
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
-        logger.info("🔄 MIS auto-square-off scheduler started (NSE/BSE: 3:20 PM, MCX: 11:20 PM)")
+        logger.info("🔄 MIS auto-square-off scheduler started (NSE/BSE: 3:20 PM-3:30 PM, continuous pulse)")
     
     async def stop(self):
         """Stop the scheduler."""
@@ -82,14 +87,16 @@ class MISAutoSquareoffScheduler:
         while self._running:
             try:
                 await self._check_and_run()
-                # Check every minute
-                await asyncio.sleep(60)
+                now_ist = datetime.now(IST).time()
+                in_active_window = NSE_BSE_SQUAREOFF_START <= now_ist < NSE_BSE_SQUAREOFF_END
+                pulse_seconds = ACTIVE_WINDOW_PULSE_SECONDS if in_active_window else DEFAULT_PULSE_SECONDS
+                await asyncio.sleep(pulse_seconds)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in MIS auto-square-off scheduler loop: {e}")
                 self.last_run_error = str(e)
-                await asyncio.sleep(60)
+                await asyncio.sleep(DEFAULT_PULSE_SECONDS)
     
     async def _check_and_run(self):
         """Check if it's time to run auto square-off."""
@@ -97,25 +104,12 @@ class MISAutoSquareoffScheduler:
         today_date = now_ist.date()
         current_time = now_ist.time()
         
-        # Check NSE/BSE (3:20 PM IST)
-        if (current_time >= NSE_BSE_SQUAREOFF_TIME and 
-            current_time < time(hour=15, minute=25) and  # 5-minute window
-            (self._last_run_nse is None or self._last_run_nse.date() < today_date)):
-            logger.info("⏰ Running NSE/BSE MIS auto-square-off (3:20 PM IST)")
-            result = await self.run_once(exchanges=['NSE_EQ', 'NSE_FNO', 'BSE_EQ'])
+        # Run continuously in equity close window: 15:20 <= time < 15:30 IST
+        if current_time >= NSE_BSE_SQUAREOFF_START and current_time < NSE_BSE_SQUAREOFF_END:
+            logger.info("⏰ Running NSE/BSE MIS auto-square-off pulse (15:20-15:30 IST)")
+            # Covers all NSE/BSE instrument types (equity and derivatives).
+            result = await self.run_once(exchanges=['NSE_EQ', 'NSE_FNO', 'BSE_EQ', 'BSE_FO'])
             self._last_run_nse = now_ist
-            self.last_run_at = now_ist
-            self.last_run_result = result
-            self.last_run_error = None
-            return
-        
-        # Check MCX (11:20 PM IST)
-        if (current_time >= MCX_SQUAREOFF_TIME and 
-            current_time < time(hour=23, minute=25) and  # 5-minute window
-            (self._last_run_mcx is None or self._last_run_mcx.date() < today_date)):
-            logger.info("⏰ Running MCX MIS auto-square-off (11:20 PM IST)")
-            result = await self.run_once(exchanges=['MCX_COMM'])
-            self._last_run_mcx = now_ist
             self.last_run_at = now_ist
             self.last_run_result = result
             self.last_run_error = None
@@ -329,7 +323,6 @@ class MISAutoSquareoffScheduler:
             **self._stats,
             'running': self._running,
             'last_run_nse': self._last_run_nse.isoformat() if self._last_run_nse else None,
-            'last_run_mcx': self._last_run_mcx.isoformat() if self._last_run_mcx else None,
         }
 
 

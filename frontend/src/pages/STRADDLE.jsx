@@ -3,6 +3,7 @@ import { apiService } from '../services/apiService';
 import { useAuthoritativeOptionChain } from '../hooks/useAuthoritativeOptionChain';
 import normalizeUnderlying from '../utils/underlying';
 import { getLotSize as getConfiguredLotSize } from '../config/tradingConfig';
+import { formatOptionLabel } from '../utils/formatInstrumentLabel';
 
 const resolveOptionSegment = (underlyingSymbol) => {
   const upper = String(underlyingSymbol || '').toUpperCase();
@@ -365,9 +366,27 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
                   <button
                     onClick={() => {
                       if (!isTradeReady) return;
+                      // Format display symbols with expiry date
+                      const ceDisplaySymbol = formatOptionLabel({
+                        instrumentType: 'OPTION',
+                        symbol: straddle.ceSymbol,
+                        expiryDate: expiry,
+                        strikePrice: straddle.strike,
+                        optionType: 'CE',
+                        underlying: symbol,
+                      });
+                      const peDisplaySymbol = formatOptionLabel({
+                        instrumentType: 'OPTION',
+                        symbol: straddle.peSymbol,
+                        expiryDate: expiry,
+                        strikePrice: straddle.strike,
+                        optionType: 'PE',
+                        underlying: symbol,
+                      });
                       handleOpenOrderModal([
                         {
                           symbol: straddle.ceSymbol,
+                          displaySymbol: ceDisplaySymbol,
                           action: 'BUY',
                           ltp: straddle.ce_ltp,
                           lotSize: straddle.lot_size,
@@ -380,6 +399,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
                         },
                         {
                           symbol: straddle.peSymbol,
+                          displaySymbol: peDisplaySymbol,
                           action: 'BUY',
                           ltp: straddle.pe_ltp,
                           lotSize: straddle.lot_size,
@@ -400,9 +420,27 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
                   <button
                     onClick={() => {
                       if (!isTradeReady) return;
+                      // Format display symbols with expiry date
+                      const ceDisplaySymbol = formatOptionLabel({
+                        instrumentType: 'OPTION',
+                        symbol: straddle.ceSymbol,
+                        expiryDate: expiry,
+                        strikePrice: straddle.strike,
+                        optionType: 'CE',
+                        underlying: symbol,
+                      });
+                      const peDisplaySymbol = formatOptionLabel({
+                        instrumentType: 'OPTION',
+                        symbol: straddle.peSymbol,
+                        expiryDate: expiry,
+                        strikePrice: straddle.strike,
+                        optionType: 'PE',
+                        underlying: symbol,
+                      });
                       handleOpenOrderModal([
                         {
                           symbol: straddle.ceSymbol,
+                          displaySymbol: ceDisplaySymbol,
                           action: 'SELL',
                           ltp: straddle.ce_ltp,
                           lotSize: straddle.lot_size,
@@ -415,6 +453,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
                         },
                         {
                           symbol: straddle.peSymbol,
+                          displaySymbol: peDisplaySymbol,
                           action: 'SELL',
                           ltp: straddle.pe_ltp,
                           lotSize: straddle.lot_size,

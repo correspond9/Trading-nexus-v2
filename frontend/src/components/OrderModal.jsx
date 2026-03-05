@@ -238,7 +238,8 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
         window.dispatchEvent(new CustomEvent('orders:updated'));
         window.dispatchEvent(new CustomEvent('positions:updated'));
         const quantityLabel = isEquityInstrument ? `${qtyUnitsSingle} stock(s)` : `${lots} lot(s)`;
-        setSuccess(isMultiLeg ? `Straddle order placed — ${side} ${lots} lot(s) ×2` : `Order placed — ${side} ${quantityLabel} × ${orderData?.symbol || ''}`);
+        const displayName = orderData?.displaySymbol || orderData?.symbol || '';
+        setSuccess(isMultiLeg ? `Straddle order placed — ${side} ${lots} lot(s) ×2` : `Order placed — ${side} ${quantityLabel} × ${displayName}`);
       }
       setTimeout(() => { setSuccess(""); onClose?.(); }, 1500);
     } catch (err) {
@@ -282,7 +283,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
       <div style={modal} ref={modalRef}>
         <div style={header} onMouseDown={onMouseDown}>
           <div>
-            <div style={title}>{isBuy ? '▲ BUY' : '▼ SELL'} — {isMultiLeg ? 'Straddle (2 legs)' : (orderData?.symbol || 'Order')}</div>
+            <div style={title}>{isBuy ? '▲ BUY' : '▼ SELL'} — {isMultiLeg ? 'Straddle (2 legs)' : (orderData?.displaySymbol || orderData?.symbol || 'Order')}</div>
             <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>{orderData?.exchange_segment || orderData?.exchange || ''}</div>
           </div>
           <button style={closeBtn} onClick={onClose}>✕</button>
@@ -301,7 +302,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
               <div style={{ fontWeight: 700, marginBottom: 6 }}>Legs</div>
               {legs.map((leg, idx) => (
                 <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: 4 }}>
-                  <span>{leg.symbol}</span>
+                  <span>{leg.displaySymbol || leg.symbol}</span>
                   <span>{(leg.action || side)} • {Number(quantity || 0)} lot(s) × {Number(leg?.lotSize || lotSizePerLeg || 1)}</span>
                 </div>
               ))}

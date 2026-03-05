@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useMarketPulse } from '../hooks/useMarketPulse';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { RefreshCw, X, Plus, Search, ChevronDown } from "lucide-react";
+import { formatOptionLabel } from '../utils/formatInstrumentLabel';
 
 // ─── helpers ───────────────────────────────────────────────────────────────────
 const WATCHLIST_STORAGE_KEY_PREFIX = "watchlists:";
@@ -644,8 +645,8 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                       <ChevronDown size={14} />
                     </button>
 
-                    <button className="trade-btn buy" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, token: inst.token, exchange: inst.exchange, ltp: ltp }, 'BUY')}>BUY</button>
-                    <button className="trade-btn sell" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, token: inst.token, exchange: inst.exchange, ltp: ltp }, 'SELL')}>SELL</button>
+                    <button className="trade-btn buy" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, displaySymbol: label || inst.symbol, token: inst.token, exchange: inst.exchange, ltp: ltp, instrumentType: inst.instrumentType, expiryDate: inst.expiryDate, strikePrice: inst.strikePrice, optionType: inst.optionType, underlying: inst.underlying }, 'BUY')}>BUY</button>
+                    <button className="trade-btn sell" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, displaySymbol: label || inst.symbol, token: inst.token, exchange: inst.exchange, ltp: ltp, instrumentType: inst.instrumentType, expiryDate: inst.expiryDate, strikePrice: inst.strikePrice, optionType: inst.optionType, underlying: inst.underlying }, 'SELL')}>SELL</button>
                     <button style={removeBtn} onClick={() => handleRemoveInstrument(inst.token)} title="Remove"><X size={14} /></button>
                     </div>
 

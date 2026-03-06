@@ -362,6 +362,10 @@ async def place_paper_order(
         else:
             fill_price = ltp_price if ltp_price is not None else float(lp or 100.0)
 
+        # ── Determine order type for margin calculation ──
+        # MARKET orders: use fill_price (LTP). LIMIT/SL/SLL orders: use limit_price for margin calc
+        margin_calc_price = fill_price  # MARKET and LIMIT use their respective prices
+
         if ord_type in {"SLM", "SLL"}:
             if not body.trigger_price or float(body.trigger_price) <= 0:
                 raise HTTPException(status_code=400, detail="Valid trigger_price is required for SLM/SLL orders")
@@ -506,8 +510,27 @@ async def place_paper_order(
                         body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
                     )
                     _is_sl = True
+                elif ord_type == "LIMIT":
+                    # ── FIXED: LIMIT orders are now PENDING — queued for fill when market price reaches limit ──
+                    # This ensures they respect market depth, slippage, and partial fill logic.
+                    await conn.execute(
+                        """
+                        INSERT INTO paper_orders
+                            (order_id, user_id, instrument_token, symbol, exchange_segment,
+                             side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
+                             status, product_type, security_id,
+                             is_super, target_price, stop_loss_price, trailing_jump)
+                        VALUES
+                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,'PENDING',$12,$13,$14,$15,$16,$17)
+                        """,
+                        order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+                        side, ord_type, qty, lp, body.trigger_price, lp,  # limit_price is filled at
+                        prod, token or 0,
+                        body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
+                    )
+                    _is_sl = True  # Treat LIMIT like SL (queue for deferred fill)
                 else:
-                    # Insert order record (MARKET / LIMIT — fill immediately)
+                    # Insert order record (MARKET only — fill immediately at LTP)
                     await conn.execute(
                         """
                         INSERT INTO paper_orders
@@ -668,8 +691,8 @@ async def place_paper_order(
                 await _queue_cancel_by_id(_item["order_id"])
                 log.info("Auto-cancelled pending SL order %s (position fully closed)", _item["order_id"])
 
-        # ── SL order: enqueue for trigger-based fill, return PENDING ──────────
-        if ord_type in {"SLM", "SLL"}:
+        # ── SL & LIMIT order: enqueue for trigger-based/market-based fill, return PENDING ──
+        if ord_type in {"SLM", "SLL", "LIMIT"}:
             from app.execution_simulator.order_queue_manager import QueuedOrder, enqueue as _sl_enqueue
             from app.execution_simulator.execution_config import get_tick_size as _get_tick_size
             tick_size = _get_tick_size(body.exchange_segment or "NSE_FNO")
@@ -677,27 +700,43 @@ async def place_paper_order(
                 "SELECT lot_size FROM instrument_master WHERE instrument_token=$1", token
             )
             lot_size = int(im_lot_row["lot_size"]) if im_lot_row and im_lot_row["lot_size"] else 1
-            # SLM: fill at market once trigger hit → use trigger_price as effective limit
-            # SLL: fill at limit_price once trigger hit
-            effective_limit = Decimal(str(lp or body.trigger_price)) if ord_type == "SLL" else Decimal(str(body.trigger_price))
+            
+            # Determine effective limit price for queuing:
+            # - LIMIT: limit_price is the fill target
+            # - SLM: trigger_price is the effective limit (market fill on trigger)
+            # - SLL: limit_price is the fill target (once trigger hit)
+            if ord_type == "LIMIT":
+                effective_limit = Decimal(str(lp))
+                effective_trigger = Decimal("0")
+                order_type_str = "LIMIT"
+            else:  # SLM / SLL
+                effective_limit = Decimal(str(lp or body.trigger_price)) if ord_type == "SLL" else Decimal(str(body.trigger_price))
+                effective_trigger = Decimal(str(body.trigger_price))
+                order_type_str = "SL"
+            
             queued = QueuedOrder(
                 order_id         = order_id,
                 user_id          = str(user_id),
                 instrument_token = int(token or 0),
                 side             = side,
-                order_type       = "SL",
+                order_type       = order_type_str,
                 exchange_segment = body.exchange_segment or "",
                 symbol           = body.symbol or "",
                 limit_price      = effective_limit,
-                trigger_price    = Decimal(str(body.trigger_price)),
+                trigger_price    = effective_trigger,
                 quantity         = qty,
                 tick_size        = tick_size,
                 lot_size         = lot_size,
             )
             await _sl_enqueue(queued)
-            log.info("SL order %s queued: %s %s %s trigger=%.2f",
-                     order_id, side, qty, body.symbol, body.trigger_price)
-            return {"order_id": order_id, "status": "PENDING", "trigger_price": body.trigger_price}
+            if ord_type == "LIMIT":
+                log.info("LIMIT order %s queued: %s %s %s limit=%.2f",
+                         order_id, side, qty, body.symbol, float(lp))
+                return {"order_id": order_id, "status": "PENDING", "limit_price": float(lp)}
+            else:
+                log.info("SL order %s queued: %s %s %s trigger=%.2f",
+                         order_id, side, qty, body.symbol, body.trigger_price)
+                return {"order_id": order_id, "status": "PENDING", "trigger_price": body.trigger_price}
 
         return {"order_id": order_id, "status": "FILLED",
                 "fill_price": fill_price, "filled_qty": qty}

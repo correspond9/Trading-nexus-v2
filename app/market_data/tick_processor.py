@@ -255,6 +255,12 @@ class _TickProcessor:
         # Execution engine exposes module-level functions (not a singleton object).
         from app.execution_simulator import execution_engine
         from app.execution_simulator.execution_config import get_tick_size
+        from app.execution_simulator.order_queue_manager import pending_count
+
+        # Fast-path: if no queued LIMIT/SL orders exist, skip per-tick checks entirely.
+        # This avoids iterating every incoming tick through execution logic when idle.
+        if pending_count() == 0:
+            return
 
         for tick in batch:
             if tick.get("ltp") is None:

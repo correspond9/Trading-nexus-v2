@@ -50,6 +50,8 @@ class _DepthWSManager:
 
     async def start(self, tokens: list[int]) -> None:
         self._tokens = tokens
+        if self._task and not self._task.done():
+            return
         self._task = asyncio.create_task(self._run_forever(), name="depth-ws-20")
 
     async def reconnect(self) -> None:

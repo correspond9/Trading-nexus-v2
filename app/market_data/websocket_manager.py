@@ -107,6 +107,8 @@ class _SingleWSConnection:
         return False
 
     async def start(self) -> None:
+        if self._task and not self._task.done():
+            return
         self._task = asyncio.create_task(self._run_forever(), name=f"ws-{self.slot}")
 
     async def stop(self) -> None:

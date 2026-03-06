@@ -30,7 +30,12 @@ export const AuthProvider = ({ children }) => {
       apiService.setAuthToken(storedToken);
 
       // Validate token with backend; if DB was reset or session expired, force logout.
-      apiService.get('/auth/me').catch((err) => {
+      apiService.get('/auth/me').then((liveUser) => {
+        if (liveUser?.id) {
+          setUser(liveUser);
+          try { localStorage.setItem('authUser', JSON.stringify(liveUser)); } catch {}
+        }
+      }).catch((err) => {
         if (err?.status === 401) {
           authService.logout();
           setUser(null);

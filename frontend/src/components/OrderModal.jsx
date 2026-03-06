@@ -72,9 +72,8 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
       setSuccess("");
       setQuantity(1);
       // fetch baskets + margin
-      const params = user?.id ? { user_id: String(user.id) } : {};
-      apiService.get('/trading/basket-orders', params).then(res => { if (res?.data) { setBaskets(res.data); if (res.data.length > 0) setSelectedBasketId(res.data[0].id); } }).catch(() => {});
-      apiService.get('/margin/account', params).then(res => { setAvailableMargin(Number(res?.data?.available_margin ?? 0)); }).catch(() => {});
+      apiService.get('/trading/basket-orders').then(res => { if (res?.data) { setBaskets(res.data); if (res.data.length > 0) setSelectedBasketId(res.data[0].id); } }).catch(() => {});
+      apiService.get('/margin/account').then(res => { setAvailableMargin(Number(res?.data?.available_margin ?? 0)); }).catch(() => {});
     }
   }, [isOpen, orderType, orderData, user]);
 
@@ -103,7 +102,6 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
           const legLotSize = Number(leg?.lotSize || lotSizePerLeg || 1);
           const qtyUnits = Math.max(0, Math.trunc(lots * legLotSize));
           const payload = {
-            user_id: String(user?.id || ''),
             symbol: leg.symbol,
               security_id: String(leg.security_id || leg.token || ''),
             exchange_segment: leg.exchange_segment || leg.exchange,
@@ -151,7 +149,6 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
       const primaryExchange = isMultiLeg ? (orderData?.legs?.[0]?.exchange_segment || orderData?.legs?.[0]?.exchange) : (orderData?.exchange_segment || orderData?.exchange);
       const marketPriceHint = Number(orderData?.ltp || orderData?.legs?.[0]?.ltp || 0);
       const basePayload = {
-        user_id: String(user?.id || ''),
         symbol: orderData?.symbol,
         security_id: primarySecurityId,
         exchange_segment: primaryExchange,
@@ -213,7 +210,6 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
         } else {
           const name = newBasketName.trim() || `Basket ${Date.now()}`;
           await apiService.post('/trading/basket-orders', {
-            user_id: String(user?.id || ''),
             name,
             legs: legsToSave,
           });

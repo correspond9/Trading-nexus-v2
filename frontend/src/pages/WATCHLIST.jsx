@@ -49,7 +49,7 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
   const searchTimeout = useRef(null);
   const searchSeq = useRef(0);
   const hydrateSeq = useRef(0);
-  const [showDepthFor, setShowDepthFor] = useState({});
+  const [openDepthToken, setOpenDepthToken] = useState(null);
   const [tickByToken, setTickByToken] = useState({});
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const searchBoxRef = useRef(null);
@@ -456,6 +456,10 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
   };
 
   const handleRemoveInstrument = (token) => {
+    const tokenKey = String(token);
+    if (openDepthToken === tokenKey) {
+      setOpenDepthToken(null);
+    }
     setTabs(prev => prev.map(tab => {
       if (tab.id !== activeTabId) return tab;
       return { ...tab, instruments: tab.instruments.filter(i => i.token !== token) };
@@ -687,17 +691,20 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                     <button
                       style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', color: 'var(--muted)', display: 'flex', alignItems: 'center' }}
                       title="Bid/Ask"
-                      onClick={() => setShowDepthFor(prev => ({ ...prev, [String(inst.token)]: !prev[String(inst.token)] }))}
+                      onClick={() => {
+                        const tokenKey = String(inst.token);
+                        setOpenDepthToken(prev => (prev === tokenKey ? null : tokenKey));
+                      }}
                     >
                       <ChevronDown size={14} />
                     </button>
 
-                    <button className="trade-btn buy" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, displaySymbol: label || inst.symbol, token: inst.token, exchange: inst.exchange, ltp: ltp, instrumentType: inst.instrumentType, expiryDate: inst.expiryDate, strikePrice: inst.strikePrice, optionType: inst.optionType, underlying: inst.underlying }, 'BUY')}>BUY</button>
-                    <button className="trade-btn sell" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, displaySymbol: label || inst.symbol, token: inst.token, exchange: inst.exchange, ltp: ltp, instrumentType: inst.instrumentType, expiryDate: inst.expiryDate, strikePrice: inst.strikePrice, optionType: inst.optionType, underlying: inst.underlying }, 'SELL')}>SELL</button>
+                    <button className="trade-btn buy" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, displaySymbol: label || inst.symbol, token: inst.token, exchange: inst.exchange, ltp: ltp, instrumentType: inst.instrumentType, expiryDate: inst.expiryDate, strikePrice: inst.strikePrice, optionType: inst.optionType, underlying: inst.underlying, lot_size: inst.lot_size, lotSize: inst.lot_size }, 'BUY')}>BUY</button>
+                    <button className="trade-btn sell" onClick={() => onOpenOrderModal?.({ symbol: inst.symbol, displaySymbol: label || inst.symbol, token: inst.token, exchange: inst.exchange, ltp: ltp, instrumentType: inst.instrumentType, expiryDate: inst.expiryDate, strikePrice: inst.strikePrice, optionType: inst.optionType, underlying: inst.underlying, lot_size: inst.lot_size, lotSize: inst.lot_size }, 'SELL')}>SELL</button>
                     <button style={removeBtn} onClick={() => handleRemoveInstrument(inst.token)} title="Remove"><X size={14} /></button>
                     </div>
 
-                    {showDepthFor[String(inst.token)] && (
+                    {openDepthToken === String(inst.token) && (
                       <div style={{ marginTop: '8px', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                           <div style={{ fontSize: '12px', color: 'var(--text)' }}>

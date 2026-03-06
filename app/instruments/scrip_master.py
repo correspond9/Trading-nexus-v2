@@ -122,9 +122,9 @@ def _classify(row: dict, lists: dict[str, set[str]]) -> Optional[str]:
     if itype == "FUTSTK" and underlying in lists[LIST_FUTURES_STOCKS] and exch_id == "NSE" and seg_code == "D":
         return "B"
 
-    # ── Equity cash — Tier-B ────────────────────────────────────────────────
+    # ── Equity cash — Tier-A (on-demand) ────────────────────────────────────
     if itype == "EQUITY" and underlying in lists[LIST_EQUITY] and exch_id == "NSE" and seg_code == "E":
-        return "B"
+        return "A"
 
     # ── ETF — Tier-B ─────────────────────────────────────────────────────────
     # Dhan scrip master typically represents ETFs as INSTRUMENT=EQUITY (cash seg).
@@ -555,7 +555,7 @@ async def _reclassify_in_place() -> None:
 
     # Update each list
     list_updates = [
-        (LIST_EQUITY,          ["EQUITY"],          "B"),
+        (LIST_EQUITY,          ["EQUITY"],          "A"),
         (LIST_OPTIONS_STOCKS,  ["OPTSTK"],           "A"),
         (LIST_FUTURES_STOCKS,  ["FUTSTK"],           "B"),
         (LIST_ETF,             ["ETF"],              "B"),

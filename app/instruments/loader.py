@@ -198,11 +198,11 @@ def _classify_row(
                     expiry, strike, opt_type,
                     tick_size, lot_size, "B", _ws_slot(token))
 
-        # NSE Equity Cash — Tier-B
+        # NSE Equity Cash — Tier-A (on-demand)
         if itype in ("EQUITY", "EQ") and underlying in equity_symbols and segment == "NSE_EQ":
                 return (token, token, segment, symbol, underlying, itype,
                     None, None, None,
-                    tick_size, lot_size, "B", _ws_slot(token))
+                tick_size, lot_size, "A", None)
 
         # MCX Futures — Tier-B
         if itype in ("FUTCOM",) and underlying in mcx_futures:

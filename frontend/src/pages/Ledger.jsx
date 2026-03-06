@@ -282,17 +282,17 @@ const LedgerPage = () => {
                       </td>
 
                       {/* Debit */}
-                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: e.debit != null ? 'var(--negative-text, #ef4444)' : 'var(--muted)', fontWeight: e.debit != null ? 600 : 400 }}>
+                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: e.debit != null ? '#ef4444' : 'var(--muted)', fontWeight: e.debit != null ? 600 : 400 }}>
                         {e.debit != null ? INR(e.debit) : '—'}
                       </td>
 
                       {/* Credit */}
-                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: e.credit != null ? 'var(--positive-text, #22c55e)' : 'var(--muted)', fontWeight: e.credit != null ? 600 : 400 }}>
+                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: e.credit != null ? '#22c55e' : 'var(--muted)', fontWeight: e.credit != null ? 600 : 400 }}>
                         {e.credit != null ? INR(e.credit) : '—'}
                       </td>
 
                       {/* Wallet balance */}
-                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: 'var(--text)' }}>
+                      <td style={{ ...s.td, fontVariantNumeric: 'tabular-nums', color: e.balance != null ? (Number(e.balance) >= 0 ? '#22c55e' : '#ef4444') : 'var(--muted)', fontWeight: e.balance != null ? 600 : 400 }}>
                         {e.balance != null ? INR(e.balance) : '—'}
                       </td>
                     </tr>

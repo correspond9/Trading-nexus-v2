@@ -137,9 +137,28 @@ async def on_tick(instrument_token: int, market_snap: dict) -> None:
 
     market_price = Decimal(str(ltp))
     tick_size    = Decimal(str(market_snap.get("tick_size", "0.05")))
+    bid_depth = market_snap.get("bid_depth") or []
+    ask_depth = market_snap.get("ask_depth") or []
+
+    def _to_decimal_price(level):
+        try:
+            if isinstance(level, dict) and level.get("price") is not None:
+                return Decimal(str(level.get("price")))
+        except Exception:
+            return None
+        return None
+
+    best_bid = _to_decimal_price(bid_depth[0]) if bid_depth else None
+    best_ask = _to_decimal_price(ask_depth[0]) if ask_depth else None
 
     for side in ("BUY", "SELL"):
-        fillable = await get_fillable(instrument_token, side, market_price)
+        fillable = await get_fillable(
+            instrument_token,
+            side,
+            market_price,
+            best_bid=best_bid,
+            best_ask=best_ask,
+        )
         for queued in fillable:
             remaining_before = int(getattr(queued, "remaining_qty", queued.quantity))
             fills = execute_market_fill(

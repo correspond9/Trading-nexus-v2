@@ -77,7 +77,11 @@ async def cancel_by_id(order_id: str) -> bool:
 
 
 async def get_fillable(
-    instrument_token: int, side: str, market_price: Decimal
+    instrument_token: int,
+    side: str,
+    market_price: Decimal,
+    best_bid: Decimal | None = None,
+    best_ask: Decimal | None = None,
 ) -> list[QueuedOrder]:
     """
     Returns orders whose limit price is now reachable, in FIFO order.
@@ -126,11 +130,16 @@ async def get_fillable(
                         is_fillable = True
                         fillable.append(order)
                         continue
-                    # Regular LIMIT order
-                    if side == "BUY"  and market_price <= price_level:
-                        is_fillable = True
-                    elif side == "SELL" and market_price >= price_level:
-                        is_fillable = True
+                    # Regular LIMIT order. Prefer executable top-of-book checks,
+                    # fall back to LTP when depth is unavailable.
+                    if side == "BUY":
+                        trigger_price = best_ask if best_ask is not None else market_price
+                        if trigger_price <= price_level:
+                            is_fillable = True
+                    elif side == "SELL":
+                        trigger_price = best_bid if best_bid is not None else market_price
+                        if trigger_price >= price_level:
+                            is_fillable = True
                 
                 if is_fillable:
                     fillable.append(order)

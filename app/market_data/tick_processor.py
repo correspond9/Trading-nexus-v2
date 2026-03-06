@@ -11,8 +11,7 @@ Also notifies:
 import asyncio
 import json
 import logging
-from collections import defaultdict
-
+from collections import defaultdictfrom datetime import datetime, timedelta
 from app.database import get_pool
 from app.config   import get_settings
 from app.runtime.notifications import add_notification
@@ -34,6 +33,10 @@ class _TickProcessor:
         self._buffer: dict[int, dict] = {}
         self._lock   = asyncio.Lock()
         self._task: asyncio.Task | None = None
+        # Cache instrument metadata to avoid DB query per batch (TTL: 1 hour)
+        self._meta_cache: dict[int, dict] = {}
+        self._meta_cache_time: datetime | None = None
+        self._meta_cache_ttl = timedelta(hours=1)
 
     @property
     def is_running(self) -> bool:
@@ -94,9 +97,13 @@ class _TickProcessor:
             self._buffer.clear()
 
         try:
-            await self._upsert(batch)
-            await self._notify_execution_engine(batch)
-            await self._push_to_frontend(batch)
+            # Run all three operations in parallel instead of sequentially
+            await asyncio.gather(
+                self._upsert(batch),
+                self._notify_execution_engine(batch),
+                self._push_to_frontend(batch),
+                return_exceptions=True,  # Don't fail entire batch if one operation fails
+            )
         except Exception as exc:
             log.error(f"Tick processor flush error: {exc}")
             try:
@@ -113,16 +120,33 @@ class _TickProcessor:
 
     async def _upsert(self, batch: list[dict]) -> None:
         pool = get_pool()
-
-        # Fetch symbol + segment for tokens not yet in market_data
-        # (instrument_master is source of truth)
         tokens = [t["instrument_token"] for t in batch]
-        meta_rows = await pool.fetch(
-            "SELECT instrument_token, symbol, exchange_segment "
-            "FROM instrument_master WHERE instrument_token = ANY($1::bigint[])",
-            tokens,
-        )
-        meta = {r["instrument_token"]: r for r in meta_rows}
+
+        # Check if metadata cache is valid
+        meta = {}
+        refresh_cache = False
+        if self._meta_cache_time is None or (datetime.utcnow() - self._meta_cache_time) > self._meta_cache_ttl:
+            refresh_cache = True
+        else:
+            # Use cached metadata for tokens we have
+            for t in tokens:
+                if t in self._meta_cache:
+                    meta[t] = self._meta_cache[t]
+
+        # If we're missing some tokens or cache is stale, refresh
+        missing_tokens = [t for t in tokens if t not in meta]
+        if missing_tokens or refresh_cache:
+            meta_rows = await pool.fetch(
+                "SELECT instrument_token, symbol, exchange_segment "
+                "FROM instrument_master WHERE instrument_token = ANY($1::bigint[])",
+                tokens if refresh_cache else missing_tokens,
+            )
+            meta_dict = {r["instrument_token"]: r for r in meta_rows}
+            if refresh_cache:
+                self._meta_cache = meta_dict
+                self._meta_cache_time = datetime.utcnow()
+            else:
+                meta.update(meta_dict)
 
         # Fetch existing close prices for validation
         existing_rows = await pool.fetch(

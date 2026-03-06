@@ -169,28 +169,36 @@ async def _is_safe_to_unsubscribe(instrument_token: int) -> bool:
     """Returns True only if token is expired AND not in any watchlist or position."""
     pool = get_pool()
 
-    # Check expiry
-    expiry = await pool.fetchval(
-        "SELECT expiry_date FROM instrument_master WHERE instrument_token = $1",
+    # OPTIMIZATION: Single combined query instead of 3 separate DB round-trips
+    result = await pool.fetchrow(
+        """
+        SELECT
+            COALESCE(im.expiry_date, '2099-12-31'::date) as expiry_date,
+            COALESCE(wi.has_watchlist, false) as in_watchlist,
+            COALESCE(pp.has_position, false) as has_position
+        FROM instrument_master im
+        LEFT JOIN (SELECT 1 as has_watchlist FROM watchlist_items WHERE instrument_token = $1 LIMIT 1) wi ON true
+        LEFT JOIN (SELECT 1 as has_position FROM paper_positions WHERE instrument_token = $1 AND quantity != 0 LIMIT 1) pp ON true
+        WHERE im.instrument_token = $1
+        """,
         instrument_token,
     )
-    if expiry is None or expiry > date.today():
-        return False  # still live
 
-    # Check watchlists
-    in_watchlist = await pool.fetchval(
-        "SELECT 1 FROM watchlist_items WHERE instrument_token = $1 LIMIT 1",
-        instrument_token,
-    )
-    if in_watchlist:
+    if not result:
+        return False  # Token not found
+
+    # Token is safe to unsubscribe only if:
+    # 1. It's expired (expiry_date < today)
+    # 2. AND it's not in any watchlist
+    # 3. AND it has no open position
+    is_expired = result["expiry_date"] <= date.today()
+    if not is_expired:
         return False
 
-    # Check open positions
-    has_position = await pool.fetchval(
-        "SELECT 1 FROM paper_positions WHERE instrument_token = $1 AND quantity != 0 LIMIT 1",
-        instrument_token,
-    )
-    if has_position:
+    if result["in_watchlist"]:
+        return False
+
+    if result["has_position"]:
         return False
 
     return True

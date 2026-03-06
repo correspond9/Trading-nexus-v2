@@ -136,6 +136,14 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
       const lots = Number(quantity);
       if (!lots || lots <= 0) throw new Error("Lots must be greater than 0");
       if (priceType === "LIMIT" && (!limitPrice || Number(limitPrice) <= 0)) throw new Error("Limit price required");
+      
+      // Validate that quantity respects the lot size constraint
+      if (lotSizePerLeg > 1) {
+        const qtyUnits = lots * lotSizePerLeg;
+        if (!Number.isInteger(qtyUnits) || qtyUnits <= 0) {
+          throw new Error(`Quantity multiplied by lot size must be a positive integer. Lot size: ${lotSizePerLeg}`);
+        }
+      }
 
       const qtyUnitsSingle = Math.max(0, Math.trunc(lots * lotSizePerLeg));
 
@@ -158,6 +166,13 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
         ? (orderData.legs || []).map((leg) => {
             const legMarketHint = Number(leg?.ltp || 0);
             const legLotSize = Number(leg?.lotSize || lotSizePerLeg || 1);
+            // Validate lot size constraint for each leg
+            if (legLotSize > 1) {
+              const legQtyUnits = lots * legLotSize;
+              if (!Number.isInteger(legQtyUnits)) {
+                throw new Error(`Quantity for ${leg.symbol} must respect lot size (${legLotSize})`);
+              }
+            }
             const qtyUnits = Math.max(0, Math.trunc(lots * legLotSize));
             return {
               symbol: leg.symbol,

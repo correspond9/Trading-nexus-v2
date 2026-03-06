@@ -85,10 +85,31 @@ const isPending  = (o) => o.displayStatus === "PENDING"  && o.filledQty === 0 &&
 const isInFlight = (o) => o.displayStatus === "PARTIAL"  || (o.displayStatus === "PENDING" && o.filledQty > 0 && o.pendingQty > 0);
 const isResolved = (o) => o.displayStatus === "EXECUTED" || o.displayStatus === "REJECTED" || o.displayStatus === "CANCELLED" || (o.filledQty + o.rejectedQty >= o.qty && o.qty > 0);
 
-const resolvedLabel = (o) => {
-  if (o.displayStatus === "REJECTED" || o.displayStatus === "CANCELLED") return o.displayStatus;
+const getStatusLabel = (o) => {
+  if (o.displayStatus === "REJECTED") return "REJECTED";
+  if (o.displayStatus === "CANCELLED") {
+    if (o.filledQty > 0) return "PARTIAL CANCELLED";
+    return "CANCELLED";
+  }
+  if (o.displayStatus === "PARTIAL") return "PARTIAL";
+  if (o.displayStatus === "PENDING") {
+    if (o.filledQty > 0 && o.pendingQty > 0) return "PARTIAL";
+    return "PENDING";
+  }
   if (o.filledQty > 0 && o.rejectedQty > 0) return "PARTIAL REJECTED";
   return "EXECUTED";
+};
+
+const getDisplayExchangeOrderId = (o) => {
+  const statusLabel = getStatusLabel(o);
+  const hasRealExchangeId = o.exchangeOrderId && o.exchangeOrderId !== "--";
+  const isActive = statusLabel === "PENDING" || statusLabel === "PARTIAL";
+
+  if (isActive) return "--";
+  if ((statusLabel === "EXECUTED" || statusLabel === "PARTIAL CANCELLED" || statusLabel === "PARTIAL REJECTED") && o.filledQty > 0) {
+    return hasRealExchangeId ? o.exchangeOrderId : o.orderId;
+  }
+  return hasRealExchangeId ? o.exchangeOrderId : "--";
 };
 
 // ── small ui pieces ─────────────────────────────────────────────────────────────
@@ -116,7 +137,7 @@ const StatusBadge = ({ label }) => {
     l === "REJECTED"         ? "#dc2626" :
     l === "PARTIAL REJECTED" ? "#d97706" :
     l === "CANCELLED"        ? "#6b7280" :
-    l === "PARTIAL"          ? "#d97706" : "var(--muted)";
+    l === "PARTIAL" || l === "PARTIAL CANCELLED" ? "#d97706" : "var(--muted)";
   return <span style={{ fontWeight: 700, fontSize: "12px", color }}>{label}</span>;
 };
 
@@ -191,8 +212,8 @@ const OrdersTab = () => {
   // ── styles ────────────────────────────────────────────────────────────────
   const pageStyle = { margin: 0, padding: isMobile ? "12px" : "20px", fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", background: "transparent" };
   const layoutStyle = { display: "flex", flexDirection: isMobile ? "column" : "row", gap: "16px" };
-  const tableCardStyle = { flex: "2 1 0", minWidth: 0, background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: isMobile ? "14px" : "20px 20px 28px 20px", border: "1px solid var(--border)" };
-  const detailsCardStyle = { flex: isMobile ? "1 1 auto" : "1 0 300px", width: isMobile ? "100%" : "auto", background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: "18px 20px 20px 20px", border: "1px solid var(--border)", fontSize: "12px", color: "var(--text)", alignSelf: isMobile ? "stretch" : "flex-start", maxHeight: isMobile ? "none" : "620px", overflowY: "auto" };
+  const tableCardStyle = { flex: "3 1 0", minWidth: 0, background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: isMobile ? "14px" : "20px 20px 28px 20px", border: "1px solid var(--border)" };
+  const detailsCardStyle = { flex: isMobile ? "1 1 auto" : "0 0 260px", width: isMobile ? "100%" : "260px", background: "var(--surface)", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: "14px 14px 14px 14px", border: "1px solid var(--border)", fontSize: "12px", color: "var(--text)", alignSelf: isMobile ? "stretch" : "flex-start", maxHeight: isMobile ? "none" : "520px", overflowY: "auto" };
   const tableOuterStyle = { borderRadius: "8px", border: "1px solid var(--border)", overflowX: "auto", background: "var(--surface)" };
   const tableStyle = { width: "100%", minWidth: "700px", borderCollapse: "collapse", fontSize: "12px" };
   const theadStyle = { background: "var(--surface2)", borderBottom: "1px solid var(--border)" };
@@ -229,14 +250,14 @@ const OrdersTab = () => {
 
   const detailsIcon = () => {
     if (!selectedOrder) return null;
-    const lbl = resolvedLabel(selectedOrder);
+    const lbl = getStatusLabel(selectedOrder);
     if (lbl === "EXECUTED") return (
       <div style={{ width: 26, height: 26, borderRadius: "999px", border: "2px solid #16a34a", display: "flex", alignItems: "center", justifyContent: "center", color: "#16a34a", fontSize: "14px" }}>✔</div>
     );
     if (lbl === "REJECTED" || lbl === "CANCELLED") return (
       <div style={{ width: 26, height: 26, borderRadius: "999px", border: "2px solid #dc2626", display: "flex", alignItems: "center", justifyContent: "center", color: "#dc2626", fontSize: "14px" }}>✕</div>
     );
-    if (lbl === "PARTIAL REJECTED") return (
+    if (lbl === "PARTIAL REJECTED" || lbl === "PARTIAL CANCELLED") return (
       <div style={{ width: 26, height: 26, borderRadius: "999px", border: "2px solid #d97706", display: "flex", alignItems: "center", justifyContent: "center", color: "#d97706", fontSize: "13px", fontWeight: 700 }}>!</div>
     );
     return (
@@ -376,7 +397,7 @@ const OrdersTab = () => {
           </thead>
           <tbody>
             {resolved.length === 0 ? emptyRow(9) : resolved.map((o) => {
-              const lbl = resolvedLabel(o);
+              const lbl = getStatusLabel(o);
               const isSel = selectedId === o.id;
               return (
                 <tr key={o.id} style={isSel ? rowSelStyle : rowClick}
@@ -466,13 +487,13 @@ const OrdersTab = () => {
             {renderDetailRow("Filled Qty",        selectedOrder.filledQty.toLocaleString("en-IN"))}
             {selectedOrder.rejectedQty > 0 && renderDetailRow("Rejected Qty", selectedOrder.rejectedQty.toLocaleString("en-IN"))}
             {renderDetailRow("Pending Qty",       selectedOrder.pendingQty.toLocaleString("en-IN"))}
-            {renderDetailRow("Status",            (() => { const lbl = resolvedLabel(selectedOrder); return <StatusBadge label={lbl} />; })())}
+            {renderDetailRow("Status",            (() => { const lbl = getStatusLabel(selectedOrder); return <StatusBadge label={lbl} />; })())}
             {renderDetailRow("Order Time",        selectedOrder.orderDateTime)}
             {renderDetailRow("Exchange Time",     selectedOrder.exchangeTime)}
             {renderDetailRow("Execution Time",    selectedOrder.executionTime)}
             {renderDetailRow("Order ID",          selectedOrder.orderId)}
             {renderDetailRow("Unique ID",         selectedOrder.uniqueId)}
-            {renderDetailRow("Exchange Order ID", selectedOrder.exchangeOrderId)}
+            {renderDetailRow("Exchange Order ID", getDisplayExchangeOrderId(selectedOrder))}
 
             <button
               style={{ marginTop: "16px", width: "100%", padding: "8px 0", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}

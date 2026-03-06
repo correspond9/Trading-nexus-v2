@@ -175,16 +175,27 @@ async def cancel_order(order_id: str, user_id: str) -> dict:
     )
     if not row:
         return {"success": False, "reason": "Order not found"}
-    if row["status"] not in ("PENDING",):
+    if str(row["status"] or "").upper() not in ("PENDING", "PARTIAL", "PARTIAL_FILL", "PARTIALLY_FILLED"):
         return {"success": False, "reason": f"Cannot cancel order in state {row['status']}"}
 
     # Use cancel_by_id so we don't need to know the exact price-level key.
     # This is important for SLM orders where the queued limit_price (= trigger_price)
     # differs from the limit_price column stored in the DB (which may be 0 / NULL).
     await cancel_by_id(order_id)
+    qty = int(row.get("quantity") or 0)
+    filled_qty = int(row.get("filled_qty") or 0)
+    rejected_qty = int(row.get("rejected_qty") or 0)
+    pending_qty = max(0, qty - filled_qty - rejected_qty)
     await pool.execute(
-        "UPDATE paper_orders SET status='CANCELLED', updated_at=now() WHERE order_id=$1",
+        """
+        UPDATE paper_orders
+        SET status='CANCELLED',
+            rejected_qty = COALESCE(rejected_qty, 0) + $2,
+            updated_at=now()
+        WHERE order_id=$1
+        """,
         order_id,
+        pending_qty,
     )
     return {"success": True}
 
@@ -204,7 +215,8 @@ async def reconcile_pending_orders() -> int:
         SELECT order_id, user_id, instrument_token, exchange_segment, symbol,
                side, order_type, quantity, remaining_qty, limit_price, trigger_price
         FROM   paper_orders
-        WHERE  status = 'PENDING'
+                WHERE  status IN ('PENDING', 'PARTIAL')
+                    AND COALESCE(remaining_qty, 0) > 0
         """
     )
     if not rows:
@@ -217,13 +229,17 @@ async def reconcile_pending_orders() -> int:
         try:
             tick_size = _get_tick_size(row["exchange_segment"] or "NSE_FNO")
             # SLM effective limit is the trigger price (market fill on trigger)
-            raw_limit = Decimal(str(row["limit_price"] or 0))
+            order_type = str(row["order_type"] or "").upper()
+            if order_type == "MARKET":
+                raw_limit = Decimal("99999999") if str(row["side"] or "").upper() == "BUY" else Decimal("0")
+            else:
+                raw_limit = Decimal(str(row["limit_price"] or 0))
             queued = QueuedOrder(
                 order_id         = str(row["order_id"]),
                 user_id          = str(row["user_id"]),
                 instrument_token = int(row["instrument_token"]),
                 side             = row["side"],
-                order_type       = row["order_type"],
+                order_type       = order_type,
                 exchange_segment = row["exchange_segment"] or "",
                 symbol           = row["symbol"] or "",
                 limit_price      = raw_limit,
@@ -275,26 +291,47 @@ async def _persist_fills(
 ):
     pool = get_pool()
     async with pool.acquire() as conn:
+        existing = await conn.fetchrow(
+            "SELECT quantity, filled_qty, rejected_qty FROM paper_orders WHERE order_id=$1",
+            order_id,
+        )
+        total_qty = int((existing["quantity"] if existing else getattr(order, "quantity", 0)) or 0)
+        prev_filled = int((existing["filled_qty"] if existing else 0) or 0)
+        prev_rejected = int((existing["rejected_qty"] if existing else 0) or 0)
+        new_filled_total = min(total_qty, prev_filled + int(filled_qty or 0))
+
+        remaining_after = getattr(order, "remaining_qty", None)
+        if remaining_after is None:
+            remaining_after = max(0, total_qty - new_filled_total - prev_rejected)
+        else:
+            remaining_after = max(0, int(remaining_after))
+
+        status_value = "FILLED" if remaining_after == 0 else "PARTIAL"
+
         await conn.execute(
             """
             INSERT INTO paper_orders
                 (order_id, user_id, instrument_token, exchange_segment, symbol,
                  order_type, side, quantity, remaining_qty, limit_price,
-                 trigger_price, avg_fill_price, status)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                 trigger_price, avg_fill_price, fill_price, filled_qty, status)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             ON CONFLICT (order_id) DO UPDATE SET
                 avg_fill_price = EXCLUDED.avg_fill_price,
+                fill_price     = EXCLUDED.fill_price,
+                filled_qty     = EXCLUDED.filled_qty,
                 remaining_qty  = EXCLUDED.remaining_qty,
                 status         = EXCLUDED.status,
                 updated_at     = now()
             """,
             order_id, user_id, order.instrument_token, order.exchange_segment,
             order.symbol, order.order_type, order.side, order.quantity,
-            getattr(order, "remaining_qty", order.quantity) - filled_qty,
+            remaining_after,
             getattr(order, "limit_price", 0) or 0,
             getattr(order, "trigger_price", 0) or 0,
             avg_price,
-            "COMPLETE" if filled_qty == getattr(order, "remaining_qty", order.quantity) else "PARTIALLY_FILLED",
+            avg_price,
+            new_filled_total,
+            status_value,
         )
 
         # Trade records

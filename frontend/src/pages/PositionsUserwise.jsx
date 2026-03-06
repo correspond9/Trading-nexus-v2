@@ -99,11 +99,24 @@ function UserPositions({ row, onExitDone, liveTickByToken = {} }) {
     if (!targets.length) return;
     setExiting(true);
     try {
-      await Promise.all(
-        targets.map(key =>
-          apiService.post(`/portfolio/positions/${key}/close?user_id=${row.user_id}`, {})
-        )
-      );
+      const selectedRows = openPositions.filter((p) => targets.includes(rowKey(p)));
+      await Promise.all(selectedRows.map((p) => {
+        const token = p.instrument_token;
+        const rawQty = Number(exitQty[token] ?? Math.abs(p.quantity));
+        const qty = Math.max(1, Math.min(Math.abs(Number(p.quantity || 0)), Math.floor(rawQty || 0)));
+        const payload = {
+          user_id: String(row.user_id || ''),
+          symbol: p.symbol,
+          security_id: Number(token || 0) || undefined,
+          instrument_token: Number(token || 0) || undefined,
+          exchange_segment: p.exchange_segment || p.exchange || 'NSE_EQ',
+          transaction_type: Number(p.quantity || 0) >= 0 ? 'SELL' : 'BUY',
+          quantity: qty,
+          order_type: 'MARKET',
+          product_type: String(p.product_type || 'MIS').toUpperCase(),
+        };
+        return apiService.post('/trading/orders', payload);
+      }));
       setChecked({});
       if (onExitDone) onExitDone();
     } catch (err) {

@@ -17,6 +17,7 @@ from app.execution_simulator.execution_config import get_tick_size
 from app.margin.nse_margin_data               import calculate_margin as _nse_calculate_margin
 from app.market_hours                          import is_market_open, get_market_state
 from decimal                                   import Decimal
+from app.execution_simulator.order_queue_manager import QueuedOrder, enqueue as _queue_enqueue
 
 log = logging.getLogger(__name__)
 
@@ -690,14 +691,14 @@ async def place_paper_order(
                         """
                         INSERT INTO paper_orders
                             (order_id, user_id, instrument_token, symbol, exchange_segment,
-                             side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
+                             side, order_type, quantity, remaining_qty, limit_price, trigger_price, fill_price, filled_qty,
                              status, product_type, security_id,
                              is_super, target_price, stop_loss_price, trailing_jump)
                         VALUES
-                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
                         """,
                         order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                        side, ord_type, qty, lp, body.trigger_price, fill_price, market_filled_qty,
+                        side, ord_type, qty, max(0, qty - market_filled_qty), lp, body.trigger_price, fill_price, market_filled_qty,
                         market_status, prod, token or 0,
                         body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
                     )
@@ -856,7 +857,6 @@ async def place_paper_order(
 
         # ── SL & LIMIT order: enqueue for trigger-based/market-based fill, return PENDING ──
         if ord_type in {"SLM", "SLL", "LIMIT"}:
-            from app.execution_simulator.order_queue_manager import QueuedOrder, enqueue as _sl_enqueue
             from app.execution_simulator.execution_config import get_tick_size as _get_tick_size
             tick_size = _get_tick_size(body.exchange_segment or "NSE_FNO")
             im_lot_row = await pool.fetchrow(
@@ -891,7 +891,7 @@ async def place_paper_order(
                 tick_size        = tick_size,
                 lot_size         = lot_size,
             )
-            await _sl_enqueue(queued)
+            await _queue_enqueue(queued)
             if ord_type == "LIMIT":
                 log.info("LIMIT order %s queued: %s %s %s limit=%.2f",
                          order_id, side, qty, body.symbol, float(lp))
@@ -900,6 +900,38 @@ async def place_paper_order(
                 log.info("SL order %s queued: %s %s %s trigger=%.2f",
                          order_id, side, qty, body.symbol, body.trigger_price)
                 return {"order_id": order_id, "status": "PENDING", "trigger_price": body.trigger_price}
+
+        # For partial MARKET fills, keep remaining quantity live in queue so
+        # execution can continue immediately on subsequent depth updates.
+        if ord_type == "MARKET" and market_status == "PARTIAL" and market_filled_qty < qty:
+            from app.execution_simulator.execution_config import get_tick_size as _get_tick_size
+            tick_size = _get_tick_size(body.exchange_segment or "NSE_FNO")
+            im_lot_row = await pool.fetchrow(
+                "SELECT lot_size FROM instrument_master WHERE instrument_token=$1", token
+            )
+            lot_size = int(im_lot_row["lot_size"]) if im_lot_row and im_lot_row["lot_size"] else 1
+            remaining_qty = int(max(0, qty - market_filled_qty))
+            queue_price = Decimal("99999999") if side == "BUY" else Decimal("0")
+            queued = QueuedOrder(
+                order_id=order_id,
+                user_id=str(user_id),
+                instrument_token=int(token or 0),
+                side=side,
+                order_type="MARKET",
+                exchange_segment=body.exchange_segment or "",
+                symbol=body.symbol or "",
+                limit_price=queue_price,
+                trigger_price=Decimal("0"),
+                quantity=qty,
+                tick_size=tick_size,
+                lot_size=lot_size,
+            )
+            queued.remaining_qty = remaining_qty
+            await _queue_enqueue(queued)
+            log.info(
+                "MARKET order %s queued remainder: %s %s %s rem=%s",
+                order_id, side, qty, body.symbol, remaining_qty,
+            )
 
         if ord_type == "MARKET":
             return {
@@ -1133,10 +1165,11 @@ async def cancel_order(
         raise HTTPException(status_code=403, detail="You can only cancel your own orders")
     
     # Check if order can be cancelled
-    if row["status"] != "PENDING":
+    cancelable_statuses = {"PENDING", "PARTIAL", "PARTIAL_FILL", "PARTIALLY_FILLED"}
+    if str(row["status"] or "").upper() not in cancelable_statuses:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot cancel order with status {row['status']}. Only PENDING orders can be cancelled."
+            detail=f"Cannot cancel order with status {row['status']}."
         )
     
     # Delegate to execution engine — removes from in-memory queue AND updates DB

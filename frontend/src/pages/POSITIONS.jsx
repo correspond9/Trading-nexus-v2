@@ -235,9 +235,8 @@ const PositionsTab = ({ productFilter = null }) => {
   };
   const openExitModal = (row) => {
     const maxQty = Math.max(1, Math.abs(Number(row?.qty || 0)));
-    const lotSize = Math.max(1, Number(row?.lotSize || row?.lot_size || 1));
     setExitRow(row);
-    setExitQty(String(lotSize <= maxQty ? lotSize : maxQty));
+    setExitQty(String(maxQty));
     setExitOrderType('MARKET');
     setExitLimitPrice('');
     setExitTriggerPrice('');
@@ -331,15 +330,21 @@ const PositionsTab = ({ productFilter = null }) => {
   const exitPositions = async (idsSet) => {
     try {
       const selectedRows = openPositions.filter((p) => idsSet.has(p.id));
-      for (const id of idsSet) {
-        const row = selectedRows.find((p) => p.id === id);
-        if (!row?.closeId) continue;
-        if (isAdminScopedView) {
-          if (!row?.userId) continue;
-          await apiService.post(`/portfolio/positions/${row.closeId}/close?user_id=${row.userId}`, {});
-        } else {
-          await apiService.post(`/portfolio/positions/${row.closeId}/close`, {});
-        }
+      for (const row of selectedRows) {
+        const qtyNum = Math.max(1, Math.abs(Number(row?.qty || 0)));
+        const isLong = Number(row?.qty || 0) >= 0;
+        const payload = {
+          user_id: isAdminScopedView ? String(row.userId || '') : String(user?.id || ''),
+          symbol: row.symbol,
+          security_id: Number(row.instrumentToken || 0) || undefined,
+          instrument_token: Number(row.instrumentToken || 0) || undefined,
+          exchange_segment: row.exchangeSegment || 'NSE_EQ',
+          transaction_type: isLong ? 'SELL' : 'BUY',
+          quantity: qtyNum,
+          order_type: 'MARKET',
+          product_type: String(row.productType || 'MIS').toUpperCase(),
+        };
+        await apiService.post('/trading/orders', payload);
       }
       await new Promise(resolve => setTimeout(resolve, 1000));
       await fetchPositions();
@@ -385,19 +390,6 @@ const PositionsTab = ({ productFilter = null }) => {
   const csvButtonStyle = { border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: 700, background: 'var(--surface2)', color: 'var(--text)' };
 
   const formatMoney = (v) => "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
-  const getExitQtyOptions = (row) => {
-    const maxQty = Math.max(1, Math.abs(Number(row?.qty || 0)));
-    const lotSize = Math.max(1, Number(row?.lotSize || row?.lot_size || 1));
-    const options = [];
-    for (let value = lotSize; value <= maxQty; value += lotSize) {
-      options.push(value);
-    }
-    if (options.length === 0 || options[options.length - 1] !== maxQty) {
-      options.push(maxQty);
-    }
-    return options;
-  };
-
   return (
     <div style={pageStyle}>
       <div style={mainCardStyle}>
@@ -537,15 +529,15 @@ const PositionsTab = ({ productFilter = null }) => {
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px' }}>
               <div>
                 <label style={labelStyle}>Exit Qty</label>
-                <select
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, Math.abs(Number(exitRow?.qty || 0)))}
+                  step={1}
                   value={exitQty}
                   onChange={(e) => setExitQty(e.target.value)}
                   style={inputStyle}
-                >
-                  {getExitQtyOptions(exitRow).map((q) => (
-                    <option key={q} value={String(q)}>{q}</option>
-                  ))}
-                </select>
+                />
               </div>
               <div>
                 <label style={labelStyle}>Order Type</label>

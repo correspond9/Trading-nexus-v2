@@ -40,8 +40,10 @@ const mapOrder = (order) => {
     displayStatus = "EXECUTED";
   } else if (rawStatus === "REJECTED" || rawStatus === "CANCELLED") {
     displayStatus = rawStatus;
-  } else if (rawStatus === "PARTIAL_FILL" || rawStatus === "PARTIAL") {
+  } else if (rawStatus === "PARTIAL_FILL" || rawStatus === "PARTIAL" || rawStatus === "PARTIALLY_FILLED") {
     displayStatus = "PARTIAL";
+  } else if (rawStatus === "COMPLETE") {
+    displayStatus = "EXECUTED";
   } else {
     displayStatus = "PENDING";
   }
@@ -313,10 +315,11 @@ const OrdersTab = () => {
               <th style={thRight}>Filled / Total</th>
               <th style={thRight}>Price</th>
               <th style={thStyle}>Status</th>
+              <th style={thStyle}>Action</th>
             </tr>
           </thead>
           <tbody>
-            {inFlight.length === 0 ? emptyRow(7) : inFlight.map((o) => (
+            {inFlight.length === 0 ? emptyRow(8) : inFlight.map((o) => (
               <tr key={o.id} style={selectedId === o.id ? rowSelStyle : rowClick}
                   onClick={() => setSelectedId(prev => prev === o.id ? null : o.id)}>
                 <td style={tdStyle}>{o.time}</td>
@@ -326,6 +329,25 @@ const OrdersTab = () => {
                 <td style={tdRight}>{o.filledQty.toLocaleString("en-IN")} / {o.qty.toLocaleString("en-IN")}</td>
                 <td style={tdRight}>{o.executionPrice > 0 ? o.executionPrice.toFixed(2) : "—"}</td>
                 <td style={tdStyle}><span style={{ fontWeight: 700, fontSize: "12px", color: "#d97706" }}>PARTIAL ({o.pendingQty} pending)</span></td>
+                <td style={tdStyle} onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={(e) => handleCancel(o.id, e)}
+                    disabled={cancellingId === o.id}
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid #dc2626",
+                      background: cancellingId === o.id ? "#fee2e2" : "transparent",
+                      color: "#dc2626",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      cursor: cancellingId === o.id ? "not-allowed" : "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {cancellingId === o.id ? "…" : "Cancel"}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

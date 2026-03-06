@@ -120,6 +120,12 @@ async def get_fillable(
                             if market_price <= order.limit_price:
                                 is_fillable = True
                 else:
+                    if order.order_type == "MARKET":
+                        # Remaining MARKET quantity should keep consuming fresh
+                        # depth as soon as the book updates.
+                        is_fillable = True
+                        fillable.append(order)
+                        continue
                     # Regular LIMIT order
                     if side == "BUY"  and market_price <= price_level:
                         is_fillable = True

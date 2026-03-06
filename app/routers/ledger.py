@@ -85,7 +85,7 @@ async def get_ledger(
         # No ledger entries before date range - check if user has "Opening Balance" entry
         opening_entry = await pool.fetchrow(
             """
-            SELECT balance_after
+            SELECT balance_after, created_at
             FROM   ledger_entries
             WHERE  user_id      = $1::uuid
               AND  ref_type     = 'OPENING_BALANCE'
@@ -93,10 +93,20 @@ async def get_ledger(
             """,
             target_user_id,
         )
-        opening_balance_value = float(opening_entry["balance_after"] or 0) if opening_entry else 0.0
-        # If user has an explicit "Opening Balance" entry, count it as having prior transactions
         if opening_entry:
             has_prior_transactions = True
+            ob_date = opening_entry["created_at"].date()
+            if ob_date >= fd:
+                # The Opening Balance entry falls within (or after) the date range.
+                # It will be included in wallet_rows and processed as a credit there.
+                # Setting opening_balance_value = 0 prevents double-counting.
+                opening_balance_value = 0.0
+            else:
+                # Entry is before the from-date (shouldn't normally reach here since the first
+                # query would have caught it, but handle gracefully just in case).
+                opening_balance_value = float(opening_entry["balance_after"] or 0)
+        else:
+            opening_balance_value = 0.0
 
     # ── 2. Wallet entries (deposits, withdrawals, fees — NOT P&L rows) ────────
     wallet_rows = await pool.fetch(

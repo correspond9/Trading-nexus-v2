@@ -182,9 +182,9 @@ async def cancel_order(order_id: str, user_id: str) -> dict:
     # This is important for SLM orders where the queued limit_price (= trigger_price)
     # differs from the limit_price column stored in the DB (which may be 0 / NULL).
     await cancel_by_id(order_id)
-    qty = int(row.get("quantity") or 0)
-    filled_qty = int(row.get("filled_qty") or 0)
-    rejected_qty = int(row.get("rejected_qty") or 0)
+    qty = int(row["quantity"] or 0) if "quantity" in row else 0
+    filled_qty = int(row["filled_qty"] or 0) if "filled_qty" in row else 0
+    rejected_qty = int(row["rejected_qty"] or 0) if "rejected_qty" in row else 0
     pending_qty = max(0, qty - filled_qty - rejected_qty)
     await pool.execute(
         """

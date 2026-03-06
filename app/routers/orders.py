@@ -4,6 +4,7 @@ app/routers/orders.py  (v2 — frontend-compatible prefix + API shape)
 import logging
 import uuid
 from typing import List, Optional
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, validator
@@ -11,6 +12,8 @@ from pydantic import BaseModel, validator
 from app.database                              import get_pool
 from app.dependencies                          import CurrentUser, get_current_user
 from app.execution_simulator.execution_engine import is_mock_mode
+from app.execution_simulator.fill_engine import execute_market_fill
+from app.execution_simulator.execution_config import get_tick_size
 from app.margin.nse_margin_data               import calculate_margin as _nse_calculate_margin
 from app.market_hours                          import is_market_open, get_market_state
 from decimal                                   import Decimal
@@ -428,13 +431,86 @@ async def place_paper_order(
                 detail="MIS is not allowed for commodity instruments. Use NORMAL product type."
             )
 
-        # Get LTP for fill simulation
-        ltp_row = await pool.fetchrow(
-            "SELECT ltp FROM market_data WHERE instrument_token=$1", token
+        # Get market snapshot for fill simulation
+        md_row = await pool.fetchrow(
+            "SELECT ltp, bid_depth, ask_depth, ltt FROM market_data WHERE instrument_token=$1", token
         ) if token else None
-        ltp_price = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else None
+        ltp_price = float(md_row["ltp"]) if (md_row and md_row["ltp"] is not None) else None
 
-        if ord_type in {"LIMIT", "SLL"}:
+        def _parse_depth(raw) -> list[dict]:
+            if raw is None:
+                return []
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except Exception:
+                    return []
+            if not isinstance(raw, list):
+                return []
+            out: list[dict] = []
+            for lvl in raw:
+                if not isinstance(lvl, dict):
+                    continue
+                try:
+                    px = float(lvl.get("price")) if lvl.get("price") is not None else None
+                except (TypeError, ValueError):
+                    px = None
+                if px is None:
+                    continue
+                try:
+                    q = int(lvl.get("qty")) if lvl.get("qty") is not None else 0
+                except (TypeError, ValueError):
+                    q = 0
+                out.append({"price": px, "qty": max(0, q)})
+            return out[:5]
+
+        market_bid_depth = _parse_depth(md_row["bid_depth"]) if md_row else []
+        market_ask_depth = _parse_depth(md_row["ask_depth"]) if md_row else []
+
+        market_filled_qty = qty
+        market_status = "FILLED"
+
+        if ord_type == "MARKET":
+            tick_size = get_tick_size(body.exchange_segment or "NSE_FNO")
+            lot_size = int((im_seg_row.get("lot_size") if im_seg_row else 0) or 1)
+
+            class _MarketExecOrder:
+                pass
+
+            _m = _MarketExecOrder()
+            _m.side = side
+            _m.quantity = qty
+            _m.exchange_segment = body.exchange_segment or "NSE_FNO"
+            _m.limit_price = None
+
+            fills = execute_market_fill(
+                _m,
+                {
+                    "ltp": ltp_price,
+                    "bid_depth": market_bid_depth,
+                    "ask_depth": market_ask_depth,
+                    "ltt": md_row["ltt"] if md_row else None,
+                    "tick_size": float(tick_size),
+                },
+                tick_size,
+                lot_size,
+            )
+
+            valid_fills = [f for f in fills if getattr(f, "fill_qty", 0) > 0]
+            market_filled_qty = int(sum(f.fill_qty for f in valid_fills))
+
+            if market_filled_qty > 0:
+                weighted = sum(Decimal(str(f.fill_price)) * Decimal(f.fill_qty) for f in valid_fills)
+                avg_px = weighted / Decimal(market_filled_qty)
+                fill_price = float(avg_px)
+                if market_filled_qty < qty:
+                    market_status = "PARTIAL"
+            else:
+                # No executable liquidity across the ladder.
+                fill_price = float(ltp_price or lp or 0.0)
+                market_status = "REJECTED"
+
+        elif ord_type in {"LIMIT", "SLL"}:
             if lp is None or float(lp) <= 0:
                 raise HTTPException(status_code=400, detail="Valid limit_price is required for LIMIT/SLL orders")
             fill_price = float(lp)
@@ -618,11 +694,11 @@ async def place_paper_order(
                              status, product_type, security_id,
                              is_super, target_price, stop_loss_price, trailing_jump)
                         VALUES
-                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'FILLED',$13,$14,$15,$16,$17,$18)
+                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
                         """,
                         order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                        side, ord_type, qty, lp, body.trigger_price, fill_price, qty,
-                        prod, token or 0,
+                        side, ord_type, qty, lp, body.trigger_price, fill_price, market_filled_qty,
+                        market_status, prod, token or 0,
                         body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
                     )
                     _is_sl = False
@@ -630,17 +706,25 @@ async def place_paper_order(
                 # Update or create signed position (handles long/short open, partial close, full close, flip)
                 # SL orders stay PENDING; position update deferred to trigger fill
                 if not _is_sl:
-                    signed_delta = qty if side == "BUY" else -qty
-                    open_pos = await conn.fetchrow(
-                        """
-                        SELECT position_id, quantity, avg_price, realized_pnl
-                        FROM paper_positions
-                        WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
-                        """,
-                        user_id, token or 0
-                    )
+                    exec_qty = market_filled_qty if ord_type == "MARKET" else qty
+                    if exec_qty <= 0:
+                        signed_delta = 0
+                    else:
+                        signed_delta = exec_qty if side == "BUY" else -exec_qty
 
-                    if not open_pos:
+                    if signed_delta == 0:
+                        open_pos = None
+                    else:
+                        open_pos = await conn.fetchrow(
+                            """
+                            SELECT position_id, quantity, avg_price, realized_pnl
+                            FROM paper_positions
+                            WHERE user_id = $1 AND instrument_token = $2 AND status = 'OPEN'
+                            """,
+                            user_id, token or 0
+                        )
+
+                    if signed_delta != 0 and not open_pos:
                         await conn.execute(
                             """
                             INSERT INTO paper_positions
@@ -651,7 +735,7 @@ async def place_paper_order(
                             user_id, token or 0, body.symbol, body.exchange_segment,
                             signed_delta, fill_price, prod,
                         )
-                    else:
+                    elif signed_delta != 0 and open_pos:
                         existing_qty = int(open_pos["quantity"] or 0)
                         existing_avg = float(open_pos["avg_price"] or 0)
                         existing_realized = float(open_pos.get("realized_pnl") or 0)
@@ -816,6 +900,15 @@ async def place_paper_order(
                 log.info("SL order %s queued: %s %s %s trigger=%.2f",
                          order_id, side, qty, body.symbol, body.trigger_price)
                 return {"order_id": order_id, "status": "PENDING", "trigger_price": body.trigger_price}
+
+        if ord_type == "MARKET":
+            return {
+                "order_id": order_id,
+                "status": market_status,
+                "fill_price": fill_price,
+                "filled_qty": market_filled_qty,
+                "requested_qty": qty,
+            }
 
         return {"order_id": order_id, "status": "FILLED",
                 "fill_price": fill_price, "filled_qty": qty}

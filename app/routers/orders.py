@@ -739,7 +739,7 @@ async def place_paper_order(
                     elif signed_delta != 0 and open_pos:
                         existing_qty = int(open_pos["quantity"] or 0)
                         existing_avg = float(open_pos["avg_price"] or 0)
-                        existing_realized = float(open_pos.get("realized_pnl") or 0)
+                        existing_realized = float(open_pos["realized_pnl"] or 0)
 
                         if existing_qty == 0:
                             await conn.execute(

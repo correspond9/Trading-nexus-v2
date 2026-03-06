@@ -7,6 +7,7 @@ POST /watchlist/remove             → {user_id, token}
 import logging
 import uuid
 from typing import Optional
+import json
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -19,6 +20,27 @@ import app.instruments.subscription_manager as subscription_manager
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/watchlist", tags=["Watchlist"])
+
+
+def _depth_top_price(depth) -> float | None:
+    """Return first level price from bid/ask depth json, if available."""
+    if depth is None:
+        return None
+    if isinstance(depth, str):
+        try:
+            depth = json.loads(depth)
+        except Exception:
+            return None
+    if not isinstance(depth, list) or not depth:
+        return None
+    first = depth[0]
+    if not isinstance(first, dict):
+        return None
+    price = first.get("price")
+    try:
+        return float(price) if price is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _uid(request: Request, user_id_param, current_user: Optional[CurrentUser] = None) -> str:
@@ -225,6 +247,8 @@ async def get_watchlist(user_id: str, request: Request):
                im.tier,
                md.ltp,
                md.close,
+               md.bid_depth,
+               md.ask_depth,
                wi.added_at,
                CASE WHEN EXISTS(
                    SELECT 1 FROM paper_positions pp 
@@ -249,6 +273,10 @@ async def get_watchlist(user_id: str, request: Request):
         if item.get("expiry_date"):
             item["expiry_date"] = str(item["expiry_date"])
         item["strike_price"] = float(item["strike_price"]) if item.get("strike_price") is not None else None
+        item["best_bid"] = _depth_top_price(item.get("bid_depth"))
+        item["best_ask"] = _depth_top_price(item.get("ask_depth"))
+        item.pop("bid_depth", None)
+        item.pop("ask_depth", None)
         item["tier"] = item.get("tier") or "B"
         item["added_at"] = item["added_at"].isoformat() if item.get("added_at") else None
         item["has_position"] = bool(item.get("has_position"))

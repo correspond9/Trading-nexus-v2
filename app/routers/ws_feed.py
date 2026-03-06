@@ -151,9 +151,17 @@ async def websocket_feed(ws: WebSocket):
                 tokens = [int(t) for t in msg.get("tokens", [])]
                 if not tokens:
                     continue
-                # Request Tier-A subscriptions for any that aren't already live
-                for token in tokens:
-                    await subscription_manager.subscribe_tier_a(token)
+                # Request Tier-A subscriptions for any that aren't already live,
+                # but never block snapshot delivery to the UI.
+                sub_tasks = [subscription_manager.subscribe_tier_a(token) for token in tokens]
+                if sub_tasks:
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(*sub_tasks, return_exceptions=True),
+                            timeout=1.5,
+                        )
+                    except asyncio.TimeoutError:
+                        log.warning("/ws/feed subscribe_tier_a timed out; proceeding with snapshot")
                 await ws_push.subscribe(ws, tokens)
                 # Send immediate snapshot for all requested tokens
                 pool     = get_pool()

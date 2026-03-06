@@ -81,6 +81,8 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     strikePrice: item.strike_price ?? null,
     optionType: item.option_type ?? null,
     change_pct: item.change_pct ?? null,
+    bestBid: item.best_bid ?? item.bid ?? item.bid_price ?? null,
+    bestAsk: item.best_ask ?? item.ask ?? item.ask_price ?? null,
     tier: item.tier || 'B',  // 'A' = on-demand, 'B' = always subscribed
     hasPosition: item.has_position ?? false,  // whether in open positions
     addedAt: item.added_at ?? null,  // timestamp when added to watchlist
@@ -584,8 +586,8 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                   ? (pulse?.marketActiveCommodity ?? pulse?.marketActive ?? pulse?.market_active_commodity ?? pulse?.market_active) !== false
                   : (pulse?.marketActiveEquity ?? pulse?.marketActive ?? pulse?.market_active_equity ?? pulse?.market_active) !== false;
                 const tick = tickByToken[String(inst.token)];
-                const bid = tick?.bid_depth?.[0]?.price ?? tick?.best_bid ?? tick?.bid ?? tick?.bid_price ?? null;
-                const ask = tick?.ask_depth?.[0]?.price ?? tick?.best_ask ?? tick?.ask ?? tick?.ask_price ?? null;
+                const bid = tick?.bid_depth?.[0]?.price ?? tick?.best_bid ?? tick?.bid ?? tick?.bid_price ?? inst?.bestBid ?? null;
+                const ask = tick?.ask_depth?.[0]?.price ?? tick?.best_ask ?? tick?.ask ?? tick?.ask_price ?? inst?.bestAsk ?? null;
 
                 const label = formatOptionLabel({
                   instrumentType: inst.instrumentType,

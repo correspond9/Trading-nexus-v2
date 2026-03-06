@@ -141,19 +141,27 @@ async def on_tick(instrument_token: int, market_snap: dict) -> None:
     for side in ("BUY", "SELL"):
         fillable = await get_fillable(instrument_token, side, market_price)
         for queued in fillable:
+            remaining_before = int(getattr(queued, "remaining_qty", queued.quantity))
             fills = execute_market_fill(
                 queued, market_snap, tick_size, queued.lot_size
             )
             avg_price, filled_qty = _avg_price_and_qty(fills)
             if filled_qty == 0:
                 continue
+
+            # Keep queued order progress in memory so subsequent ticks continue
+            # from remaining quantity instead of restarting from full quantity.
+            queued.remaining_qty = max(0, remaining_before - filled_qty)
+
             await _persist_fills(
                 queued.order_id, queued.user_id, queued, fills,
                 avg_price, filled_qty, tick_size
             )
-            status = "COMPLETE" if filled_qty == queued.quantity else "PARTIALLY_FILLED"
-            await _update_paper_order_status(queued.order_id, status, avg_price)
-            await remove_filled(instrument_token, side, queued.limit_price, queued.order_id)
+
+            # Remove from queue only when fully complete; partials stay queued
+            # and wait for new depth on next ticks.
+            if queued.remaining_qty == 0:
+                await remove_filled(instrument_token, side, queued.limit_price, queued.order_id)
 
 
 # ── Cancel an open order ──────────────────────────────────────────────────
@@ -223,6 +231,7 @@ async def reconcile_pending_orders() -> int:
                 quantity         = int(row["quantity"]),
                 tick_size        = tick_size,
             )
+            queued.remaining_qty = int(row["remaining_qty"] or row["quantity"])
             await enqueue(queued)
             count += 1
         except Exception as exc:

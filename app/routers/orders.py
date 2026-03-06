@@ -664,58 +664,104 @@ async def place_paper_order(
 
                 # ── SL orders: record as PENDING — position updated when trigger fires ──
                 if ord_type in {"SLM", "SLL"}:
-                    await conn.execute(
-                        """
-                        INSERT INTO paper_orders
-                            (order_id, user_id, instrument_token, symbol, exchange_segment,
-                             side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
-                             status, product_type, security_id,
-                             is_super, target_price, stop_loss_price, trailing_jump)
-                        VALUES
-                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,0,'PENDING',$11,$12,$13,$14,$15,$16)
-                        """,
-                        order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                        side, ord_type, qty, lp, body.trigger_price,
-                        prod, token or 0,
-                        body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
-                    )
+                    try:
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_orders
+                                (order_id, user_id, instrument_token, symbol, exchange_segment,
+                                 side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
+                                 status, product_type, security_id,
+                                 is_super, target_price, stop_loss_price, trailing_jump)
+                            VALUES
+                                ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,0,'PENDING',$11,$12,$13,$14,$15,$16)
+                            """,
+                            order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+                            side, ord_type, qty, lp, body.trigger_price,
+                            prod, token or 0,
+                            body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
+                        )
+                    except Exception as sl_insert_exc:
+                        log.warning("SL insert fallback due to schema mismatch: %s", sl_insert_exc)
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_orders
+                                (order_id, user_id, instrument_token, symbol, exchange_segment,
+                                 side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
+                                 status)
+                            VALUES
+                                ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,0,'PENDING')
+                            """,
+                            order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+                            side, ord_type, qty, lp, body.trigger_price,
+                        )
                     _is_sl = True
                 elif ord_type == "LIMIT":
                     # ── FIXED: LIMIT orders are now PENDING — queued for fill when market price reaches limit ──
                     # This ensures they respect market depth, slippage, and partial fill logic.
-                    await conn.execute(
-                        """
-                        INSERT INTO paper_orders
-                            (order_id, user_id, instrument_token, symbol, exchange_segment,
-                             side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
-                             status, product_type, security_id,
-                             is_super, target_price, stop_loss_price, trailing_jump)
-                        VALUES
-                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,'PENDING',$12,$13,$14,$15,$16,$17)
-                        """,
-                        order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                        side, ord_type, qty, lp, body.trigger_price, lp,  # limit_price is filled at
-                        prod, token or 0,
-                        body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
-                    )
+                    try:
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_orders
+                                (order_id, user_id, instrument_token, symbol, exchange_segment,
+                                 side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
+                                 status, product_type, security_id,
+                                 is_super, target_price, stop_loss_price, trailing_jump)
+                            VALUES
+                                ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,'PENDING',$12,$13,$14,$15,$16,$17)
+                            """,
+                            order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+                            side, ord_type, qty, lp, body.trigger_price, lp,
+                            prod, token or 0,
+                            body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
+                        )
+                    except Exception as limit_insert_exc:
+                        log.warning("LIMIT insert fallback due to schema mismatch: %s", limit_insert_exc)
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_orders
+                                (order_id, user_id, instrument_token, symbol, exchange_segment,
+                                 side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
+                                 status)
+                            VALUES
+                                ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,'PENDING')
+                            """,
+                            order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+                            side, ord_type, qty, lp, body.trigger_price, lp,
+                        )
                     _is_sl = True  # Treat LIMIT like SL (queue for deferred fill)
                 else:
                     # Insert order record (MARKET only — fill immediately at LTP)
-                    await conn.execute(
-                        """
-                        INSERT INTO paper_orders
-                            (order_id, user_id, instrument_token, symbol, exchange_segment,
-                             side, order_type, quantity, remaining_qty, limit_price, trigger_price, fill_price, filled_qty,
-                             status, product_type, security_id,
-                             is_super, target_price, stop_loss_price, trailing_jump)
-                        VALUES
-                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-                        """,
-                        order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                        side, ord_type, qty, max(0, qty - market_filled_qty), lp, body.trigger_price, fill_price, market_filled_qty,
-                        market_status, prod, token or 0,
-                        body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
-                    )
+                    try:
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_orders
+                                (order_id, user_id, instrument_token, symbol, exchange_segment,
+                                 side, order_type, quantity, remaining_qty, limit_price, trigger_price, fill_price, filled_qty,
+                                 status, product_type, security_id,
+                                 is_super, target_price, stop_loss_price, trailing_jump)
+                            VALUES
+                                ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+                            """,
+                            order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+                            side, ord_type, qty, max(0, qty - market_filled_qty), lp, body.trigger_price, fill_price, market_filled_qty,
+                            market_status, prod, token or 0,
+                            body.is_super, body.target_price, body.stop_loss_price, body.trailing_jump,
+                        )
+                    except Exception as market_insert_exc:
+                        log.warning("MARKET insert fallback due to schema mismatch: %s", market_insert_exc)
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_orders
+                                (order_id, user_id, instrument_token, symbol, exchange_segment,
+                                 side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
+                                 status)
+                            VALUES
+                                ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                            """,
+                            order_id, user_id, token or 0, body.symbol, body.exchange_segment,
+                            side, ord_type, qty, lp, body.trigger_price, fill_price, market_filled_qty,
+                            market_status,
+                        )
                     _is_sl = False
 
                 # Update or create signed position (handles long/short open, partial close, full close, flip)

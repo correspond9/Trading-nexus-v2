@@ -175,7 +175,13 @@ async def websocket_feed(ws: WebSocket):
                     tokens,
                 )
                 snapshots = [
-                    serialize_tick(dict(r), r["exchange_segment"], r["symbol"])
+                    serialize_tick(
+                        dict(r),
+                        r["exchange_segment"],
+                        r["symbol"],
+                        include_depth_qty=True,
+                        depth_levels=5,
+                    )
                     for r in rows
                 ]
                 await ws.send_text(json.dumps({"type": "snapshot", "data": snapshots}))

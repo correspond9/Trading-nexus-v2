@@ -17,7 +17,14 @@ import json
 from app.market_hours import get_market_state, is_stale, MarketState
 
 
-def serialize_tick(row: dict[str, Any], segment: str = "NSE_EQ", symbol: str = "") -> dict:
+def serialize_tick(
+    row: dict[str, Any],
+    segment: str = "NSE_EQ",
+    symbol: str = "",
+    *,
+    include_depth_qty: bool = False,
+    depth_levels: int | None = None,
+) -> dict:
     """
     Serialize a market_data row (from DB or live tick dict) to a safe dict
     suitable for WebSocket push or REST API response.
@@ -52,8 +59,16 @@ def serialize_tick(row: dict[str, Any], segment: str = "NSE_EQ", symbol: str = "
 
     # Depth — only during OPEN
     if state == MarketState.OPEN:
-        out["bid_depth"] = _serialise_depth(row.get("bid_depth") or [])
-        out["ask_depth"] = _serialise_depth(row.get("ask_depth") or [])
+        out["bid_depth"] = _serialise_depth(
+            row.get("bid_depth") or [],
+            include_qty=include_depth_qty,
+            max_levels=depth_levels,
+        )
+        out["ask_depth"] = _serialise_depth(
+            row.get("ask_depth") or [],
+            include_qty=include_depth_qty,
+            max_levels=depth_levels,
+        )
 
     return out
 
@@ -79,8 +94,13 @@ def serialize_option_row(tick: dict, ocd: dict, segment: str = "NSE_FNO") -> dic
 
 # ── Depth serialiser (strips qty) ─────────────────────────────────────────
 
-def _serialise_depth(depth: list[dict]) -> list[dict]:
-    """Drop qty from each level — send price-only pairs to frontend."""
+def _serialise_depth(
+    depth: list[dict],
+    *,
+    include_qty: bool = False,
+    max_levels: int | None = None,
+) -> list[dict]:
+    """Serialize depth levels with optional qty and optional max level cap."""
     if depth is None:
         return []
 
@@ -96,13 +116,21 @@ def _serialise_depth(depth: list[dict]) -> list[dict]:
         return []
 
     out: list[dict] = []
-    for level in depth:
+    levels = depth if max_levels is None else depth[:max_levels]
+    for level in levels:
         if not isinstance(level, dict):
             continue
         price = _f(level.get("price"))
         if price is None:
             continue
-        out.append({"price": price})
+        if include_qty:
+            try:
+                qty = int(level.get("qty")) if level.get("qty") is not None else 0
+            except (TypeError, ValueError):
+                qty = 0
+            out.append({"price": price, "qty": qty})
+        else:
+            out.append({"price": price})
     return out
 
 

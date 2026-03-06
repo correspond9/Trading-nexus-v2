@@ -68,6 +68,37 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
 
   const { lastMessage: feedMsg, sendMessage: sendFeed, readyState: feedState } = useWebSocket(wsFeedUrl);
 
+  const normaliseDepth = (depth) => {
+    if (!Array.isArray(depth)) return [];
+    return depth
+      .map((lvl) => {
+        if (!lvl || typeof lvl !== 'object') return null;
+        const price = Number(lvl.price);
+        if (!Number.isFinite(price)) return null;
+        const qty = Number(lvl.qty);
+        return {
+          price,
+          qty: Number.isFinite(qty) ? Math.max(0, Math.trunc(qty)) : 0,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 5);
+  };
+
+  const getDepthLadder = (inst, tick) => {
+    const bidDepth = normaliseDepth(tick?.bid_depth?.length ? tick.bid_depth : inst?.bidDepth);
+    const askDepth = normaliseDepth(tick?.ask_depth?.length ? tick.ask_depth : inst?.askDepth);
+    const rows = [];
+    for (let i = 0; i < 5; i += 1) {
+      rows.push({
+        level: i + 1,
+        bid: bidDepth[i] || null,
+        ask: askDepth[i] || null,
+      });
+    }
+    return rows;
+  };
+
   const mapServerItems = (serverItems) => (serverItems || []).map(item => ({
     id: item.id || item.token,
     symbol: item.symbol,
@@ -81,6 +112,8 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     strikePrice: item.strike_price ?? null,
     optionType: item.option_type ?? null,
     change_pct: item.change_pct ?? null,
+    bidDepth: Array.isArray(item.bid_depth) ? item.bid_depth : [],
+    askDepth: Array.isArray(item.ask_depth) ? item.ask_depth : [],
     bestBid: item.best_bid ?? item.bid ?? item.bid_price ?? null,
     bestAsk: item.best_ask ?? item.ask ?? item.ask_price ?? null,
     tier: item.tier || 'B',  // 'A' = on-demand, 'B' = always subscribed
@@ -586,8 +619,9 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                   ? (pulse?.marketActiveCommodity ?? pulse?.marketActive ?? pulse?.market_active_commodity ?? pulse?.market_active) !== false
                   : (pulse?.marketActiveEquity ?? pulse?.marketActive ?? pulse?.market_active_equity ?? pulse?.market_active) !== false;
                 const tick = tickByToken[String(inst.token)];
-                const bid = tick?.bid_depth?.[0]?.price ?? tick?.best_bid ?? tick?.bid ?? tick?.bid_price ?? inst?.bestBid ?? null;
-                const ask = tick?.ask_depth?.[0]?.price ?? tick?.best_ask ?? tick?.ask ?? tick?.ask_price ?? inst?.bestAsk ?? null;
+                const ladder = getDepthLadder(inst, tick);
+                const bestBid = ladder[0]?.bid?.price ?? tick?.best_bid ?? tick?.bid ?? tick?.bid_price ?? inst?.bestBid ?? null;
+                const bestAsk = ladder[0]?.ask?.price ?? tick?.best_ask ?? tick?.ask ?? tick?.ask_price ?? inst?.bestAsk ?? null;
 
                 const label = formatOptionLabel({
                   instrumentType: inst.instrumentType,
@@ -653,15 +687,35 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                     </div>
 
                     {showDepthFor[String(inst.token)] && (
-                      <div style={{ marginTop: '8px', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', justifyContent: 'space-between' }}>
-                        <div style={{ fontSize: '12px', color: 'var(--text)' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Bid</div>
-                          <div style={{ fontWeight: 700 }}>{bid !== null ? Number(bid).toFixed(2) : '—'}</div>
+                      <div style={{ marginTop: '8px', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Best Bid</div>
+                            <div style={{ fontWeight: 700 }}>{bestBid !== null ? Number(bestBid).toFixed(2) : '—'}</div>
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text)', textAlign: 'right' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Best Ask</div>
+                            <div style={{ fontWeight: 700 }}>{bestAsk !== null ? Number(bestAsk).toFixed(2) : '—'}</div>
+                          </div>
                         </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text)', textAlign: 'right' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>Ask</div>
-                          <div style={{ fontWeight: 700 }}>{ask !== null ? Number(ask).toFixed(2) : '—'}</div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '44px 1fr 1fr 1fr 1fr', gap: '6px', fontSize: '11px', color: 'var(--muted)', marginBottom: '6px' }}>
+                          <div>Lvl</div>
+                          <div style={{ textAlign: 'right' }}>Bid Qty</div>
+                          <div style={{ textAlign: 'right' }}>Bid Px</div>
+                          <div style={{ textAlign: 'right' }}>Ask Px</div>
+                          <div style={{ textAlign: 'right' }}>Ask Qty</div>
                         </div>
+
+                        {ladder.map((row) => (
+                          <div key={`${inst.token}-depth-${row.level}`} style={{ display: 'grid', gridTemplateColumns: '44px 1fr 1fr 1fr 1fr', gap: '6px', fontSize: '12px', color: 'var(--text)', padding: '2px 0' }}>
+                            <div style={{ color: 'var(--muted)' }}>{row.level}</div>
+                            <div style={{ textAlign: 'right' }}>{row.bid ? row.bid.qty.toLocaleString() : '—'}</div>
+                            <div style={{ textAlign: 'right' }}>{row.bid ? row.bid.price.toFixed(2) : '—'}</div>
+                            <div style={{ textAlign: 'right' }}>{row.ask ? row.ask.price.toFixed(2) : '—'}</div>
+                            <div style={{ textAlign: 'right' }}>{row.ask ? row.ask.qty.toLocaleString() : '—'}</div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>

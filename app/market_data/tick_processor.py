@@ -234,10 +234,12 @@ class _TickProcessor:
             if tick.get("ltp") is None:
                 continue
             seg = tick.get("exchange_segment") or "NSE_FNO"
+            bid_depth = tick.get("bid_depth") or []
+            ask_depth = tick.get("ask_depth") or []
             market_snap = {
                 "ltp": tick.get("ltp"),
-                "bid_depth": tick.get("bid_depth"),
-                "ask_depth": tick.get("ask_depth"),
+                "bid_depth": bid_depth[:5],
+                "ask_depth": ask_depth[:5],
                 "ltt": tick.get("ltt"),
                 "tick_size": float(get_tick_size(seg)),
             }

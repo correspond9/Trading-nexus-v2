@@ -43,6 +43,36 @@ def _depth_top_price(depth) -> float | None:
         return None
 
 
+def _normalise_depth_levels(depth, max_levels: int = 5) -> list[dict]:
+    """Normalise depth JSON into [{price, qty}] and cap to max_levels."""
+    if depth is None:
+        return []
+    if isinstance(depth, str):
+        try:
+            depth = json.loads(depth)
+        except Exception:
+            return []
+    if not isinstance(depth, list):
+        return []
+
+    out: list[dict] = []
+    for level in depth[:max_levels]:
+        if not isinstance(level, dict):
+            continue
+        try:
+            price = float(level.get("price")) if level.get("price") is not None else None
+        except (TypeError, ValueError):
+            price = None
+        if price is None:
+            continue
+        try:
+            qty = int(level.get("qty")) if level.get("qty") is not None else 0
+        except (TypeError, ValueError):
+            qty = 0
+        out.append({"price": price, "qty": qty})
+    return out
+
+
 def _uid(request: Request, user_id_param, current_user: Optional[CurrentUser] = None) -> str:
     if user_id_param:
         return str(user_id_param)
@@ -273,10 +303,10 @@ async def get_watchlist(user_id: str, request: Request):
         if item.get("expiry_date"):
             item["expiry_date"] = str(item["expiry_date"])
         item["strike_price"] = float(item["strike_price"]) if item.get("strike_price") is not None else None
+        item["bid_depth"] = _normalise_depth_levels(item.get("bid_depth"), max_levels=5)
+        item["ask_depth"] = _normalise_depth_levels(item.get("ask_depth"), max_levels=5)
         item["best_bid"] = _depth_top_price(item.get("bid_depth"))
         item["best_ask"] = _depth_top_price(item.get("ask_depth"))
-        item.pop("bid_depth", None)
-        item.pop("ask_depth", None)
         item["tier"] = item.get("tier") or "B"
         item["added_at"] = item["added_at"].isoformat() if item.get("added_at") else None
         item["has_position"] = bool(item.get("has_position"))

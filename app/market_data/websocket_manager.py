@@ -97,20 +97,13 @@ class _SingleWSConnection:
         self._connected  = False
         self._first_tick = True
         self._task: asyncio.Task | None = None
-        # Some accounts appear to not be entitled for the FULL (21) feed.
-        # If the server drops the socket during subscribe, we downgrade to
-        # QUOTE (17) and then TICKER (15) on subsequent reconnects.
+        # Keep FULL (21) subscriptions to preserve depth for execution logic.
+        # We do not auto-downgrade to quote/ticker because those packets omit depth.
         self._subscribe_rc = _RC_SUBSCRIBE_FULL
         self._ws_url_idx = 0
 
     def _downgrade_subscribe_rc(self) -> bool:
-        """Return True if we downgraded; False if already at lowest."""
-        if self._subscribe_rc == _RC_SUBSCRIBE_FULL:
-            self._subscribe_rc = _RC_SUBSCRIBE_QUOTE
-            return True
-        if self._subscribe_rc == _RC_SUBSCRIBE_QUOTE:
-            self._subscribe_rc = _RC_SUBSCRIBE_TICKER
-            return True
+        """Depth-required mode: never downgrade below FULL feed."""
         return False
 
     async def start(self) -> None:

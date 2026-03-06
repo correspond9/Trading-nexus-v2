@@ -78,6 +78,8 @@ class _ConnectionManager:
                         tick,
                         segment=tick.get("exchange_segment", "NSE_FNO"),
                         symbol=tick.get("symbol", ""),
+                        include_depth_qty=True,
+                        depth_levels=5,
                     ),
                 }
             except Exception as exc:

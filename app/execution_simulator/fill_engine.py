@@ -78,20 +78,17 @@ def execute_market_fill(
             # Can't fill even one lot at this level — skip
             continue
 
-        slippage = calculate_slippage(
-            order.exchange_segment, filled_here, available, tick_size
-        )
-        # BUY: higher price (adverse), SELL: lower price (adverse)
-        fill_px = fill_px + slippage if order.side == "BUY" else fill_px - slippage
-        
-        # ── RE-VALIDATE AFTER SLIPPAGE ──
+        # LIMIT / SL orders must execute at limit-or-better.
+        # Applying adverse slippage here can incorrectly block otherwise valid
+        # partial fills, so keep slippage only for unconstrained market fills.
         if limit_price:
-            if order.side == "BUY" and fill_px > limit_price:
-                # After slippage, price is worse than limit — REJECT THIS LEVEL
-                continue
-            elif order.side == "SELL" and fill_px < limit_price:
-                # After slippage, price is worse than limit — REJECT THIS LEVEL
-                continue
+            slippage = Decimal("0")
+        else:
+            slippage = calculate_slippage(
+                order.exchange_segment, filled_here, available, tick_size
+            )
+            # BUY: higher price (adverse), SELL: lower price (adverse)
+            fill_px = fill_px + slippage if order.side == "BUY" else fill_px - slippage
 
         fills.append(FillEvent(
             fill_price    = fill_px.quantize(tick_size),

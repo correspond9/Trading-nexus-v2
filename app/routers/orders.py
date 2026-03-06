@@ -3,7 +3,7 @@ app/routers/orders.py  (v2 — frontend-compatible prefix + API shape)
 """
 import logging
 import uuid
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, validator
@@ -18,6 +18,43 @@ from decimal                                   import Decimal
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/trading/orders", tags=["Orders"])
+
+
+# Exchange freeze limits in number of lots.
+_FREEZE_LOT_LIMITS = {
+    "NIFTY": 24,
+    "BANKNIFTY": 17,
+    "FINNIFTY": 27,
+    "MIDCPNIFTY": 20,
+    "SENSEX": 50,
+    "BANKEX": 30,
+}
+
+
+def _freeze_lot_limit_for_underlying(underlying: str) -> Optional[int]:
+    if not underlying:
+        return None
+    key = str(underlying).upper().replace(" ", "")
+    aliases = {
+        "NIFTY50": "NIFTY",
+        "MIDCPNIFTY": "MIDCPNIFTY",
+        "FINNIFTY": "FINNIFTY",
+    }
+    key = aliases.get(key, key)
+    return _FREEZE_LOT_LIMITS.get(key)
+
+
+def _compute_slice_quantities(total_qty: int, max_qty_per_order: int) -> List[int]:
+    if max_qty_per_order <= 0 or total_qty <= max_qty_per_order:
+        return [total_qty]
+    slices: List[int] = []
+    remaining = int(total_qty)
+    while remaining > max_qty_per_order:
+        slices.append(max_qty_per_order)
+        remaining -= max_qty_per_order
+    if remaining > 0:
+        slices.append(remaining)
+    return slices
 
 
 def _detect_instrument(
@@ -182,6 +219,7 @@ class PlaceOrderRequest(BaseModel):
     target_price:     Optional[float] = None
     stop_loss_price:  Optional[float] = None
     trailing_jump:    Optional[float] = None
+    skip_slicing:     bool            = False
 
     @validator('symbol', 'exchange_segment', pre=True)
     def empty_str_to_none(cls, v):
@@ -319,7 +357,7 @@ async def place_paper_order(
         if token and token != 0:
             im_seg_row = await pool.fetchrow(
                 """
-                SELECT exchange_segment, instrument_type, option_type
+                SELECT exchange_segment, instrument_type, option_type, lot_size, underlying, symbol
                 FROM instrument_master
                 WHERE instrument_token=$1
                 """,
@@ -341,6 +379,47 @@ async def place_paper_order(
         ord_type = body.order_type.upper()
         prod     = body.product_type.upper()
         lp       = body.limit_price or body.price
+
+        # ── Auto-slice oversized orders based on exchange freeze limits (lots) ──
+        if not body.skip_slicing and qty > 0:
+            im_lot_size = int((im_seg_row.get("lot_size") if im_seg_row else 0) or 1)
+            inferred_symbol = body.symbol or (im_seg_row.get("symbol") if im_seg_row else "") or ""
+            inferred_underlying = (
+                (im_seg_row.get("underlying") if im_seg_row else None)
+                or _extract_underlying(inferred_symbol)
+            )
+            freeze_lots = _freeze_lot_limit_for_underlying(str(inferred_underlying or ""))
+            if freeze_lots:
+                max_qty_per_order = int(freeze_lots) * max(1, im_lot_size)
+                if qty > max_qty_per_order:
+                    slice_quantities = _compute_slice_quantities(qty, max_qty_per_order)
+                    child_results = []
+                    for slice_qty in slice_quantities:
+                        child_payload = body.dict()
+                        child_payload["quantity"] = int(slice_qty)
+                        child_payload["skip_slicing"] = True
+                        child_body = PlaceOrderRequest(**child_payload)
+                        child_result = await place_paper_order(child_body, request, current_user)
+                        child_results.append(child_result)
+
+                    child_order_ids = [
+                        str(r.get("order_id"))
+                        for r in child_results
+                        if isinstance(r, dict) and r.get("order_id")
+                    ]
+                    first_order_id = child_order_ids[0] if child_order_ids else None
+                    return {
+                        "order_id": first_order_id,
+                        "status": "SLICED",
+                        "requested_qty": int(qty),
+                        "slice_count": len(slice_quantities),
+                        "max_qty_per_slice": int(max_qty_per_order),
+                        "underlying": str(inferred_underlying or ""),
+                        "lot_size": int(im_lot_size),
+                        "freeze_lots": int(freeze_lots),
+                        "child_order_ids": child_order_ids,
+                        "children": child_results,
+                    }
 
         # Commodity does not support MIS in this system.
         if _is_commodity_segment(body.exchange_segment or "") and prod == "MIS":

@@ -23,6 +23,43 @@ log    = logging.getLogger(__name__)
 router = APIRouter(prefix="/trading/basket-orders", tags=["Baskets"])
 
 
+# Exchange freeze limits in number of lots.
+_FREEZE_LOT_LIMITS = {
+    "NIFTY": 24,
+    "BANKNIFTY": 17,
+    "FINNIFTY": 27,
+    "MIDCPNIFTY": 20,
+    "SENSEX": 50,
+    "BANKEX": 30,
+}
+
+
+def _freeze_lot_limit_for_underlying(underlying: str) -> Optional[int]:
+    if not underlying:
+        return None
+    key = str(underlying).upper().replace(" ", "")
+    aliases = {
+        "NIFTY50": "NIFTY",
+        "MIDCPNIFTY": "MIDCPNIFTY",
+        "FINNIFTY": "FINNIFTY",
+    }
+    key = aliases.get(key, key)
+    return _FREEZE_LOT_LIMITS.get(key)
+
+
+def _compute_slice_quantities(total_qty: int, max_qty_per_order: int) -> List[int]:
+    if max_qty_per_order <= 0 or total_qty <= max_qty_per_order:
+        return [total_qty]
+    slices: List[int] = []
+    remaining = int(total_qty)
+    while remaining > max_qty_per_order:
+        slices.append(max_qty_per_order)
+        remaining -= max_qty_per_order
+    if remaining > 0:
+        slices.append(remaining)
+    return slices
+
+
 def _uid(request: Request, user_id_param, current_user: Optional[CurrentUser] = None) -> str:
     def _norm_uuid(raw: Optional[str]) -> Optional[str]:
         if raw is None:
@@ -375,6 +412,8 @@ async def execute_basket(
 
         token = int(im_row["instrument_token"])
         symbol = symbol_raw or str(im_row.get("symbol") or im_row.get("underlying") or token)
+        lot_size = int(im_row.get("lot_size") or 1)
+        underlying_for_freeze = str(im_row.get("underlying") or _extract_underlying(symbol) or "")
 
         if (not exchange) and im_row.get("exchange_segment"):
             exchange = str(im_row["exchange_segment"]).strip().upper()
@@ -400,34 +439,42 @@ async def execute_basket(
         if security_id_value is None:
             security_id_value = token
 
-        if side_u == "BUY":
-            is_option, is_futures, is_commodity = _detect_instrument(symbol, exchange)
-            underlying = _extract_underlying(symbol)
-            margin_breakdown = _nse_calculate_margin(
-                symbol=underlying,
-                transaction_type=side_u,
-                quantity=qty,
-                ltp=fill_price,
-                is_option=is_option,
-                is_futures=is_futures,
-                is_commodity=is_commodity,
-            )
-            total_required_margin += float(margin_breakdown.get("total_margin") or 0.0)
+        freeze_lots = _freeze_lot_limit_for_underlying(underlying_for_freeze)
+        if freeze_lots:
+            max_qty_per_order = int(freeze_lots) * max(1, lot_size)
+            slice_quantities = _compute_slice_quantities(qty, max_qty_per_order)
+        else:
+            slice_quantities = [qty]
 
-        resolved_legs.append(
-            {
-                "symbol": symbol,
-                "token": token,
-                "exchange": exchange,
-                "side": side_u,
-                "qty": qty,
-                "product": product_u,
-                "order_type": order_type_u,
-                "fill_price": fill_price,
-                "limit_price": float(price) if order_type_u == "LIMIT" and float(price) > 0 else None,
-                "security_id": int(security_id_value),
-            }
-        )
+        for slice_qty in slice_quantities:
+            if side_u == "BUY":
+                is_option, is_futures, is_commodity = _detect_instrument(symbol, exchange)
+                underlying = _extract_underlying(symbol)
+                margin_breakdown = _nse_calculate_margin(
+                    symbol=underlying,
+                    transaction_type=side_u,
+                    quantity=slice_qty,
+                    ltp=fill_price,
+                    is_option=is_option,
+                    is_futures=is_futures,
+                    is_commodity=is_commodity,
+                )
+                total_required_margin += float(margin_breakdown.get("total_margin") or 0.0)
+
+            resolved_legs.append(
+                {
+                    "symbol": symbol,
+                    "token": token,
+                    "exchange": exchange,
+                    "side": side_u,
+                    "qty": int(slice_qty),
+                    "product": product_u,
+                    "order_type": order_type_u,
+                    "fill_price": fill_price,
+                    "limit_price": float(price) if order_type_u == "LIMIT" and float(price) > 0 else None,
+                    "security_id": int(security_id_value),
+                }
+            )
     
     # ── Check available margin before execution ───────────────────────────────
     if total_required_margin > 0:

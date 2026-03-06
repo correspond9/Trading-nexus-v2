@@ -195,6 +195,17 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     return () => window.removeEventListener('tn-watchlist-refresh', handler);
   }, [hydrateFromServer]);
 
+  // Fallback live refresh: keep watchlist depth/ltp moving even if WS reconnects are flaky.
+  useEffect(() => {
+    if (!user?.id) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        hydrateFromServer();
+      }
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [user?.id, hydrateFromServer]);
+
   // Persist on change
   useEffect(() => {
     if (user?.id) saveToStorage(user.id, tabs);

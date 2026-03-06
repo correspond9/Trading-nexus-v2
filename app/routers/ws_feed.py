@@ -138,63 +138,78 @@ async def websocket_feed(ws: WebSocket):
     await ws_push.connect(ws, DEFAULT_USER_ID)
     try:
         while True:
-            raw = await ws.receive_text()
             try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
-                await ws.send_text(json.dumps({"type": "error", "message": "Invalid JSON"}))
-                continue
-
-            action = msg.get("action")
-
-            if action == "subscribe":
-                tokens = [int(t) for t in msg.get("tokens", [])]
-                if not tokens:
+                raw = await ws.receive_text()
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    await ws.send_text(json.dumps({"type": "error", "message": "Invalid JSON"}))
                     continue
-                # Request Tier-A subscriptions for any that aren't already live,
-                # but never block snapshot delivery to the UI.
-                sub_tasks = [subscription_manager.subscribe_tier_a(token) for token in tokens]
-                if sub_tasks:
-                    try:
-                        await asyncio.wait_for(
-                            asyncio.gather(*sub_tasks, return_exceptions=True),
-                            timeout=1.5,
-                        )
-                    except asyncio.TimeoutError:
-                        log.warning("/ws/feed subscribe_tier_a timed out; proceeding with snapshot")
-                await ws_push.subscribe(ws, tokens)
-                # Send immediate snapshot for all requested tokens
-                pool     = get_pool()
-                rows     = await pool.fetch(
-                    """
-                    SELECT md.*, im.exchange_segment, im.trading_symbol
-                    FROM market_data md
-                    JOIN instrument_master im ON im.instrument_token = md.instrument_token
-                    WHERE md.instrument_token = ANY($1::bigint[])
-                    """,
-                    tokens,
-                )
-                snapshots = [
-                    serialize_tick(
-                        dict(r),
-                        r["exchange_segment"],
-                        r["symbol"],
-                        include_depth_qty=True,
-                        depth_levels=5,
+
+                action = msg.get("action")
+
+                if action == "subscribe":
+                    tokens = [int(t) for t in msg.get("tokens", []) if str(t).strip()]
+                    if not tokens:
+                        continue
+                    # Request Tier-A subscriptions for any that aren't already live,
+                    # but never block snapshot delivery to the UI.
+                    sub_tasks = [subscription_manager.subscribe_tier_a(token) for token in tokens]
+                    if sub_tasks:
+                        try:
+                            await asyncio.wait_for(
+                                asyncio.gather(*sub_tasks, return_exceptions=True),
+                                timeout=1.5,
+                            )
+                        except asyncio.TimeoutError:
+                            log.warning("/ws/feed subscribe_tier_a timed out; proceeding with snapshot")
+
+                    await ws_push.subscribe(ws, tokens)
+
+                    # Send immediate snapshot for all requested tokens.
+                    pool = get_pool()
+                    rows = await pool.fetch(
+                        """
+                        SELECT md.*, im.exchange_segment
+                        FROM market_data md
+                        JOIN instrument_master im ON im.instrument_token = md.instrument_token
+                        WHERE md.instrument_token = ANY($1::bigint[])
+                        """,
+                        tokens,
                     )
-                    for r in rows
-                ]
-                await ws.send_text(json.dumps({"type": "snapshot", "data": snapshots}))
+                    snapshots = []
+                    for r in rows:
+                        d = dict(r)
+                        try:
+                            snapshots.append(
+                                serialize_tick(
+                                    d,
+                                    d.get("exchange_segment") or "NSE_FNO",
+                                    d.get("symbol") or "",
+                                    include_depth_qty=True,
+                                    depth_levels=5,
+                                )
+                            )
+                        except Exception as exc:
+                            log.warning("/ws/feed snapshot serialize failed for token=%s: %s", d.get("instrument_token"), exc)
+                    await ws.send_text(json.dumps({"type": "snapshot", "data": snapshots}))
 
-            elif action == "unsubscribe":
-                tokens = [int(t) for t in msg.get("tokens", [])]
-                await ws_push.unsubscribe(ws, tokens)
+                elif action == "unsubscribe":
+                    tokens = [int(t) for t in msg.get("tokens", []) if str(t).strip()]
+                    await ws_push.unsubscribe(ws, tokens)
 
-            elif action == "ping":
-                await ws.send_text(json.dumps({"type": "pong"}))
+                elif action == "ping":
+                    await ws.send_text(json.dumps({"type": "pong"}))
 
-            else:
-                await ws.send_text(json.dumps({"type": "error", "message": f"Unknown action: {action}"}))
+                else:
+                    await ws.send_text(json.dumps({"type": "error", "message": f"Unknown action: {action}"}))
+            except Exception as exc:
+                # Keep connection alive for transient handler issues.
+                log.error("/ws/feed handler error: %s", exc)
+                try:
+                    await ws.send_text(json.dumps({"type": "error", "message": "internal handler error"}))
+                except Exception:
+                    break
 
     except WebSocketDisconnect:
         pass

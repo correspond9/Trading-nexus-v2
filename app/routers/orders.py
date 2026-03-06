@@ -370,8 +370,8 @@ async def place_paper_order(
             im_seg = (im_seg_row["exchange_segment"] if im_seg_row else None) or None
             im_seg_u = str(im_seg).strip().upper() if im_seg else ""
             if im_seg_row:
-                inst_type = im_seg_row.get("instrument_type")
-                opt_type = im_seg_row.get("option_type")
+                inst_type = im_seg_row["instrument_type"]
+                opt_type = im_seg_row["option_type"]
 
             # Use database value if not provided or generic exchange name given
             if (not seg_in) or seg_in in {"NSE", "BSE", "MCX"}:
@@ -386,10 +386,10 @@ async def place_paper_order(
 
         # ── Auto-slice oversized orders based on exchange freeze limits (lots) ──
         if not body.skip_slicing and qty > 0:
-            im_lot_size = int((im_seg_row.get("lot_size") if im_seg_row else 0) or 1)
-            inferred_symbol = body.symbol or (im_seg_row.get("symbol") if im_seg_row else "") or ""
+            im_lot_size = int((im_seg_row["lot_size"] if im_seg_row else 0) or 1)
+            inferred_symbol = body.symbol or (im_seg_row["symbol"] if im_seg_row else "") or ""
             inferred_underlying = (
-                (im_seg_row.get("underlying") if im_seg_row else None)
+                (im_seg_row["underlying"] if im_seg_row else None)
                 or _extract_underlying(inferred_symbol)
             )
             freeze_lots = _freeze_lot_limit_for_underlying(str(inferred_underlying or ""))
@@ -473,7 +473,7 @@ async def place_paper_order(
 
         if ord_type == "MARKET":
             tick_size = get_tick_size(body.exchange_segment or "NSE_FNO")
-            lot_size = int((im_seg_row.get("lot_size") if im_seg_row else 0) or 1)
+            lot_size = int((im_seg_row["lot_size"] if im_seg_row else 0) or 1)
 
             class _MarketExecOrder:
                 pass
@@ -615,24 +615,38 @@ async def place_paper_order(
                     if not account_row:
                         raise HTTPException(status_code=403, detail="No margin account found for this user.")
 
-                    used_margin = await conn.fetchval(
-                        """
-                        SELECT COALESCE(SUM(
-                            calculate_position_margin(
-                                pp.instrument_token,
-                                pp.symbol,
-                                pp.exchange_segment,
-                                pp.quantity,
-                                pp.product_type
-                            )
-                        ), 0)
-                        FROM paper_positions pp
-                        WHERE pp.user_id = $1::uuid
-                          AND pp.status = 'OPEN'
-                          AND pp.quantity != 0
-                        """,
-                        user_id,
-                    )
+                    try:
+                        used_margin = await conn.fetchval(
+                            """
+                            SELECT COALESCE(SUM(
+                                calculate_position_margin(
+                                    pp.instrument_token,
+                                    pp.symbol,
+                                    pp.exchange_segment,
+                                    pp.quantity,
+                                    pp.product_type
+                                )
+                            ), 0)
+                            FROM paper_positions pp
+                            WHERE pp.user_id = $1::uuid
+                              AND pp.status = 'OPEN'
+                              AND pp.quantity != 0
+                            """,
+                            user_id,
+                        )
+                    except Exception as margin_exc:
+                        # Fallback for environments where DB margin function is missing/outdated.
+                        log.warning("Used-margin function unavailable; falling back to notional calc: %s", margin_exc)
+                        used_margin = await conn.fetchval(
+                            """
+                            SELECT COALESCE(SUM(ABS(pp.quantity * pp.avg_price)), 0)
+                            FROM paper_positions pp
+                            WHERE pp.user_id = $1::uuid
+                              AND pp.status = 'OPEN'
+                              AND pp.quantity != 0
+                            """,
+                            user_id,
+                        )
 
                     allotted = float(account_row["margin_allotted"] or 0)
                     used = float(used_margin or 0)
@@ -952,6 +966,37 @@ async def place_paper_order(
         # Log the actual exception with full traceback
         log.error(f"CRITICAL ORDER PLACEMENT ERROR - User: {current_user.id}, Symbol: {body.symbol}", exc_info=True)
         log.error(f"Exception type: {type(e).__name__}, Message: {str(e)}")
+
+        # Best-effort audit row so failed attempts are visible in Orders tab.
+        try:
+            pool = get_pool()
+            fail_order_id = str(uuid.uuid4())
+            fail_user_id = body.user_id or current_user.id
+            fail_token = body.security_id or body.instrument_token or 0
+            fail_side = (body.transaction_type or body.side or "BUY").upper()
+            fail_type = (body.order_type or "MARKET").upper()
+            fail_prod = (body.product_type or "MIS").upper()
+            fail_qty = int(body.quantity or 0)
+            await pool.execute(
+                """
+                INSERT INTO paper_orders
+                    (order_id, user_id, instrument_token, symbol, exchange_segment,
+                     side, order_type, quantity, status, product_type, placed_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'REJECTED', $9, NOW())
+                """,
+                fail_order_id,
+                fail_user_id,
+                int(fail_token or 0),
+                body.symbol,
+                body.exchange_segment,
+                fail_side,
+                fail_type,
+                max(0, fail_qty),
+                fail_prod,
+            )
+        except Exception as audit_exc:
+            log.warning("Failed to write rejected audit order row: %s", audit_exc)
+
         raise HTTPException(
             status_code=500,
             detail=f"Order placement failed: {type(e).__name__}: {str(e)}"

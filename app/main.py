@@ -54,6 +54,7 @@ from app.execution_simulator.execution_engine import reconcile_pending_orders
 from app.market_data.static_auth_monitor import static_auth_monitor
 from app.positions.eod_archiver               import eod_closed_position_archiver
 from app.runtime.market_timing                import market_timing_controller
+from app.runtime.vps_monitor                  import vps_monitor
 from app.schedulers.charge_calculation_scheduler  import charge_calculation_scheduler
 from app.schedulers.mis_auto_squareoff             import mis_auto_squareoff
 from app.schedulers.watchlist_cleanup_scheduler    import watchlist_cleanup_scheduler
@@ -329,6 +330,7 @@ async def lifespan(app: FastAPI):
 
     log.info("─── Shutdown ───────────────────────────────────────────────")
     await watchlist_cleanup_scheduler.stop()
+    await vps_monitor.stop()
     await market_timing_controller.stop()
     await charge_calculation_scheduler.stop()
     await mis_auto_squareoff.stop()

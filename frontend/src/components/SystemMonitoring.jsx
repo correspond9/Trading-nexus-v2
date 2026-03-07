@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Activity, Database, Server, Wifi, WifiOff, AlertCircle, RefreshCw } from 'lucide-react';
+import { Activity, Database, Server, Wifi, WifiOff, AlertCircle, RefreshCw, Play, Square } from 'lucide-react';
 import LiveQuotes from './LiveQuotes';
 
 const API_BASE = '/api/v2';
@@ -62,6 +62,45 @@ const formatWhen = (ts) => {
   }
 };
 
+const Sparkline = ({ title, values, colorClass, suffix = '' }) => {
+  const safeValues = (values || []).slice(-40);
+  const width = 220;
+  const height = 60;
+  const min = 0;
+  const max = Math.max(1, ...safeValues, min);
+
+  const points = safeValues
+    .map((v, i) => {
+      const x = (i / Math.max(1, safeValues.length - 1)) * width;
+      const y = height - ((Math.max(min, v) - min) / (max - min || 1)) * height;
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  const latest = safeValues.length ? safeValues[safeValues.length - 1] : 0;
+
+  return (
+    <div className="rounded-xl p-3 bg-zinc-800 border border-zinc-700">
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-xs tn-muted">{title}</div>
+        <div className="text-xs font-semibold">{latest.toFixed(1)}{suffix}</div>
+      </div>
+      {safeValues.length > 1 ? (
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-16">
+          <polyline
+            fill="none"
+            strokeWidth="2"
+            points={points}
+            className={colorClass}
+          />
+        </svg>
+      ) : (
+        <div className="h-16 flex items-center text-xs text-zinc-500">No samples yet</div>
+      )}
+    </div>
+  );
+};
+
 const SystemMonitoring = () => {
   const [health, setHealth] = useState(null);
   const [streamStatus, setStreamStatus] = useState(null);
@@ -72,15 +111,40 @@ const SystemMonitoring = () => {
   const [rollingOver, setRollingOver] = useState(false);
   const [rolloverResult, setRolloverResult] = useState(null);
   const [lastRefreshed, setLastRefreshed] = useState(null);
+  const [monitorStatus, setMonitorStatus] = useState(null);
+  const [monitorSamples, setMonitorSamples] = useState([]);
+  const [monitorBusy, setMonitorBusy] = useState(false);
+
+  const fetchMonitor = useCallback(async () => {
+    try {
+      const [statusRes, samplesRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/vps-monitor/status`),
+        fetch(`${API_BASE}/admin/vps-monitor/samples?limit=120`),
+      ]);
+
+      if (statusRes.ok) {
+        setMonitorStatus(await statusRes.json());
+      }
+
+      if (samplesRes.ok) {
+        const data = await samplesRes.json();
+        setMonitorSamples(Array.isArray(data?.samples) ? data.samples : []);
+      }
+    } catch (err) {
+      console.error('VPS monitor fetch error:', err);
+    }
+  }, []);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [healthRes, streamRes, etfRes, notifRes] = await Promise.allSettled([
+      const [healthRes, streamRes, etfRes, notifRes, monitorStatusRes, monitorSamplesRes] = await Promise.allSettled([
         fetch(`${API_BASE}/health`),
         fetch(`${API_BASE}/market/stream-status`),
         fetch(`${API_BASE}/market/etf-tierb-status`),
-        fetch(`${API_BASE}/admin/notifications?limit=20`),
+        fetch(`${API_BASE}/admin/notifications?limit=100`),
+        fetch(`${API_BASE}/admin/vps-monitor/status`),
+        fetch(`${API_BASE}/admin/vps-monitor/samples?limit=120`),
       ]);
 
       if (healthRes.status === 'fulfilled' && healthRes.value.ok)
@@ -103,6 +167,18 @@ const SystemMonitoring = () => {
       else
         setNotifications([]);
 
+      if (monitorStatusRes.status === 'fulfilled' && monitorStatusRes.value.ok)
+        setMonitorStatus(await monitorStatusRes.value.json());
+      else
+        setMonitorStatus(null);
+
+      if (monitorSamplesRes.status === 'fulfilled' && monitorSamplesRes.value.ok) {
+        const data = await monitorSamplesRes.value.json();
+        setMonitorSamples(Array.isArray(data?.samples) ? data.samples : []);
+      } else {
+        setMonitorSamples([]);
+      }
+
       setLastRefreshed(new Date());
     } catch (err) {
       console.error('SystemMonitoring fetch error:', err);
@@ -116,6 +192,12 @@ const SystemMonitoring = () => {
     const interval = setInterval(fetchAll, 30000);
     return () => clearInterval(interval);
   }, [fetchAll]);
+
+  useEffect(() => {
+    if (!monitorStatus?.running) return undefined;
+    const interval = setInterval(fetchMonitor, 5000);
+    return () => clearInterval(interval);
+  }, [monitorStatus?.running, fetchMonitor]);
 
   const handleReconnect = async () => {
     setReconnecting(true);
@@ -150,6 +232,38 @@ const SystemMonitoring = () => {
     }
   };
 
+  const handleStartMonitor = async () => {
+    setMonitorBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/vps-monitor/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interval_seconds: 5 }),
+      });
+      if (res.ok) {
+        await fetchMonitor();
+      }
+    } catch (err) {
+      console.error('Start monitor error:', err);
+    } finally {
+      setMonitorBusy(false);
+    }
+  };
+
+  const handleStopMonitor = async () => {
+    setMonitorBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/vps-monitor/stop`, { method: 'POST' });
+      if (res.ok) {
+        await fetchMonitor();
+      }
+    } catch (err) {
+      console.error('Stop monitor error:', err);
+    } finally {
+      setMonitorBusy(false);
+    }
+  };
+
   const dbStatus = health?.database || health?.db || 'unknown';
   const apiStatus = health?.status || 'unknown';
   const dhanStatus = health?.dhan_api || health?.dhan || 'unknown';
@@ -157,6 +271,12 @@ const SystemMonitoring = () => {
   const mcxWsStatus = streamStatus?.mcx?.status || streamStatus?.mcx_ws || 'unknown';
   const etfTierbStatus = etfStatus?.status || 'unknown';
   const marketSession = streamStatus?.market_session || health?.market_session || 'unknown';
+  const latestSample = monitorSamples.length ? monitorSamples[monitorSamples.length - 1] : null;
+
+  const cpuSeries = monitorSamples.map((s) => Number(s.system_cpu_percent || 0));
+  const appCpuSeries = monitorSamples.map((s) => Number(s.app_cpu_percent || 0));
+  const memSeries = monitorSamples.map((s) => Number(s.memory_used_percent || 0));
+  const loadSeries = monitorSamples.map((s) => Number(s.load_1m || 0));
 
   const statusCards = [
     { title: 'Database', status: dbStatus, icon: Database },
@@ -241,6 +361,63 @@ const SystemMonitoring = () => {
       )}
 
       {/* Admin Alerts */}
+      <div className="rounded-xl p-4 border border-zinc-700 bg-zinc-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Activity size={14} />
+              VPS Live Monitor
+            </h3>
+            <div className="text-[11px] text-zinc-400">Manual only. Starts and stops on demand from this panel.</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs ${monitorStatus?.running ? 'text-green-400' : 'text-zinc-400'}`}>
+              {monitorStatus?.running ? 'Running' : 'Stopped'}
+            </span>
+            <button
+              onClick={handleStartMonitor}
+              disabled={monitorBusy || monitorStatus?.running}
+              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium border border-green-700 bg-green-600/20 hover:bg-green-600/30 transition-colors disabled:opacity-50"
+            >
+              <Play size={11} /> Start
+            </button>
+            <button
+              onClick={handleStopMonitor}
+              disabled={monitorBusy || !monitorStatus?.running}
+              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium border border-red-700 bg-red-600/20 hover:bg-red-600/30 transition-colors disabled:opacity-50"
+            >
+              <Square size={11} /> Stop
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+          <div className="rounded-lg p-3 bg-zinc-900/60 border border-zinc-700">
+            <div className="text-[11px] text-zinc-400">CPU</div>
+            <div className="text-sm font-semibold">{Number(latestSample?.system_cpu_percent || 0).toFixed(1)}%</div>
+          </div>
+          <div className="rounded-lg p-3 bg-zinc-900/60 border border-zinc-700">
+            <div className="text-[11px] text-zinc-400">App CPU</div>
+            <div className="text-sm font-semibold">{Number(latestSample?.app_cpu_percent || 0).toFixed(1)}%</div>
+          </div>
+          <div className="rounded-lg p-3 bg-zinc-900/60 border border-zinc-700">
+            <div className="text-[11px] text-zinc-400">Memory</div>
+            <div className="text-sm font-semibold">{Number(latestSample?.memory_used_percent || 0).toFixed(1)}%</div>
+          </div>
+          <div className="rounded-lg p-3 bg-zinc-900/60 border border-zinc-700">
+            <div className="text-[11px] text-zinc-400">Load (1m)</div>
+            <div className="text-sm font-semibold">{Number(latestSample?.load_1m || 0).toFixed(2)}</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Sparkline title="System CPU" values={cpuSeries} colorClass="stroke-red-400" suffix="%" />
+          <Sparkline title="App CPU" values={appCpuSeries} colorClass="stroke-orange-400" suffix="%" />
+          <Sparkline title="Memory Used" values={memSeries} colorClass="stroke-blue-400" suffix="%" />
+          <Sparkline title="Load 1m" values={loadSeries} colorClass="stroke-emerald-400" />
+        </div>
+      </div>
+
       <div className="rounded-xl p-4 border border-zinc-700 bg-zinc-800">
         <div className="flex items-center justify-between gap-2 mb-2">
           <h3 className="text-sm font-semibold flex items-center gap-2">

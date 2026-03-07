@@ -180,7 +180,7 @@ class _TickProcessor:
                 prev_close = existing.get("prev_close")
                 current_ltp = tick.get("ltp")
                 
-                is_valid, reason = validate_close_price(
+                is_valid, _ = validate_close_price(
                     close_price=close_price,
                     instrument_token=t,
                     prev_close=prev_close,
@@ -192,18 +192,6 @@ class _TickProcessor:
                 # If validation fails, skip this close price (set to None)
                 if not is_valid:
                     close_price = None
-                    # Optionally log to notifications for admin visibility
-                    try:
-                        await add_notification(
-                            category="close_price_validation",
-                            severity="warning",
-                            title=f"Invalid close price rejected: {sym}",
-                            message=reason or "Unknown validation error",
-                            dedupe_key=f"close-invalid-{t}",
-                            dedupe_ttl_seconds=3600,
-                        )
-                    except Exception:
-                        pass
 
             bid = json.dumps(tick.get("bid_depth")) if tick.get("bid_depth") else None
             ask = json.dumps(tick.get("ask_depth")) if tick.get("ask_depth") else None

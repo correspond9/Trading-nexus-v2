@@ -42,6 +42,7 @@ from app.market_data.greeks_poller            import greeks_poller
 from app.market_data.rate_limiter             import dhan_client
 from app.market_data.static_auth_monitor      import static_auth_monitor
 from app.execution_simulator.execution_engine import set_mock_mode, is_mock_mode
+from app.runtime.vps_monitor                  import vps_monitor
 import app.instruments.subscription_manager   as _sub_mgr
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -130,6 +131,10 @@ class UpdateUserRequest(BaseModel):
 class AddFundsRequest(BaseModel):
     amount: float
     note:   str = ""
+
+
+class VPSMonitorStartRequest(BaseModel):
+    interval_seconds: int = 5
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
@@ -1346,9 +1351,41 @@ async def reattempt_auth_mode():
     }
 
 
+@router.get("/vps-monitor/status")
+async def get_vps_monitor_status(_: CurrentUser = Depends(get_super_admin_user)):
+    """Get current state of manual VPS monitor."""
+    return vps_monitor.status()
+
+
+@router.get("/vps-monitor/samples")
+async def get_vps_monitor_samples(
+    limit: int = 120,
+    _: CurrentUser = Depends(get_super_admin_user),
+):
+    """Get recent monitor samples for dashboard charts."""
+    return vps_monitor.samples(limit=limit)
+
+
+@router.post("/vps-monitor/start")
+async def start_vps_monitor(
+    payload: VPSMonitorStartRequest,
+    _: CurrentUser = Depends(get_super_admin_user),
+):
+    """Start VPS monitor manually. It is never auto-started."""
+    status_payload = await vps_monitor.start(interval_seconds=payload.interval_seconds)
+    return {"success": True, **status_payload}
+
+
+@router.post("/vps-monitor/stop")
+async def stop_vps_monitor(_: CurrentUser = Depends(get_super_admin_user)):
+    """Stop VPS monitor manually."""
+    status_payload = await vps_monitor.stop()
+    return {"success": True, **status_payload}
+
+
 @router.get("/notifications")
 async def get_notifications(
-    limit: int = 50,
+    limit: int = 100,
     category: Optional[str] = None,
     severity: Optional[str] = None,
     unread_only: bool = False,

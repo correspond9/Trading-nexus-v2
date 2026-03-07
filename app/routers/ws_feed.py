@@ -14,6 +14,7 @@ Connection flow:
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
@@ -30,102 +31,126 @@ log    = logging.getLogger(__name__)
 DEFAULT_USER_ID = "default"   # TODO: replace with auth guard
 
 
+# Shared prices snapshot cache for /ws/prices to avoid per-connection heavy DB reads.
+_prices_cache_lock = asyncio.Lock()
+_prices_cache_payload: dict | None = None
+_prices_cache_updated_monotonic: float = 0.0
+_PRICES_CACHE_TTL_SECONDS = 2.0
+
+
+async def _get_prices_payload_cached() -> dict:
+    """Build prices payload at most once per TTL and share across connections."""
+    global _prices_cache_payload, _prices_cache_updated_monotonic
+
+    now_mono = time.monotonic()
+    if (
+        _prices_cache_payload is not None
+        and (now_mono - _prices_cache_updated_monotonic) < _PRICES_CACHE_TTL_SECONDS
+    ):
+        return _prices_cache_payload
+
+    async with _prices_cache_lock:
+        now_mono = time.monotonic()
+        if (
+            _prices_cache_payload is not None
+            and (now_mono - _prices_cache_updated_monotonic) < _PRICES_CACHE_TTL_SECONDS
+        ):
+            return _prices_cache_payload
+
+        pool = get_pool()
+
+        now_ist = datetime.now(tz=IST)
+        market_active_equity = is_equity_window_active(now_ist)
+        market_active_commodity = is_commodity_window_active(now_ist)
+        market_active = market_active_equity or market_active_commodity
+
+        core_underlyings = ["NIFTY", "BANKNIFTY", "CRUDEOIL", "RELIANCE"]
+        core_rows = await pool.fetch(
+            """
+            SELECT DISTINCT ON (im.underlying)
+                im.underlying,
+                md.ltp,
+                md.close
+            FROM instrument_master im
+            JOIN market_data md ON md.instrument_token = im.instrument_token
+            WHERE im.underlying = ANY($1::text[])
+              AND im.instrument_type = ANY($2::text[])
+              AND (md.ltp IS NOT NULL OR md.close IS NOT NULL)
+            ORDER BY
+                im.underlying,
+                (im.expiry_date >= CURRENT_DATE) DESC,
+                im.expiry_date NULLS LAST,
+                md.updated_at DESC
+            """,
+            core_underlyings,
+            ["FUTIDX", "FUTSTK", "FUTCOM"],
+        )
+        prices: dict[str, float] = {}
+        for r in core_rows:
+            val = r["ltp"] if r["ltp"] is not None else r["close"]
+            if val is not None:
+                prices[r["underlying"]] = float(val)
+
+        wl_tokens = await pool.fetch(
+            "SELECT DISTINCT instrument_token FROM watchlist_items WHERE instrument_token IS NOT NULL"
+        )
+        wl_ids = [int(r["instrument_token"]) for r in wl_tokens if r.get("instrument_token")]
+        if wl_ids:
+            wl_rows = await pool.fetch(
+                """
+                SELECT md.instrument_token, md.ltp, md.close, im.symbol
+                FROM market_data md
+                LEFT JOIN instrument_master im ON im.instrument_token = md.instrument_token
+                WHERE md.instrument_token = ANY($1::bigint[])
+                """,
+                wl_ids,
+            )
+            for r in wl_rows:
+                val = r["ltp"] if r["ltp"] is not None else r["close"]
+                if val is None:
+                    continue
+                prices[str(r["instrument_token"])] = float(val)
+                if r["symbol"]:
+                    prices[r["symbol"]] = float(val)
+
+        rows = await pool.fetch(
+            """
+            SELECT instrument_token, ltp, close, symbol
+            FROM market_data
+            WHERE ltp IS NOT NULL OR close IS NOT NULL
+            ORDER BY updated_at DESC
+            LIMIT 400
+            """
+        )
+        for r in rows:
+            val = r["ltp"] if r["ltp"] is not None else r["close"]
+            if val is None:
+                continue
+            prices.setdefault(str(r["instrument_token"]), float(val))
+            if r["symbol"]:
+                prices.setdefault(r["symbol"], float(val))
+
+        _prices_cache_payload = {
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+            "status": "active",
+            "market_active": market_active,
+            "market_active_equity": market_active_equity,
+            "market_active_commodity": market_active_commodity,
+            "prices": prices,
+        }
+        _prices_cache_updated_monotonic = time.monotonic()
+        return _prices_cache_payload
+
+
 @router.websocket("/prices")
 async def websocket_prices(ws: WebSocket):
     """Broadcast all market prices — used by useMarketPulse hook."""
     await ws_push.connect(ws, DEFAULT_USER_ID)
     try:
         while True:
-            # Periodically push all cached prices
+            # Per-connection send interval can stay responsive while DB reads are cached.
             await asyncio.sleep(0.5)
-            pool = get_pool()
-
-            # Segment-aware market flags (IST). Frontend may trade both equity and commodity.
-            now_ist = datetime.now(tz=IST)
-            market_active_equity = is_equity_window_active(now_ist)
-            market_active_commodity = is_commodity_window_active(now_ist)
-            market_active = market_active_equity or market_active_commodity
-
-            # 1) Core keys required by Admin Dashboard cards.
-            # Map underlying -> LTP using nearest futures where available.
-            core_underlyings = ["NIFTY", "BANKNIFTY", "CRUDEOIL", "RELIANCE"]
-            core_rows = await pool.fetch(
-                """
-                SELECT DISTINCT ON (im.underlying)
-                    im.underlying,
-                    md.ltp,
-                    md.close
-                FROM instrument_master im
-                JOIN market_data md ON md.instrument_token = im.instrument_token
-                WHERE im.underlying = ANY($1::text[])
-                  AND im.instrument_type = ANY($2::text[])
-                  AND (md.ltp IS NOT NULL OR md.close IS NOT NULL)
-                ORDER BY
-                    im.underlying,
-                    (im.expiry_date >= CURRENT_DATE) DESC,
-                    im.expiry_date NULLS LAST,
-                    md.updated_at DESC
-                """,
-                core_underlyings,
-                ["FUTIDX", "FUTSTK", "FUTCOM"],
-            )
-            prices: dict[str, float] = {}
-            for r in core_rows:
-                val = r["ltp"] if r["ltp"] is not None else r["close"]
-                if val is not None:
-                    prices[r["underlying"]] = float(val)
-
-            # 2) Also publish token→ltp and symbol→ltp for Watchlist/other pages.
-            # Always include watchlist tokens first so the Watchlist UI can
-            # reliably show prices (even if market_data is huge).
-            wl_tokens = await pool.fetch(
-                "SELECT DISTINCT instrument_token FROM watchlist_items WHERE instrument_token IS NOT NULL"
-            )
-            wl_ids = [int(r["instrument_token"]) for r in wl_tokens if r.get("instrument_token")]
-            if wl_ids:
-                wl_rows = await pool.fetch(
-                    """
-                    SELECT md.instrument_token, md.ltp, md.close, im.symbol
-                    FROM market_data md
-                    LEFT JOIN instrument_master im ON im.instrument_token = md.instrument_token
-                    WHERE md.instrument_token = ANY($1::bigint[])
-                    """,
-                    wl_ids,
-                )
-                for r in wl_rows:
-                    val = r["ltp"] if r["ltp"] is not None else r["close"]
-                    if val is None:
-                        continue
-                    prices[str(r["instrument_token"])] = float(val)
-                    if r["symbol"]:
-                        prices[r["symbol"]] = float(val)
-
-            # Then add a capped global snapshot for other pages.
-            rows = await pool.fetch(
-                """
-                SELECT instrument_token, ltp, close, symbol
-                FROM market_data
-                WHERE ltp IS NOT NULL OR close IS NOT NULL
-                ORDER BY updated_at DESC
-                LIMIT 2000
-                """
-            )
-            for r in rows:
-                val = r["ltp"] if r["ltp"] is not None else r["close"]
-                if val is None:
-                    continue
-                prices.setdefault(str(r["instrument_token"]), float(val))
-                if r["symbol"]:
-                    prices.setdefault(r["symbol"], float(val))
-
-            payload = {
-                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                "status": "active",
-                "market_active": market_active,
-                "market_active_equity": market_active_equity,
-                "market_active_commodity": market_active_commodity,
-                "prices": prices,
-            }
+            payload = await _get_prices_payload_cached()
             await ws.send_text(json.dumps(payload))
     except WebSocketDisconnect:
         await ws_push.disconnect(ws, DEFAULT_USER_ID)

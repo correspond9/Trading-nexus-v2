@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     startup_start_streams:  bool = True   # STARTUP_START_STREAMS
     startup_load_master:    bool = True   # STARTUP_LOAD_MASTER
     startup_load_tier_b:    bool = True   # STARTUP_LOAD_TIER_B
+    startup_refresh_margin: bool = False  # STARTUP_REFRESH_MARGIN
 
     @property
     def dhan_disabled(self) -> bool:

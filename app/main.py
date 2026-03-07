@@ -149,14 +149,17 @@ async def lifespan(app: FastAPI):
 
         if cfg.dhan_disabled:
             log.info("[4] Loading instrument master from local CSV (Dhan disabled)…")
-            try:
-                await refresh_instruments(download=False)
-            except Exception as exc:
-                log.error(
-                    "[4] Instrument refresh failed in Dhan-disabled mode (%s). "
-                    "Continuing startup with existing DB instrument_master.",
-                    exc,
-                )
+            if cfg.startup_load_master:
+                try:
+                    await refresh_instruments(download=False)
+                except Exception as exc:
+                    log.error(
+                        "[4] Instrument refresh failed in Dhan-disabled mode (%s). "
+                        "Continuing startup with existing DB instrument_master.",
+                        exc,
+                    )
+            else:
+                log.warning("[4] STARTUP_LOAD_MASTER=false — using existing DB instrument_master.")
 
             log.info("[10] Building option chain skeleton (Dhan disabled)…")
             await greeks_poller.build_skeleton()
@@ -174,14 +177,17 @@ async def lifespan(app: FastAPI):
             )
         else:
             log.info("[4] Downloading fresh instrument master from DhanHQ CDN…")
-            try:
-                await refresh_instruments(download=True)
-            except Exception as exc:
-                log.error(
-                    "[4] Instrument refresh failed (%s). "
-                    "Continuing startup with existing DB instrument_master.",
-                    exc,
-                )
+            if cfg.startup_load_master:
+                try:
+                    await refresh_instruments(download=True)
+                except Exception as exc:
+                    log.error(
+                        "[4] Instrument refresh failed (%s). "
+                        "Continuing startup with existing DB instrument_master.",
+                        exc,
+                    )
+            else:
+                log.warning("[4] STARTUP_LOAD_MASTER=false — using existing DB instrument_master.")
 
             # Scrip master refresh is a pure file+DB operation and does not depend on
             # live streams being enabled/connected.
@@ -251,9 +257,12 @@ async def lifespan(app: FastAPI):
             db_loaded = await load_margin_from_db()
             if db_loaded:
                 log.info("[12] ✓ Loaded NSE SPAN margin data from database cache")
-            
-            # Then attempt fresh download (will save to DB if successful)
-            await refresh_margin_data()
+
+            # Optional: fresh download on startup can be heavy; keep disabled by default.
+            if cfg.startup_refresh_margin:
+                await refresh_margin_data()
+            else:
+                log.info("[12] STARTUP_REFRESH_MARGIN=false — skipping fresh margin download at startup.")
         except Exception as exc:
             log.warning(f"[12] NSE margin initial load failed ({exc}); will retry at 08:45 IST.")
 

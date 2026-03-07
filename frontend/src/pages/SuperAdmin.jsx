@@ -679,7 +679,7 @@ const SuperAdminDashboard = () => {
                 <button onClick={handleSave} disabled={isSaving || authLoading} className={btnCls('blue')}>
                   {isSaving ? 'Saving…' : 'Save Credentials'}
                 </button>
-                {dhanStatus?.tick_processor
+                {(dhanStatus?.connected || dhanStatus?.tick_processor)
                   ? <button onClick={handleDisconnect} disabled={isConnecting} className={btnCls('red')}>
                       {isConnecting ? 'Working…' : 'Disconnect'}
                     </button>

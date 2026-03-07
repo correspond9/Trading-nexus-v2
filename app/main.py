@@ -149,7 +149,14 @@ async def lifespan(app: FastAPI):
 
         if cfg.dhan_disabled:
             log.info("[4] Loading instrument master from local CSV (Dhan disabled)…")
-            await refresh_instruments(download=False)
+            try:
+                await refresh_instruments(download=False)
+            except Exception as exc:
+                log.error(
+                    "[4] Instrument refresh failed in Dhan-disabled mode (%s). "
+                    "Continuing startup with existing DB instrument_master.",
+                    exc,
+                )
 
             log.info("[10] Building option chain skeleton (Dhan disabled)…")
             await greeks_poller.build_skeleton()
@@ -167,7 +174,14 @@ async def lifespan(app: FastAPI):
             )
         else:
             log.info("[4] Downloading fresh instrument master from DhanHQ CDN…")
-            await refresh_instruments(download=True)
+            try:
+                await refresh_instruments(download=True)
+            except Exception as exc:
+                log.error(
+                    "[4] Instrument refresh failed (%s). "
+                    "Continuing startup with existing DB instrument_master.",
+                    exc,
+                )
 
             # Scrip master refresh is a pure file+DB operation and does not depend on
             # live streams being enabled/connected.

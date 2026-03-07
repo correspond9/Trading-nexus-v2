@@ -4,6 +4,20 @@ import LiveQuotes from './LiveQuotes';
 
 const API_BASE = '/api/v2';
 
+const authFetch = (path, opts = {}) => {
+  const token = localStorage.getItem('authToken');
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'X-AUTH': token, Authorization: `Bearer ${token}` } : {}),
+    ...(opts.headers || {}),
+  };
+  return fetch(`${API_BASE}${path}`, {
+    ...opts,
+    headers,
+    credentials: 'include',
+  });
+};
+
 const StatusBadge = ({ status }) => {
   const map = {
     ok: 'bg-green-500',
@@ -114,24 +128,33 @@ const SystemMonitoring = () => {
   const [monitorStatus, setMonitorStatus] = useState(null);
   const [monitorSamples, setMonitorSamples] = useState([]);
   const [monitorBusy, setMonitorBusy] = useState(false);
+  const [monitorError, setMonitorError] = useState('');
 
   const fetchMonitor = useCallback(async () => {
     try {
       const [statusRes, samplesRes] = await Promise.all([
-        fetch(`${API_BASE}/admin/vps-monitor/status`),
-        fetch(`${API_BASE}/admin/vps-monitor/samples?limit=120`),
+        authFetch('/admin/vps-monitor/status'),
+        authFetch('/admin/vps-monitor/samples?limit=120'),
       ]);
 
       if (statusRes.ok) {
         setMonitorStatus(await statusRes.json());
+        setMonitorError('');
+      } else {
+        setMonitorStatus(null);
+        setMonitorError(`Monitor status failed (HTTP ${statusRes.status})`);
       }
 
       if (samplesRes.ok) {
         const data = await samplesRes.json();
         setMonitorSamples(Array.isArray(data?.samples) ? data.samples : []);
+      } else {
+        setMonitorSamples([]);
+        setMonitorError(`Monitor samples failed (HTTP ${samplesRes.status})`);
       }
     } catch (err) {
       console.error('VPS monitor fetch error:', err);
+      setMonitorError(err?.message || 'Failed to fetch monitor data');
     }
   }, []);
 
@@ -140,11 +163,11 @@ const SystemMonitoring = () => {
     try {
       const [healthRes, streamRes, etfRes, notifRes, monitorStatusRes, monitorSamplesRes] = await Promise.allSettled([
         fetch(`${API_BASE}/health`),
-        fetch(`${API_BASE}/market/stream-status`),
-        fetch(`${API_BASE}/market/etf-tierb-status`),
-        fetch(`${API_BASE}/admin/notifications?limit=100`),
-        fetch(`${API_BASE}/admin/vps-monitor/status`),
-        fetch(`${API_BASE}/admin/vps-monitor/samples?limit=120`),
+        authFetch('/market/stream-status'),
+        authFetch('/market/etf-tierb-status'),
+        authFetch('/admin/notifications?limit=100'),
+        authFetch('/admin/vps-monitor/status'),
+        authFetch('/admin/vps-monitor/samples?limit=120'),
       ]);
 
       if (healthRes.status === 'fulfilled' && healthRes.value.ok)
@@ -169,14 +192,21 @@ const SystemMonitoring = () => {
 
       if (monitorStatusRes.status === 'fulfilled' && monitorStatusRes.value.ok)
         setMonitorStatus(await monitorStatusRes.value.json());
-      else
+      else {
         setMonitorStatus(null);
+        if (monitorStatusRes.status === 'fulfilled') {
+          setMonitorError(`Monitor status failed (HTTP ${monitorStatusRes.value.status})`);
+        }
+      }
 
       if (monitorSamplesRes.status === 'fulfilled' && monitorSamplesRes.value.ok) {
         const data = await monitorSamplesRes.value.json();
         setMonitorSamples(Array.isArray(data?.samples) ? data.samples : []);
       } else {
         setMonitorSamples([]);
+        if (monitorSamplesRes.status === 'fulfilled') {
+          setMonitorError(`Monitor samples failed (HTTP ${monitorSamplesRes.value.status})`);
+        }
       }
 
       setLastRefreshed(new Date());
@@ -202,7 +232,7 @@ const SystemMonitoring = () => {
   const handleReconnect = async () => {
     setReconnecting(true);
     try {
-      const res = await fetch(`${API_BASE}/market/stream-reconnect`, { method: 'POST' });
+      const res = await authFetch('/market/stream-reconnect', { method: 'POST' });
       if (res.ok) {
         setTimeout(fetchAll, 2000);
       }
@@ -217,7 +247,7 @@ const SystemMonitoring = () => {
     setRollingOver(true);
     setRolloverResult(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/subscriptions/rollover`, { method: 'POST' });
+      const res = await authFetch('/admin/subscriptions/rollover', { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
         setRolloverResult(data);
@@ -235,16 +265,19 @@ const SystemMonitoring = () => {
   const handleStartMonitor = async () => {
     setMonitorBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/vps-monitor/start`, {
+      const res = await authFetch('/admin/vps-monitor/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ interval_seconds: 5 }),
       });
       if (res.ok) {
+        setMonitorError('');
         await fetchMonitor();
+      } else {
+        setMonitorError(`Monitor start failed (HTTP ${res.status})`);
       }
     } catch (err) {
       console.error('Start monitor error:', err);
+      setMonitorError(err?.message || 'Failed to start monitor');
     } finally {
       setMonitorBusy(false);
     }
@@ -253,12 +286,16 @@ const SystemMonitoring = () => {
   const handleStopMonitor = async () => {
     setMonitorBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/vps-monitor/stop`, { method: 'POST' });
+      const res = await authFetch('/admin/vps-monitor/stop', { method: 'POST' });
       if (res.ok) {
+        setMonitorError('');
         await fetchMonitor();
+      } else {
+        setMonitorError(`Monitor stop failed (HTTP ${res.status})`);
       }
     } catch (err) {
       console.error('Stop monitor error:', err);
+      setMonitorError(err?.message || 'Failed to stop monitor');
     } finally {
       setMonitorBusy(false);
     }
@@ -409,6 +446,10 @@ const SystemMonitoring = () => {
             <div className="text-sm font-semibold">{Number(latestSample?.load_1m || 0).toFixed(2)}</div>
           </div>
         </div>
+
+        {monitorError && (
+          <div className="text-xs text-red-400 mb-2">{monitorError}</div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Sparkline title="System CPU" values={cpuSeries} colorClass="stroke-red-400" suffix="%" />

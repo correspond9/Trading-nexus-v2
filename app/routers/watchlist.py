@@ -274,6 +274,7 @@ async def get_watchlist(user_id: str, request: Request):
                im.expiry_date,
                im.strike_price,
                im.option_type,
+               im.lot_size,
                im.tier,
                md.ltp,
                md.close,
@@ -303,6 +304,7 @@ async def get_watchlist(user_id: str, request: Request):
         if item.get("expiry_date"):
             item["expiry_date"] = str(item["expiry_date"])
         item["strike_price"] = float(item["strike_price"]) if item.get("strike_price") is not None else None
+        item["lot_size"] = int(item["lot_size"]) if item.get("lot_size") is not None else 1
         item["bid_depth"] = _normalise_depth_levels(item.get("bid_depth"), max_levels=5)
         item["ask_depth"] = _normalise_depth_levels(item.get("ask_depth"), max_levels=5)
         item["best_bid"] = _depth_top_price(item.get("bid_depth"))

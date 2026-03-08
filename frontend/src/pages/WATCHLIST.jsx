@@ -111,6 +111,8 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     expiryDate: item.expiry_date ?? null,
     strikePrice: item.strike_price ?? null,
     optionType: item.option_type ?? null,
+    lot_size: item.lot_size ?? item.lotSize ?? 1,
+    lotSize: item.lot_size ?? item.lotSize ?? 1,
     change_pct: item.change_pct ?? null,
     bidDepth: Array.isArray(item.bid_depth) ? item.bid_depth : [],
     askDepth: Array.isArray(item.ask_depth) ? item.ask_depth : [],
@@ -654,34 +656,6 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span style={symbolStyle}>{title}</span>
-                        {/* Tier indicator badge (show only Tier-A) */}
-                        {inst.tier === 'A' && (
-                          <span style={{
-                            fontSize: '10px',
-                            padding: '2px 6px',
-                            borderRadius: '3px',
-                            backgroundColor: 'rgba(255,165,0,0.2)',
-                            color: '#FFA500',
-                            fontWeight: 600,
-                            whiteSpace: 'nowrap'
-                          }}>
-                            Tier-A
-                          </span>
-                        )}
-                        {/* Position indicator */}
-                        {inst.tier === 'A' && (
-                          <span style={{
-                            fontSize: '10px',
-                            padding: '2px 6px',
-                            borderRadius: '3px',
-                            backgroundColor: inst.hasPosition ? 'rgba(76,175,80,0.2)' : 'rgba(244,67,54,0.2)',
-                            color: inst.hasPosition ? '#4CAF50' : '#F44336',
-                            fontWeight: 600,
-                            whiteSpace: 'nowrap'
-                          }}>
-                            {inst.hasPosition ? '✓ Position' : '⊘ No Position'}
-                          </span>
-                        )}
                       </div>
                       <span style={exStyle}>{inst.exchange}</span>
                     </div>

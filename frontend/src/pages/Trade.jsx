@@ -202,7 +202,7 @@ const Trade = () => {
     } else {
       const resolvedUnderlying = String(instrument?.underlying || '').trim() || normalizeUnderlying(selectedIndex);
       const fallbackLot = getConfiguredLotSize(resolvedUnderlying);
-      resolvedLotSize = instrument.lotSize || fallbackLot || 1;
+      resolvedLotSize = instrument.lotSize || instrument.lot_size || fallbackLot || 1;
     }
 
     const resolvedUnderlying = String(instrument?.underlying || '').trim() || normalizeUnderlying(selectedIndex);

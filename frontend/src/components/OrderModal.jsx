@@ -99,7 +99,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
       try {
           const perLegMargins = await Promise.all(legsToCalc.map((leg) => {
           const marketPriceHint = Number(leg?.ltp || 0);
-          const legLotSize = Number(leg?.lotSize || lotSizePerLeg || 1);
+          const legLotSize = Number(leg?.lotSize || leg?.lot_size || lotSizePerLeg || 1);
           const qtyUnits = Math.max(0, Math.trunc(lots * legLotSize));
           const payload = {
             symbol: leg.symbol,
@@ -162,7 +162,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
       const legsPayload = isMultiLeg
         ? (orderData.legs || []).map((leg) => {
             const legMarketHint = Number(leg?.ltp || 0);
-            const legLotSize = Number(leg?.lotSize || lotSizePerLeg || 1);
+            const legLotSize = Number(leg?.lotSize || leg?.lot_size || lotSizePerLeg || 1);
             // Validate lot size constraint for each leg
             if (legLotSize > 1) {
               const legQtyUnits = lots * legLotSize;

@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from app.database           import get_pool
 from app.dependencies       import CurrentUser, get_current_user
+from app.market_data.rate_limiter import dhan_client
 from app.margin.nse_margin_data import (
     calculate_margin as _nse_calculate_margin,
     get_span_data,
@@ -129,6 +130,78 @@ class MarginCalcRequest(BaseModel):
     price:            Optional[float] = 0.0
 
 
+def _extract_quote_price(payload: object, instrument_token: int) -> Optional[float]:
+    """Best-effort parser for quote payloads returned by real/mock marketfeed APIs."""
+    token_keys = {"securityid", "security_id", "instrument_token", "instrumenttoken", "token"}
+    price_keys = {
+        "ltp", "lastprice", "last_price", "lasttradedprice", "last_traded_price",
+        "close", "price",
+    }
+
+    def _to_float(v) -> Optional[float]:
+        try:
+            f = float(v)
+            return f if f > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    stack = [payload]
+    fallback_price: Optional[float] = None
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            lowered = {str(k).lower(): v for k, v in cur.items()}
+            token_match = False
+            for tk in token_keys:
+                tv = lowered.get(tk)
+                if tv is None:
+                    continue
+                try:
+                    if int(str(tv)) == int(instrument_token):
+                        token_match = True
+                        break
+                except (TypeError, ValueError):
+                    continue
+
+            for pk in price_keys:
+                if pk in lowered:
+                    price_val = _to_float(lowered.get(pk))
+                    if price_val is not None:
+                        if token_match:
+                            return price_val
+                        if fallback_price is None:
+                            fallback_price = price_val
+
+            for v in cur.values():
+                if isinstance(v, (dict, list)):
+                    stack.append(v)
+        elif isinstance(cur, list):
+            for item in cur:
+                if isinstance(item, (dict, list)):
+                    stack.append(item)
+
+    return fallback_price
+
+
+async def _fetch_quote_price_from_feed(instrument_token: int, exchange_segment: str) -> Optional[float]:
+    """Fetch latest price via marketfeed quote API when cache is not populated yet."""
+    segment = (exchange_segment or "NSE_EQ").upper()
+    req_body = {
+        "ExchangeSegment": segment,
+        "SecurityId": str(instrument_token),
+        "tokens": [instrument_token],
+        "instrument_tokens": [instrument_token],
+        segment: [str(instrument_token)],
+    }
+    try:
+        resp = await dhan_client.post("/marketfeed/quote", json=req_body)
+        if resp.status_code >= 400:
+            return None
+        return _extract_quote_price(resp.json(), instrument_token)
+    except Exception:
+        return None
+
+
 @router.post("/calculate")
 async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
     pool  = get_pool()
@@ -183,6 +256,12 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
             )
             if ltp_row and ltp_row["ltp"]:
                 price = float(ltp_row["ltp"])
+
+    # Fallback to quote API when DB cache is empty (common for newly-selected Tier-A tokens).
+    if price == 0.0 and instrument_token:
+        quote_price = await _fetch_quote_price_from_feed(instrument_token, seg)
+        if quote_price is not None:
+            price = float(quote_price)
 
     if price == 0.0:
         price = 0.0   # margin will be 0 — caller should supply price

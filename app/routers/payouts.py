@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
 
 from app.database import get_pool
-from app.dependencies import CurrentUser, get_current_user, get_admin_user
+from app.dependencies import CurrentUser, get_current_user, get_admin_user, get_super_admin_user
 
 log = logging.getLogger(__name__)
 
@@ -48,11 +48,10 @@ ALLOWED_PAYOUT_STATUSES = {
 
 @router.get("")
 @router.get("/")
-async def list_payouts(user: CurrentUser = Depends(get_current_user)):
+async def list_payouts(user: CurrentUser = Depends(get_admin_user)):
     """
     Returns payout requests.
-    - Admin/Super-admin: returns all users.
-    - Normal user: returns only own requests.
+    - Admin/Super-admin only: returns all users' payouts.
 
     Output shape matches the current UI:
       { data: [ { date, user_id, user_name, amount, mode, status } ] }

@@ -254,14 +254,20 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
       }
       setTimeout(() => { setSuccess(""); onClose?.(); }, 1500);
     } catch (err) {
-      // Local validation errors (no HTTP response) stay visible inline
-      const isApiError = err?.response || (err?.status && err.status >= 400);
-      if (isApiError) {
-        setSuccess("order_rejected");   // sentinel triggers amber "Rejected" box
-        setTimeout(() => { setSuccess(""); onClose?.(); }, 2000);
-      } else {
-        setError(err?.message || "Order failed");
+      // Extract actual error message from API response or use fallback
+      let errorMsg = "Order failed";
+      
+      // Try to get detailed error from API response
+      if (err?.response?.data?.detail) {
+        errorMsg = err.response.data.detail;
+      } else if (err?.response?.data?.message) {
+        errorMsg = err.response.data.message;
+      } else if (err?.message) {
+        errorMsg = err.message;
       }
+      
+      // Show error message in red box, don't hide after timeout
+      setError(errorMsg);
     }
     setIsSubmitting(false);
   };

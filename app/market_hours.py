@@ -6,6 +6,7 @@ Time zone: Asia/Kolkata (GMT+5:30).
 Exchange time is ground-truthed via ltt from the first WebSocket tick.
 """
 import logging
+import os
 import zoneinfo
 from datetime import datetime, time, date
 from enum import Enum
@@ -13,6 +14,12 @@ from enum import Enum
 log = logging.getLogger(__name__)
 
 IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+
+
+def _force_market_open_enabled() -> bool:
+    """Allow QA to force market-open behavior via environment variable."""
+    v = os.getenv("FORCE_MARKET_OPEN", "false").strip().lower()
+    return v in ("1", "true", "yes", "on")
 
 # Commodities that trade until 23:55 IST (international price-linked)
 MCX_INTL_COMMODITIES: frozenset[str] = frozenset({
@@ -70,6 +77,9 @@ def get_market_state(exchange_segment: str, symbol: str = "") -> MarketState:
 
     exchange_segment examples: NSE_EQ, NSE_FNO, BSE_EQ, MCX_FO, IDX_I
     """
+    if _force_market_open_enabled():
+        return MarketState.OPEN
+
     now_ist = datetime.now(tz=IST)
     today   = now_ist.date()
     now_t   = now_ist.time()

@@ -147,8 +147,8 @@ async def rotate_access_token(req: TokenRotateRequest):
 
 
 @router.get("/credentials")
-async def get_credentials():
-    """Return current client_id (token masked for safety)."""
+async def get_credentials(admin: CurrentUser = Depends(get_super_admin_user)):
+    """Return current client_id (token masked for safety). Super-admin only."""
     token = get_access_token()
     return {
         "client_id":    get_client_id(),
@@ -1902,10 +1902,11 @@ async def upload_nse_files(request: Request):
 # ── Dhan runtime connect / disconnect / status ────────────────────────────
 
 @router.get("/dhan/status")
-async def dhan_connection_status():
+async def dhan_connection_status(admin: CurrentUser = Depends(get_admin_user)):
     """
     Return real-time Dhan connection state without triggering anything.
     Useful for the admin dashboard to poll and show connection health.
+    Admin access required.
     """
     from app.market_data.websocket_manager import ws_manager
     from app.market_data.tick_processor    import tick_processor

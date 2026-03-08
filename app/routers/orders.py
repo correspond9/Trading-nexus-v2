@@ -7,7 +7,7 @@ from typing import List, Optional
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, Field
 
 from app.database                              import get_pool
 from app.dependencies                          import CurrentUser, get_current_user
@@ -210,10 +210,10 @@ class PlaceOrderRequest(BaseModel):
     symbol:           Optional[str]   = None
     security_id:      Optional[int]   = None
     instrument_token: Optional[int]   = None
-    exchange_segment: Optional[str]   = None
+    exchange_segment: Optional[str]   = Field(None, pattern="^(NSE_EQ|NSE_FNO|BSE_EQ|BSE_FNO|MCX_FO|NSE_COM)$")
     transaction_type: Optional[str]   = None
-    side:             Optional[str]   = None
-    quantity:         int             = 1
+    side:             Optional[str]   = Field(None, pattern="^(BUY|SELL)$")
+    quantity:         int             = Field(default=1, gt=0)
     order_type:       str             = "MARKET"
     product_type:     str             = "MIS"
     price:            Optional[float] = None

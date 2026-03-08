@@ -141,6 +141,10 @@ const SuperAdminDashboard = () => {
   const [ocRebuildLoading, setOcRebuildLoading] = useState(false);
   const [ocRebuildResult,  setOcRebuildResult]  = useState(null);
 
+  // ── Expiry Rollover ──
+  const [expiryRolloverLoading, setExpiryRolloverLoading] = useState(false);
+  const [expiryRolloverResult, setExpiryRolloverResult] = useState(null);
+
   // ── Save error ──
   const [saveError, setSaveError] = useState('');
 
@@ -193,6 +197,22 @@ const SuperAdminDashboard = () => {
       setOcRebuildResult({ success: false, message: e?.message || 'Request failed' });
     } finally {
       setOcRebuildLoading(false);
+    }
+  };
+
+  const handleExpiryRollover = async () => {
+    if (!window.confirm('⚠️ This will immediately unsubscribe all expired F&O contracts from WebSocket feeds.\n\nExpired instruments with no watchlist entries or open positions will be removed from subscriptions.\n\nContinue?')) return;
+    
+    setExpiryRolloverLoading(true);
+    setExpiryRolloverResult(null);
+    try {
+      const res = await req('/admin/force-subscription-rollover', { method: 'POST' });
+      const data = await res.json();
+      setExpiryRolloverResult(data);
+    } catch (e) {
+      setExpiryRolloverResult({ status: 'error', message: e?.message || 'Request failed' });
+    } finally {
+      setExpiryRolloverLoading(false);
     }
   };
 
@@ -843,6 +863,40 @@ const SuperAdminDashboard = () => {
               <button onClick={handleLoadInstrumentMaster} disabled={masterLoading} className={btnCls('purple')}>
                 {masterLoading ? 'Reloading…' : 'Reload Instrument Master'}
               </button>
+            </div>
+
+            {/* Subscription Management */}
+            <div className="rounded-xl p-5 space-y-3 bg-zinc-800 border border-zinc-700">
+              <h2 className="text-base font-semibold">Subscription Management</h2>
+              <p className="text-xs text-gray-400">
+                <span className="font-semibold text-orange-400">Force Expiry Rollover</span> — Immediately unsubscribe expired F&O contracts from WebSocket feeds. This removes expired instruments that have no watchlist entries or open positions. Normally runs automatically at 06:00 IST after scrip master refresh.
+              </p>
+              <button 
+                onClick={handleExpiryRollover} 
+                disabled={expiryRolloverLoading} 
+                className={btnCls('red')}
+              >
+                {expiryRolloverLoading ? 'Processing…' : '⟳  Force Expiry Rollover'}
+              </button>
+              {expiryRolloverResult && (
+                <div className={`text-xs rounded p-3 mt-2 ${
+                  expiryRolloverResult.status === 'completed' 
+                    ? 'bg-green-900/40 text-green-300 border border-green-700' 
+                    : 'bg-red-900/40 text-red-300 border border-red-700'
+                }`}>
+                  <div className="font-semibold mb-2">
+                    {expiryRolloverResult.status === 'completed' ? '✓ Rollover Completed' : '✗ Failed'}
+                  </div>
+                  <div className="space-y-1 font-mono">
+                    <div>Tokens Before: <span className="text-white">{expiryRolloverResult.tokens_before || 'N/A'}</span></div>
+                    <div>Tokens After: <span className="text-white">{expiryRolloverResult.tokens_after || 'N/A'}</span></div>
+                    <div className="font-bold">Evicted: <span className="text-white">{expiryRolloverResult.evicted || 0}</span> expired instruments</div>
+                  </div>
+                  {expiryRolloverResult.message && (
+                    <div className="mt-2 text-xs opacity-80">{expiryRolloverResult.message}</div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Logo Upload */}

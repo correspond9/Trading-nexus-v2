@@ -1,0 +1,156 @@
+{
+  "timestamp": "2026-03-08T16:38:13.686318",
+  "market_status": {
+    "is_open": true,
+    "state": "OPEN",
+    "probe_status": 201,
+    "probe_detail": "",
+    "checked_at": "2026-03-08T16:38:14.136359"
+  },
+  "total_tests": 14,
+  "passed": 11,
+  "failed": 2,
+  "skipped": 1,
+  "tests": [
+    {
+      "test": "Authentication",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:13.986435",
+      "details": {
+        "user": "7777777777",
+        "role": null
+      },
+      "error": null
+    },
+    {
+      "test": "Market Status Check",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:14.136369",
+      "details": {
+        "is_open": true,
+        "state": "OPEN",
+        "probe_status": 201,
+        "probe_detail": "",
+        "checked_at": "2026-03-08T16:38:14.136359"
+      },
+      "error": null
+    },
+    {
+      "test": "Search Instrument: DCB Bank",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:14.325892",
+      "details": {
+        "token": 16921,
+        "name": null
+      },
+      "error": null
+    },
+    {
+      "test": "Place MARKET Order: DCB Bank BUY",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:14.336028",
+      "details": {
+        "order_id": "ee9d21cf-004f-4d7a-9ebf-82370f795019",
+        "status": "REJECTED"
+      },
+      "error": null
+    },
+    {
+      "test": "Get Executed Orders",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:16.346078",
+      "details": {
+        "count": 2
+      },
+      "error": null
+    },
+    {
+      "test": "Order Execution Verification",
+      "status": "FAIL",
+      "timestamp": "2026-03-08T16:38:16.346407",
+      "details": null,
+      "error": "Order not found in executed orders"
+    },
+    {
+      "test": "Get Positions",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:16.362853",
+      "details": {
+        "count": 2
+      },
+      "error": null
+    },
+    {
+      "test": "Position Creation Verification",
+      "status": "FAIL",
+      "timestamp": "2026-03-08T16:38:16.363171",
+      "details": null,
+      "error": "Position not created after order execution"
+    },
+    {
+      "test": "Get P&L Summary",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:16.370817",
+      "details": {
+        "unrealized_pnl": 0.0,
+        "realized_pnl": 0.0,
+        "total_charges": 0.0,
+        "net_realized_pnl": 0.0,
+        "total_pnl": 0.0,
+        "charge_breakdown": {
+          "brokerage": 0.0,
+          "stt_ctt": 0.0,
+          "exchange": 0.0,
+          "sebi": 0.0,
+          "stamp_duty": 0.0,
+          "ipft": 0.0,
+          "gst": 0.0,
+          "platform_cost": 0.0,
+          "trade_expense": 0.0
+        }
+      },
+      "error": null
+    },
+    {
+      "test": "Place LIMIT SELL Order (Exit)",
+      "status": "SKIP",
+      "timestamp": "2026-03-08T16:38:16.371351",
+      "details": "No open position available to exit.",
+      "error": null
+    },
+    {
+      "test": "Place SLM Order: DCB Bank BUY",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:16.386908",
+      "details": {
+        "order_id": "fb5d67b0-3b32-47a0-9f13-29660d196f1d",
+        "status": "PENDING"
+      },
+      "error": null
+    },
+    {
+      "test": "Cancel Order: fb5d67b0-3b32-47a0-9f13-29660d196f1d",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:17.401119",
+      "details": null,
+      "error": null
+    },
+    {
+      "test": "Place SLL Order: DCB Bank BUY",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:17.410246",
+      "details": {
+        "order_id": "ebdcc056-4642-41a6-9e8b-02a456fc3df6",
+        "status": "PENDING"
+      },
+      "error": null
+    },
+    {
+      "test": "Cancel Order: ebdcc056-4642-41a6-9e8b-02a456fc3df6",
+      "status": "PASS",
+      "timestamp": "2026-03-08T16:38:18.419772",
+      "details": null,
+      "error": null
+    }
+  ]
+}

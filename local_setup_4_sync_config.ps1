@@ -73,25 +73,31 @@ print("\n📝 Generating local .env file...")
 local_env_vars = {
     # Database
     "DB_PASSWORD": "postgres123",
-    
-    # DhanHQ - NOT NEEDED for local (market streams disabled)
-    # Leave empty since we're not connecting to DhanHQ in local environment
-    "DHAN_CLIENT_ID": "",
+
+    # Mock stream bootstrap credentials
+    "DHAN_CLIENT_ID": "mock_client",
+    "DHAN_API_KEY": "mock_api_key",
+    "DHAN_API_SECRET": "mock_api_secret",
     "DHAN_PIN": "",
     "DHAN_TOTP_SECRET": "",
-    "DHAN_ACCESS_TOKEN": "",
-    
+    "DHAN_ACCESS_TOKEN": "mock_access_token",
+
+    # Local mock stream endpoints (only intentional delta from production)
+    "DHAN_BASE_URL": "http://mockdhan:9000/v2",
+    "DHAN_FEED_URL": "ws://mockdhan:9000",
+    "DHAN_DEPTH_20_URL": "ws://mockdhan:9000/twentydepth",
+
     # Local configuration
     "VPS_IP": "localhost",
     "DOMAIN": "localhost",
-    
-    # Feature flags - DISABLED for local to prevent live trading
-    "DISABLE_DHAN_WS": "true",
-    "DISABLE_MARKET_STREAMS": "true",
-    "STARTUP_START_STREAMS": "false",
+
+    # Keep startup behavior production-like, but stream source is mockdhan
+    "DISABLE_DHAN_WS": "false",
+    "DISABLE_MARKET_STREAMS": "false",
+    "STARTUP_START_STREAMS": "true",
     "STARTUP_LOAD_MASTER": "true",
-    "STARTUP_LOAD_TIER_B": "false",
-    
+    "STARTUP_LOAD_TIER_B": "true",
+
     # Optional settings
     "GREEKS_POLL_SECONDS": "15",
     "LOG_LEVEL": "DEBUG"  # More verbose logging for local dev
@@ -106,20 +112,25 @@ env_content += "# ==============================================================
 env_content += "# --- Database (Local PostgreSQL) ---\n"
 env_content += f"DB_PASSWORD={local_env_vars['DB_PASSWORD']}\n\n"
 
-env_content += "# --- DhanHQ Credentials (NOT NEEDED - Market streams disabled) ---\n"
-env_content += "# Empty because local environment doesn't connect to DhanHQ\n"
-env_content += "# Market data streams are DISABLED for safe local testing\n"
+env_content += "# --- Mock stream credentials (local only) ---\n"
 env_content += f"DHAN_CLIENT_ID={local_env_vars['DHAN_CLIENT_ID']}\n"
+env_content += f"DHAN_API_KEY={local_env_vars['DHAN_API_KEY']}\n"
+env_content += f"DHAN_API_SECRET={local_env_vars['DHAN_API_SECRET']}\n"
 env_content += f"DHAN_PIN={local_env_vars['DHAN_PIN']}\n"
 env_content += f"DHAN_TOTP_SECRET={local_env_vars['DHAN_TOTP_SECRET']}\n"
 env_content += f"DHAN_ACCESS_TOKEN={local_env_vars['DHAN_ACCESS_TOKEN']}\n\n"
+
+env_content += "# --- Mock Dhan Endpoints ---\n"
+env_content += f"DHAN_BASE_URL={local_env_vars['DHAN_BASE_URL']}\n"
+env_content += f"DHAN_FEED_URL={local_env_vars['DHAN_FEED_URL']}\n"
+env_content += f"DHAN_DEPTH_20_URL={local_env_vars['DHAN_DEPTH_20_URL']}\n\n"
 
 env_content += "# --- Local Configuration ---\n"
 env_content += f"VPS_IP={local_env_vars['VPS_IP']}\n"
 env_content += f"DOMAIN={local_env_vars['DOMAIN']}\n\n"
 
 env_content += "# --- Feature Flags (Local Development) ---\n"
-env_content += "# Market connections DISABLED to prevent interference with production\n"
+env_content += "# Stream behavior mirrors production; only endpoint source differs\n"
 env_content += f"DISABLE_DHAN_WS={local_env_vars['DISABLE_DHAN_WS']}\n"
 env_content += f"DISABLE_MARKET_STREAMS={local_env_vars['DISABLE_MARKET_STREAMS']}\n"
 env_content += f"STARTUP_START_STREAMS={local_env_vars['STARTUP_START_STREAMS']}\n"
@@ -136,8 +147,8 @@ with open(".env", "w") as f:
 print("✅ Local .env file created")
 print("")
 print("⚠️  IMPORTANT NOTES:")
-print("   • Market data streams are DISABLED to prevent conflicts")
-print("   • DhanHQ credentials are EMPTY (not needed for local testing)")
+print("   • Market data streams are ENABLED against mockdhan")
+print("   • Startup behavior mirrors production (Tier-B init included)")
 print("   • Database points to local PostgreSQL container")
 print("   • LOG_LEVEL set to DEBUG for better troubleshooting")
 print("   • This is a safe, isolated environment for development")
@@ -186,9 +197,10 @@ Write-Host ""
 # Display configuration summary
 Write-Host "[5/5] Configuration Summary:" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "  📝 Environment File:        NOT CONFIGURED (not needed)roundColor Cyan
-Write-Host "  🔐 DhanHQ Credentials:      Copied from production" -ForegroundColor Cyan
-Write-Host "  🌊 Market Streams:          DISABLED (safe for local)" -ForegroundColor Cyan
+Write-Host "  📝 Environment File:        .env (generated)" -ForegroundColor Cyan
+Write-Host "  🔐 Stream Credentials:      Mock credentials configured" -ForegroundColor Cyan
+Write-Host "  🌊 Market Streams:          ENABLED via mockdhan" -ForegroundColor Cyan
+Write-Host "  📡 Stream Endpoints:        mockdhan REST + WebSocket" -ForegroundColor Cyan
 Write-Host "  📊 Database:                Local PostgreSQL" -ForegroundColor Cyan
 Write-Host "  📈 Instrument Master:       $(if (Test-Path '.\instrument_master\api-scrip-master-detailed.csv') { 'Present' } else { 'Missing' })" -ForegroundColor Cyan
 Write-Host "  🔍 Log Level:               DEBUG" -ForegroundColor Cyan

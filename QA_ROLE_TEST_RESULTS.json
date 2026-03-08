@@ -1,0 +1,530 @@
+[
+  {
+    "role": "SUPER_ADMIN",
+    "mobile": "9999999999",
+    "login_success": true,
+    "user_data": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "Super Admin",
+      "mobile": "9999999999",
+      "role": "SUPER_ADMIN"
+    },
+    "endpoints": [
+      {
+        "feature": "Get own profile",
+        "endpoint": "GET /auth/me",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"id\":\"00000000-0000-0000-0000-000000000001\",\"name\":\"Super Admin\",\"mobile\":\"9999999999\",\"role\":\"SUPE"
+      },
+      {
+        "feature": "View stream status",
+        "endpoint": "GET /market-data/stream-status",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own watchlist",
+        "endpoint": "GET /watchlist/{user_id}",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "Search instruments",
+        "endpoint": "GET /search/instruments/search?q=NIFTY",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own pending orders",
+        "endpoint": "GET /orders",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own executed orders",
+        "endpoint": "GET /orders/executed",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own positions",
+        "endpoint": "GET /positions",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own P&L summary",
+        "endpoint": "GET /positions/pnl/summary",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View margin account",
+        "endpoint": "GET /margin/account",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":{\"available_margin\":0.0,\"used_margin\":0.0,\"total_balance\":0.0,\"allotted_margin\":0.0,\"wallet_"
+      },
+      {
+        "feature": "View ledger",
+        "endpoint": "GET /ledger",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "View all users",
+        "endpoint": "GET /admin/users",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[{\"user_no\":1001,\"id\":\"00000000-0000-0000-0000-000000000001\",\"first_name\":\"Super Admin\",\"las"
+      },
+      {
+        "feature": "View payouts",
+        "endpoint": "GET /payouts",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "View all user positions",
+        "endpoint": "GET /admin/positions/userwise",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[{\"user_id\":\"00000000-0000-0000-0000-000000000001\",\"user_no\":1001,\"display_name\":\"Super Admi"
+      },
+      {
+        "feature": "View Dhan credentials",
+        "endpoint": "GET /admin/credentials",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"client_id\":\"mock_client\",\"token_masked\":\"****_token\"}"
+      },
+      {
+        "feature": "View Dhan connection status",
+        "endpoint": "GET /admin/dhan/status",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"has_credentials\":true,\"connected\":true,\"connected_slots\":5,\"tick_processor\":false,\"slots\":[{\"slot\""
+      },
+      {
+        "feature": "View schedulers",
+        "endpoint": "GET /admin/schedulers",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"server_time_ist\":\"2026-03-08T16:03:58.452969+05:30\",\"equity_window_active\":false,\"commodity_window"
+      },
+      {
+        "feature": "View VPS monitor",
+        "endpoint": "GET /admin/vps-monitor/status",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"running\":false,\"interval_seconds\":5,\"started_at\":null,\"last_sample_at\":null,\"sample_count\":0}"
+      }
+    ]
+  },
+  {
+    "role": "ADMIN",
+    "mobile": "8888888888",
+    "login_success": true,
+    "user_data": {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "name": "Admin",
+      "mobile": "8888888888",
+      "role": "ADMIN"
+    },
+    "endpoints": [
+      {
+        "feature": "Get own profile",
+        "endpoint": "GET /auth/me",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"id\":\"00000000-0000-0000-0000-000000000002\",\"name\":\"Admin\",\"mobile\":\"8888888888\",\"role\":\"ADMIN\"}"
+      },
+      {
+        "feature": "View stream status",
+        "endpoint": "GET /market-data/stream-status",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own watchlist",
+        "endpoint": "GET /watchlist/{user_id}",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "Search instruments",
+        "endpoint": "GET /search/instruments/search?q=NIFTY",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own pending orders",
+        "endpoint": "GET /orders",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own executed orders",
+        "endpoint": "GET /orders/executed",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own positions",
+        "endpoint": "GET /positions",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own P&L summary",
+        "endpoint": "GET /positions/pnl/summary",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View margin account",
+        "endpoint": "GET /margin/account",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":{\"available_margin\":0.0,\"used_margin\":0.0,\"total_balance\":0.0,\"allotted_margin\":0.0,\"wallet_"
+      },
+      {
+        "feature": "View ledger",
+        "endpoint": "GET /ledger",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "View all users",
+        "endpoint": "GET /admin/users",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[{\"user_no\":1002,\"id\":\"00000000-0000-0000-0000-000000000002\",\"first_name\":\"Admin\",\"last_name"
+      },
+      {
+        "feature": "View payouts",
+        "endpoint": "GET /payouts",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "View all user positions",
+        "endpoint": "GET /admin/positions/userwise",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[{\"user_id\":\"00000000-0000-0000-0000-000000000001\",\"user_no\":1001,\"display_name\":\"Super Admi"
+      },
+      {
+        "feature": "View Dhan credentials",
+        "endpoint": "GET /admin/credentials",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"client_id\":\"mock_client\",\"token_masked\":\"****_token\"}"
+      },
+      {
+        "feature": "View Dhan connection status",
+        "endpoint": "GET /admin/dhan/status",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"has_credentials\":true,\"connected\":true,\"connected_slots\":5,\"tick_processor\":false,\"slots\":[{\"slot\""
+      },
+      {
+        "feature": "View schedulers",
+        "endpoint": "GET /admin/schedulers",
+        "accessible": false,
+        "status_code": 403,
+        "response_preview": "{\"detail\":\"Super-admin access required.\"}"
+      },
+      {
+        "feature": "View VPS monitor",
+        "endpoint": "GET /admin/vps-monitor/status",
+        "accessible": false,
+        "status_code": 403,
+        "response_preview": "{\"detail\":\"Super-admin access required.\"}"
+      }
+    ]
+  },
+  {
+    "role": "SUPER_USER",
+    "mobile": "6666666666",
+    "login_success": true,
+    "user_data": {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "name": "Super User",
+      "mobile": "6666666666",
+      "role": "SUPER_USER"
+    },
+    "endpoints": [
+      {
+        "feature": "Get own profile",
+        "endpoint": "GET /auth/me",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"id\":\"00000000-0000-0000-0000-000000000004\",\"name\":\"Super User\",\"mobile\":\"6666666666\",\"role\":\"SUPER"
+      },
+      {
+        "feature": "View stream status",
+        "endpoint": "GET /market-data/stream-status",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own watchlist",
+        "endpoint": "GET /watchlist/{user_id}",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "Search instruments",
+        "endpoint": "GET /search/instruments/search?q=NIFTY",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own pending orders",
+        "endpoint": "GET /orders",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own executed orders",
+        "endpoint": "GET /orders/executed",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own positions",
+        "endpoint": "GET /positions",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own P&L summary",
+        "endpoint": "GET /positions/pnl/summary",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View margin account",
+        "endpoint": "GET /margin/account",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":{\"available_margin\":0.0,\"used_margin\":0.0,\"total_balance\":0.0,\"allotted_margin\":0.0,\"wallet_"
+      },
+      {
+        "feature": "View ledger",
+        "endpoint": "GET /ledger",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "View all users",
+        "endpoint": "GET /admin/users",
+        "accessible": false,
+        "status_code": 403,
+        "response_preview": "{\"detail\":\"Admin access required.\"}"
+      },
+      {
+        "feature": "View payouts",
+        "endpoint": "GET /payouts",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "View all user positions",
+        "endpoint": "GET /admin/positions/userwise",
+        "accessible": false,
+        "status_code": 403,
+        "response_preview": "{\"detail\":\"Admin access required.\"}"
+      },
+      {
+        "feature": "View Dhan credentials",
+        "endpoint": "GET /admin/credentials",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"client_id\":\"mock_client\",\"token_masked\":\"****_token\"}"
+      },
+      {
+        "feature": "View Dhan connection status",
+        "endpoint": "GET /admin/dhan/status",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"has_credentials\":true,\"connected\":true,\"connected_slots\":5,\"tick_processor\":false,\"slots\":[{\"slot\""
+      },
+      {
+        "feature": "View schedulers",
+        "endpoint": "GET /admin/schedulers",
+        "accessible": false,
+        "status_code": 403,
+        "response_preview": "{\"detail\":\"Super-admin access required.\"}"
+      },
+      {
+        "feature": "View VPS monitor",
+        "endpoint": "GET /admin/vps-monitor/status",
+        "accessible": false,
+        "status_code": 403,
+        "response_preview": "{\"detail\":\"Super-admin access required.\"}"
+      }
+    ]
+  },
+  {
+    "role": "USER",
+    "mobile": "7777777777",
+    "login_success": true,
+    "user_data": {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "name": "Trader 1",
+      "mobile": "7777777777",
+      "role": "USER"
+    },
+    "endpoints": [
+      {
+        "feature": "Get own profile",
+        "endpoint": "GET /auth/me",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"id\":\"00000000-0000-0000-0000-000000000003\",\"name\":\"Trader 1\",\"mobile\":\"7777777777\",\"role\":\"USER\"}"
+      },
+      {
+        "feature": "View stream status",
+        "endpoint": "GET /market-data/stream-status",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own watchlist",
+        "endpoint": "GET /watchlist/{user_id}",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "Search instruments",
+        "endpoint": "GET /search/instruments/search?q=NIFTY",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own pending orders",
+        "endpoint": "GET /orders",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own executed orders",
+        "endpoint": "GET /orders/executed",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own positions",
+        "endpoint": "GET /positions",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View own P&L summary",
+        "endpoint": "GET /positions/pnl/summary",
+        "accessible": false,
+        "status_code": 404,
+        "response_preview": "{\"detail\":\"Not Found\"}"
+      },
+      {
+        "feature": "View margin account",
+        "endpoint": "GET /margin/account",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":{\"available_margin\":1000000.0,\"used_margin\":0.0,\"total_balance\":1000000.0,\"allotted_margin\":"
+      },
+      {
+        "feature": "View ledger",
+        "endpoint": "GET /ledger",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "View all users",
+        "endpoint": "GET /admin/users",
+        "accessible": false,
+        "status_code": 403,
+        "response_preview": "{\"detail\":\"Admin access required.\"}"
+      },
+      {
+        "feature": "View payouts",
+        "endpoint": "GET /payouts",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"data\":[]}"
+      },
+      {
+        "feature": "View all user positions",
+        "endpoint": "GET /admin/positions/userwise",
+        "accessible": false,
+        "status_code": 403,
+        "response_preview": "{\"detail\":\"Admin access required.\"}"
+      },
+      {
+        "feature": "View Dhan credentials",
+        "endpoint": "GET /admin/credentials",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"client_id\":\"mock_client\",\"token_masked\":\"****_token\"}"
+      },
+      {
+        "feature": "View Dhan connection status",
+        "endpoint": "GET /admin/dhan/status",
+        "accessible": true,
+        "status_code": 200,
+        "response_preview": "{\"has_credentials\":true,\"connected\":true,\"connected_slots\":5,\"tick_processor\":false,\"slots\":[{\"slot\""
+      },
+      {
+        "feature": "View schedulers",
+        "endpoint": "GET /admin/schedulers",
+        "accessible": false,
+        "status_code": 403,
+        "response_preview": "{\"detail\":\"Super-admin access required.\"}"
+      },
+      {
+        "feature": "View VPS monitor",
+        "endpoint": "GET /admin/vps-monitor/status",
+        "accessible": false,
+        "status_code": 403,
+        "response_preview": "{\"detail\":\"Super-admin access required.\"}"
+      }
+    ]
+  }
+]

@@ -109,6 +109,7 @@ services:
       GREEKS_POLL_SECONDS: ${GREEKS_POLL_SECONDS:-15}
       INSTRUMENTS_CSV_PATH: /app/data/api-scrip-master-detailed.csv
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FORCE_MARKET_OPEN: ${FORCE_MARKET_OPEN:-false}
     volumes:
       # Mount the instrument CSV directory so it's available inside the container
       - ./instrument_master:/app/data:ro

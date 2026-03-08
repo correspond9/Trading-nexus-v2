@@ -1,0 +1,73 @@
+{
+  "started_at": "2026-03-08T16:38:21.384381",
+  "edge_case_results": [
+    {
+      "name": "missing_symbol",
+      "status": 400,
+      "ok": true,
+      "detail": "{\"detail\":\"Either security_id/instrument_token or symbol must be provided\"}"
+    },
+    {
+      "name": "zero_quantity",
+      "status": 500,
+      "ok": false,
+      "detail": "{\"detail\":\"Order placement failed: CheckViolationError: new row for relation \\\"paper_orders\\\" violates check constraint \\\"paper_orders_quantity_check\\\"\\nDETAIL:  Failing row contains (b91455dc-361e-4de9-b20e-8230309d6180, 00000000-0000-0000"
+    },
+    {
+      "name": "negative_quantity",
+      "status": 500,
+      "ok": false,
+      "detail": "{\"detail\":\"Order placement failed: CheckViolationError: new row for relation \\\"paper_orders\\\" violates check constraint \\\"paper_orders_quantity_check\\\"\\nDETAIL:  Failing row contains (03837f6b-7548-4457-93ce-756dbef92455, 00000000-0000-0000"
+    },
+    {
+      "name": "invalid_side",
+      "status": 201,
+      "ok": false,
+      "detail": "{\"order_id\":\"e5fda255-665c-4646-ae1d-ae753403ca91\",\"status\":\"REJECTED\",\"fill_price\":0.0,\"filled_qty\":0,\"requested_qty\":1}"
+    },
+    {
+      "name": "invalid_exchange",
+      "status": 201,
+      "ok": false,
+      "detail": "{\"order_id\":\"407c8e2b-8aad-4e69-8e36-f48e25c3836c\",\"status\":\"REJECTED\",\"fill_price\":0.0,\"filled_qty\":0,\"requested_qty\":1}"
+    },
+    {
+      "name": "oversized_quantity",
+      "status": 201,
+      "ok": true,
+      "detail": "{\"order_id\":\"c585ca9a-89a9-4115-bd31-c285bb987e25\",\"status\":\"REJECTED\",\"fill_price\":0.0,\"filled_qty\":0,\"requested_qty\":100000000}"
+    }
+  ],
+  "stress_summary": {
+    "total": 20,
+    "status_counts": {
+      "201": 20
+    }
+  },
+  "failed_edge_cases": [
+    {
+      "name": "zero_quantity",
+      "status": 500,
+      "ok": false,
+      "detail": "{\"detail\":\"Order placement failed: CheckViolationError: new row for relation \\\"paper_orders\\\" violates check constraint \\\"paper_orders_quantity_check\\\"\\nDETAIL:  Failing row contains (b91455dc-361e-4de9-b20e-8230309d6180, 00000000-0000-0000"
+    },
+    {
+      "name": "negative_quantity",
+      "status": 500,
+      "ok": false,
+      "detail": "{\"detail\":\"Order placement failed: CheckViolationError: new row for relation \\\"paper_orders\\\" violates check constraint \\\"paper_orders_quantity_check\\\"\\nDETAIL:  Failing row contains (03837f6b-7548-4457-93ce-756dbef92455, 00000000-0000-0000"
+    },
+    {
+      "name": "invalid_side",
+      "status": 201,
+      "ok": false,
+      "detail": "{\"order_id\":\"e5fda255-665c-4646-ae1d-ae753403ca91\",\"status\":\"REJECTED\",\"fill_price\":0.0,\"filled_qty\":0,\"requested_qty\":1}"
+    },
+    {
+      "name": "invalid_exchange",
+      "status": 201,
+      "ok": false,
+      "detail": "{\"order_id\":\"407c8e2b-8aad-4e69-8e36-f48e25c3836c\",\"status\":\"REJECTED\",\"fill_price\":0.0,\"filled_qty\":0,\"requested_qty\":1}"
+    }
+  ]
+}

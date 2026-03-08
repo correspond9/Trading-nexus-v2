@@ -8,7 +8,7 @@ You'll be setting up:
 - ✅ Fresh Docker images (backend + frontend)  
 - ✅ Complete production database with all data
 - ✅ Synchronized configuration and settings
-- ✅ Safe testing environment (market streams disabled)
+- ✅ Production-like startup behavior, with streams routed to local `mockdhan`
 
 ## 🚀 Quick Start - Run Scripts in Order
 
@@ -51,7 +51,7 @@ All scripts are automated - just run them one by one:
 **What this does:**
 - Fetches production environment variables
 - Creates local `.env` file
-- **DISABLES market streams** (safe for local)
+- Keeps stream startup ON but routes REST/WS endpoints to `mockdhan`
 - Sets debug logging
 - Takes ~1 minute
 
@@ -98,7 +98,7 @@ All production tables including:
 
 Your local environment is **completely isolated**:
 
-✅ **Market streams DISABLED** - Won't interfere with production  
+✅ **Market streams routed to local mockdhan** - Won't interfere with production  
 ✅ **Local database** - Changes don't affect production  
 ✅ **Separate Docker network** - No cross-contamination  
 ✅ **Debug logging enabled** - Better troubleshooting  
@@ -106,11 +106,11 @@ Your local environment is **completely isolated**:
 ## ⚠️ Important Notes
 
 ### DhanHQ Credentials
-The scripts **DO NOT copy DhanHQ credentials** because:
-- Market data streams are disabled in local environment
+The scripts do not require live Dhan credentials locally because:
+- Local stream source is `mockdhan`
 - No connection to DhanHQ is made locally
-- This keeps your production credentials secure
-- Local environment is for testing with existing data only
+- This keeps production credentials isolated
+- Local environment remains safe and reproducible
 
 If you need to test live market data connections:
 1. Manually add credentials to `.env`
@@ -121,12 +121,8 @@ If you need to test live market data connections:
 If your production database is large (>1GB), the export/import may take longer. The scripts handle this automatically.
 
 ### Market Data Streams
-By default, market data streams are **DISABLED** locally to prevent:
-- Duplicate connections to DhanHQ
-- Race conditions with production
-- Accidental live trading
-
-You can enable them in `.env` if needed for specific testing.
+By default, market data streams are **ENABLED locally** but pointed to `mockdhan`.
+This preserves production-like behavior without touching live Dhan connections.
 
 ## 📊 After Setup - Access Points
 
@@ -228,7 +224,7 @@ docker compose up -d
 | Database | Remote PostgreSQL | Local Docker container |
 | Domain | tradingnexus.pro | localhost |
 | SSL/TLS | Enabled (Traefik) | Disabled |
-| Market Streams | Enabled | Disabled (default) |
+| Market Streams | Enabled (DhanHQ) | Enabled (mockdhan) |
 | Log Level | WARNING | DEBUG |
 | CORS | Specific domains | localhost only |
 

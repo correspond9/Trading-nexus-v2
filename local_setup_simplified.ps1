@@ -229,7 +229,7 @@ Write-Host ""
 
 Write-Host "✨ Key Features:" -ForegroundColor Cyan
 Write-Host "   • No DhanHQ credentials needed" - ForegroundColor Gray
-Write-Host "   • Market streams disabled (safe)" -ForegroundColor Gray
+Write-Host "   • Market streams enabled via mockdhan (safe)" -ForegroundColor Gray
 Write-Host "   • Database: $( if ($DatabaseDumpFile) { 'Production data imported' } elseif ($SkipDatabase) { 'Empty (import manually)' } else { 'Empty (migrations will create schema)' })" -ForegroundColor Gray
 Write-Host "   • Debug logging enabled" -ForegroundColor Gray
 Write-Host ""

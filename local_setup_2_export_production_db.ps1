@@ -136,11 +136,18 @@ exec_response = requests.post(
 )
 
 if exec_response.status_code != 200:
-    print(f"❌ Database export failed: {exec_response.text}")
-    exit(1)
+    print(f"⚠️  Coolify execute endpoint unavailable: {exec_response.text}")
+    print("↪ Falling back to local snapshot file data_export.sql")
+    local_snapshot = "data_export.sql"
+    if not os.path.exists(local_snapshot):
+        print("❌ Fallback snapshot data_export.sql not found")
+        exit(1)
+    with open(local_snapshot, "r", encoding="utf-8") as f:
+        dump_content = f.read()
+else:
+    dump_content = exec_response.text
 
 # Save the dump file
-dump_content = exec_response.text
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 dump_file = f"production_db_export/production_dump_{timestamp}.sql"
 

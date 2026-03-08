@@ -121,21 +121,7 @@ def _build_optionchain(underlying: UnderlyingDef, expiry: str) -> dict:
 
 
 def _packet_for_token(token: int) -> bytes:
-    decode = _decode_option_token(token)
-    if decode:
-        underlying_sid, strike, is_ce = decode
-        spot = _spot_price(UNDERLYINGS[underlying_sid])
-        ltp = _option_ltp(spot, strike, is_ce)
-        close = round(ltp * 0.98, 2)
-    elif token in UNDERLYINGS:
-        spot = _spot_price(UNDERLYINGS[token])
-        ltp = round(spot, 2)
-        close = round(ltp * 0.995, 2)
-    else:
-        # Generic token behavior for any unknown subscriptions.
-        base = 100.0 + (token % 1000)
-        ltp = round(base + math.sin(time.time() / 5.0) * 1.5, 2)
-        close = round(base, 2)
+    ltp, close = _price_for_token(token)
 
     open_p = round(close * 1.001, 2)
     high_p = round(max(ltp, open_p) * 1.002, 2)
@@ -176,6 +162,87 @@ def _packet_for_token(token: int) -> bytes:
         struct.pack_into("<f", data, off + 16, float(ask_px))
 
     return bytes(data)
+
+
+def _price_for_token(token: int) -> tuple[float, float]:
+    decode = _decode_option_token(token)
+    if decode:
+        underlying_sid, strike, is_ce = decode
+        spot = _spot_price(UNDERLYINGS[underlying_sid])
+        ltp = _option_ltp(spot, strike, is_ce)
+        close = round(ltp * 0.98, 2)
+    elif token in UNDERLYINGS:
+        spot = _spot_price(UNDERLYINGS[token])
+        ltp = round(spot, 2)
+        close = round(ltp * 0.995, 2)
+    else:
+        # Generic token behavior for any unknown subscriptions.
+        base = 100.0 + (token % 1000)
+        ltp = round(base + math.sin(time.time() / 5.0) * 1.5, 2)
+        close = round(base, 2)
+
+    return ltp, close
+
+
+def _extract_tokens_from_payload(payload: dict) -> list[int]:
+    """Accept multiple request shapes to mirror Dhan and internal callers."""
+    out: set[int] = set()
+
+    def _add(v) -> None:
+        try:
+            out.add(int(str(v)))
+        except Exception:
+            return
+
+    if not isinstance(payload, dict):
+        return []
+
+    for k in ("SecurityId", "security_id", "token", "instrument_token"):
+        if k in payload:
+            _add(payload.get(k))
+
+    for k in ("tokens", "instrument_tokens", "security_ids"):
+        vals = payload.get(k)
+        if isinstance(vals, list):
+            for v in vals:
+                _add(v)
+
+    for seg in ("NSE_EQ", "NSE_FNO", "BSE_EQ", "BSE_FNO", "MCX_FO", "NSE_COM"):
+        vals = payload.get(seg)
+        if isinstance(vals, list):
+            for v in vals:
+                _add(v)
+
+    if not out and isinstance(payload.get("InstrumentList"), list):
+        for item in payload.get("InstrumentList") or []:
+            if isinstance(item, dict):
+                for key in ("SecurityId", "security_id", "token"):
+                    if key in item:
+                        _add(item.get(key))
+
+    return list(out)
+
+
+def _build_quote_response(tokens: list[int]) -> dict:
+    quotes = []
+    for token in tokens:
+        ltp, close = _price_for_token(token)
+        quotes.append(
+            {
+                "securityId": str(token),
+                "lastTradedPrice": float(ltp),
+                "lastPrice": float(ltp),
+                "ltp": float(ltp),
+                "close": float(close),
+            }
+        )
+
+    return {
+        "status": "success",
+        "data": {
+            "quotes": quotes,
+        },
+    }
 
 
 def _depth_packet(token: int, response_code: int, ltp: float, sequence: int) -> bytes:
@@ -221,6 +288,18 @@ async def optionchain(payload: dict) -> dict:
     expiry = payload.get("Expiry") or (datetime.utcnow().date() + timedelta(days=7)).isoformat()
     underlying = UNDERLYINGS.get(underlying_scrip, UNDERLYINGS[13])
     return {"status": "success", "data": _build_optionchain(underlying, str(expiry))}
+
+
+@app.post("/v2/marketfeed/quote")
+async def marketfeed_quote(payload: dict) -> dict:
+    tokens = _extract_tokens_from_payload(payload)
+    return _build_quote_response(tokens)
+
+
+@app.post("/v2/marketfeed/ltp")
+async def marketfeed_ltp(payload: dict) -> dict:
+    tokens = _extract_tokens_from_payload(payload)
+    return _build_quote_response(tokens)
 
 
 @app.websocket("/")

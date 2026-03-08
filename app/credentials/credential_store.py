@@ -18,7 +18,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.database import get_pool
 
@@ -220,6 +220,17 @@ async def load_credentials() -> None:
             # Phase 10: Decrypt secret (fallback to plaintext if encryption unavailable)
             encrypted_value = row["value"] or ""
             _static_api_secret = _decrypt_secret(encrypted_value) if encrypted_value else ""
+
+    # Local/mock-friendly fallback: if DB has no runtime credentials yet,
+    # hydrate from environment so startup streams can still initialize.
+    if not _client_id:
+        from app.config import get_settings
+        cfg = get_settings()
+        _client_id = (cfg.dhan_client_id or "").strip()
+    if not _access_token:
+        from app.config import get_settings
+        cfg = get_settings()
+        _access_token = (cfg.dhan_access_token or "").strip()
     log.info(
         f"Credentials loaded — client_id={'set' if _client_id else 'EMPTY'}, "
         f"token={'set' if _access_token else 'EMPTY'}, "
@@ -470,6 +481,9 @@ async def update_static_credentials(
 
 def get_ws_url(*, include_version: bool = True) -> str:
     """Build the DhanHQ Live Market Feed WebSocket URL."""
+    from app.config import get_settings
+    cfg = get_settings()
+
     params = {
         "token": _access_token,
         "clientId": _client_id,
@@ -477,8 +491,8 @@ def get_ws_url(*, include_version: bool = True) -> str:
     }
     if include_version:
         params["version"] = "2"
-    qs = urlencode(params)
-    return f"wss://api-feed.dhan.co?{qs}"
+    base = cfg.dhan_feed_url.strip() or "wss://api-feed.dhan.co"
+    return _append_query(base, params)
 
 
 def get_ws_url_candidates() -> list[str]:
@@ -488,14 +502,18 @@ def get_ws_url_candidates() -> list[str]:
 
 def get_depth_ws_url() -> str:
     """Build the 20-Level Full Market Depth WebSocket URL."""
-    qs = urlencode(
-        {
-            "token": _access_token,
-            "clientId": _client_id,
-            "authType": "2",
-        }
-    )
-    return f"wss://depth-api-feed.dhan.co/twentydepth?{qs}"
+    from app.config import get_settings
+    cfg = get_settings()
+    base = cfg.dhan_depth_20_url.strip() or "wss://depth-api-feed.dhan.co/twentydepth"
+    return _append_query(base, {"token": _access_token, "clientId": _client_id, "authType": "2"})
+
+
+def _append_query(base_url: str, params: dict[str, str]) -> str:
+    """Append params to URL while preserving existing query string."""
+    split = urlsplit(base_url)
+    existing = dict(parse_qsl(split.query, keep_blank_values=True))
+    existing.update(params)
+    return urlunsplit((split.scheme, split.netloc, split.path, urlencode(existing), split.fragment))
 
 
 def _build_static_signature(path: str, body: Optional[dict], timestamp: str) -> str:

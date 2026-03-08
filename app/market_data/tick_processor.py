@@ -100,12 +100,16 @@ class _TickProcessor:
 
         try:
             # Run all three operations in parallel instead of sequentially
-            await asyncio.gather(
+            results = await asyncio.gather(
                 self._upsert(batch),
                 self._notify_execution_engine(batch),
                 self._push_to_frontend(batch),
                 return_exceptions=True,  # Don't fail entire batch if one operation fails
             )
+            for idx, result in enumerate(results):
+                if isinstance(result, Exception):
+                    op = ["upsert", "execution_engine", "frontend_push"][idx]
+                    log.error("Tick processor %s failed: %s", op, result)
         except Exception as exc:
             log.error(f"Tick processor flush error: {exc}")
             try:

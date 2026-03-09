@@ -678,21 +678,73 @@ async def place_paper_order(
                     )
                     _is_sl = True
                 elif ord_type == "LIMIT":
-                    # ── FIXED: LIMIT orders are now PENDING — queued for fill when market price reaches limit ──
-                    # This ensures they respect market depth, slippage, and partial fill logic.
+                    # ── LIMIT: Immediate partial fill attempt, then queue remaining ──
+                    tick_size = get_tick_size(body.exchange_segment or "NSE_FNO")
+                    lot_size = int((im_seg_row["lot_size"] if im_seg_row else 0) or 1)
+
+                    class _LimitExecOrder:
+                        pass
+
+                    _l = _LimitExecOrder()
+                    _l.side = side
+                    _l.quantity = qty
+                    _l.exchange_segment = body.exchange_segment or "NSE_FNO"
+                    _l.limit_price = lp
+
+                    fills = execute_market_fill(
+                        _l,
+                        {
+                            "ltp": ltp_price,
+                            "bid_depth": market_bid_depth,
+                            "ask_depth": market_ask_depth,
+                            "ltt": md_row["ltt"] if md_row else None,
+                            "tick_size": float(tick_size),
+                        },
+                        tick_size,
+                        lot_size,
+                    )
+
+                    valid_fills = [f for f in fills if getattr(f, "fill_qty", 0) > 0]
+                    limit_filled_qty = int(sum(f.fill_qty for f in valid_fills))
+                    limit_remaining_qty = qty - limit_filled_qty
+
+                    if limit_filled_qty > 0:
+                        weighted = sum(Decimal(str(f.fill_price)) * Decimal(f.fill_qty) for f in valid_fills)
+                        avg_px = weighted / Decimal(limit_filled_qty)
+                        fill_price = float(avg_px)
+                        limit_status = "PARTIAL" if limit_remaining_qty > 0 else "FILLED"
+                    else:
+                        fill_price = float(lp)
+                        limit_status = "PENDING"
+
                     await conn.execute(
                         """
                         INSERT INTO paper_orders
                             (order_id, user_id, instrument_token, symbol, exchange_segment,
                              side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
-                             status, product_type)
+                             remaining_qty, status, product_type)
                         VALUES
-                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,'PENDING',$12)
+                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
                         """,
                         order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                        side, ord_type, qty, lp, body.trigger_price, lp, prod,
+                        side, ord_type, qty, lp, body.trigger_price, fill_price, limit_filled_qty,
+                        limit_remaining_qty, limit_status, prod,
                     )
-                    _is_sl = True  # Treat LIMIT like SL (queue for deferred fill)
+                    
+                    # Record fills in paper_trades
+                    for fill in valid_fills:
+                        await conn.execute(
+                            """
+                            INSERT INTO paper_trades
+                                (order_id, user_id, instrument_token, exchange_segment, symbol,
+                                 side, fill_qty, fill_price, slippage)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                            """,
+                            order_id, user_id, token or 0, body.exchange_segment, body.symbol,
+                            side, fill.fill_qty, fill.fill_price, fill.slippage,
+                        )
+
+                    _is_sl = (limit_status in {"PENDING", "PARTIAL"})  # Queue only if not fully filled
                 else:
                     # Insert order record (MARKET only — fill immediately at LTP)
                     await conn.execute(

@@ -51,6 +51,7 @@ from app.execution_simulator.super_order_monitor import (
     stop_monitor    as stop_super_order_monitor,
 )
 from app.execution_simulator.execution_engine import reconcile_pending_orders
+from app.execution_simulator.partial_fill_monitor import partial_fill_monitor
 from app.market_data.static_auth_monitor import static_auth_monitor
 from app.positions.eod_archiver               import eod_closed_position_archiver
 from app.runtime.market_timing                import market_timing_controller
@@ -298,6 +299,9 @@ async def lifespan(app: FastAPI):
         log.info("[15] Starting Super Order monitor (Target + SL + Trailing) …")
         await start_super_order_monitor()
 
+        log.info("[15b] Starting partial fill monitor (30-second depth-based retry) …")
+        await partial_fill_monitor.start()
+
         log.info("[16] Starting EOD closed-position archiver (16:00 IST) …")
         await eod_closed_position_archiver.start()
 
@@ -338,6 +342,7 @@ async def lifespan(app: FastAPI):
     await static_auth_monitor.stop()
     await close_price_rollover.stop()
     await close_price_capture.stop()
+    await partial_fill_monitor.stop()
     await stop_super_order_monitor()
     await nse_margin_scheduler.stop()
     if not cfg.dhan_disabled:

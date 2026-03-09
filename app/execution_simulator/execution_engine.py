@@ -125,11 +125,15 @@ async def place_order(order, user_id: str, market_snap: dict) -> dict:
 
 async def on_tick(instrument_token: int, market_snap: dict) -> None:
     """
-    Check if any queued limit/SL orders for this token can now be filled.
-    Called up to 10 times/sec — must be fast (optimistic lock check).
+    DISABLED: Continuous tick-based execution replaced by 30-second partial fill monitor.
+    This prevents excessive execution attempts on every tick.
+    Partial fills are now handled by app/execution_simulator/partial_fill_monitor.py
     """
     if not _mock_mode:
         return
+    
+    # DISABLED: return immediately without processing
+    return
 
     ltp = market_snap.get("ltp")
     if not ltp:
@@ -201,6 +205,11 @@ async def cancel_order(order_id: str, user_id: str) -> dict:
     # This is important for SLM orders where the queued limit_price (= trigger_price)
     # differs from the limit_price column stored in the DB (which may be 0 / NULL).
     await cancel_by_id(order_id)
+    
+    # Clear depth snapshot for cancelled orders
+    from app.execution_simulator.partial_fill_monitor import partial_fill_monitor
+    partial_fill_monitor.clear_snapshot(row["id"])
+    
     row_data = dict(row)
     qty = int(row_data.get("quantity") or 0)
     filled_qty = int(row_data.get("filled_qty") or 0)
@@ -380,6 +389,17 @@ async def _persist_fills(
             new_filled_total,
             status_value,
         )
+        
+        # Clear depth snapshot if order fully filled
+        if remaining_after == 0:
+            # Get paper_orders.id (integer PK) for snapshot cleanup
+            order_row = await conn.fetchrow(
+                "SELECT id FROM paper_orders WHERE order_id = $1",
+                order_id
+            )
+            if order_row:
+                from app.execution_simulator.partial_fill_monitor import partial_fill_monitor
+                partial_fill_monitor.clear_snapshot(order_row["id"])
 
         # Trade records
         for fill in fills:

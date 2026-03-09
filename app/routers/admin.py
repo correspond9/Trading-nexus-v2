@@ -3301,3 +3301,163 @@ async def rebuild_option_chain_skeleton(
         "atm_updates": atm_results,
         "skeleton_rebuild": skeleton_status,
     }
+
+
+    # ── All Orders View (Admin Tracking) ───────────────────────────────────────
+
+    @router.get("/all-orders")
+    async def get_all_orders(
+        user_id: Optional[str] = None,
+        symbol: Optional[str] = None,
+        status: Optional[str] = None,
+        side: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+        current_user: CurrentUser = Depends(get_admin_user),
+    ):
+        """
+        Admin-only endpoint to view ALL orders from all users.
+        Includes cancelled, filled, partial, and pending orders.
+    
+        Query filters:
+        - user_id: Filter by specific user
+        - symbol: Filter by symbol name
+        - status: Filter by order status (FILLED, CANCELLED, PENDING, PARTIAL, REJECTED)
+        - side: Filter by BUY/SELL
+        - limit: Max records to return (default 100, max 500)
+        - offset: Pagination offset
+    
+        Returns full order details for tracking discrepancies.
+        """
+        from app.database import get_pool
+    
+        pool = get_pool()
+        if pool is None:
+            raise HTTPException(status_code=500, detail="Database pool not initialized")
+    
+        # Build WHERE clause dynamically
+        where_clauses = []
+        params = []
+        param_index = 1
+    
+        if user_id:
+            where_clauses.append(f"po.user_id = ${param_index}")
+            params.append(user_id)
+            param_index += 1
+    
+        if symbol:
+            where_clauses.append(f"UPPER(po.symbol) LIKE ${param_index}")
+            params.append(f"%{symbol.upper()}%")
+            param_index += 1
+    
+        if status:
+            where_clauses.append(f"po.status = ${param_index}")
+            params.append(status.upper())
+            param_index += 1
+    
+        if side:
+            where_clauses.append(f"po.side = ${param_index}")
+            params.append(side.upper())
+            param_index += 1
+    
+        where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+    
+        # Limit validation
+        limit = min(max(1, limit), 500)
+        params.append(limit)
+        limit_param = f"${param_index}"
+        param_index += 1
+    
+        params.append(offset)
+        offset_param = f"${param_index}"
+    
+        # Get total count
+        count_query = f"""
+            SELECT COUNT(*) as total
+            FROM paper_orders po
+            WHERE {where_sql}
+        """
+        count_row = await pool.fetchrow(count_query, *params[:-2])  # Exclude limit/offset
+        total_count = count_row["total"] if count_row else 0
+    
+        # Get orders with user details
+        query = f"""
+            SELECT 
+                po.order_id,
+                po.user_id,
+                pa.email as user_email,
+                pa.full_name as user_name,
+                pa.role as user_role,
+                po.instrument_token,
+                po.symbol,
+                po.exchange_segment,
+                po.side,
+                po.order_type,
+                po.quantity,
+                po.filled_qty,
+                po.remaining_qty,
+                po.price,
+                po.trigger_price,
+                po.status,
+                po.avg_fill_price,
+                po.product_type,
+                po.validity,
+                po.rejection_reason,
+                po.source,
+                po.created_at,
+                po.updated_at,
+                COALESCE(
+                    (SELECT COUNT(*) FROM paper_trades pt WHERE pt.order_id = po.order_id),
+                    0
+                ) as trade_count,
+                COALESCE(
+                    (SELECT SUM(COALESCE(fill_qty, quantity)) FROM paper_trades pt WHERE pt.order_id = po.order_id),
+                    0
+                ) as total_filled_from_trades
+            FROM paper_orders po
+            LEFT JOIN paper_accounts pa ON po.user_id = pa.user_id
+            WHERE {where_sql}
+            ORDER BY po.created_at DESC
+            LIMIT {limit_param}
+            OFFSET {offset_param}
+        """
+    
+        rows = await pool.fetch(query, *params)
+    
+        orders = []
+        for row in rows:
+            orders.append({
+                "order_id": str(row["order_id"]),
+                "user_id": str(row["user_id"]),
+                "user_email": row["user_email"],
+                "user_name": row["user_name"],
+                "user_role": row["user_role"],
+                "instrument_token": row["instrument_token"],
+                "symbol": row["symbol"],
+                "exchange_segment": row["exchange_segment"],
+                "side": row["side"],
+                "order_type": row["order_type"],
+                "quantity": row["quantity"],
+                "filled_qty": row["filled_qty"],
+                "remaining_qty": row["remaining_qty"],
+                "price": float(row["price"]) if row["price"] else None,
+                "trigger_price": float(row["trigger_price"]) if row["trigger_price"] else None,
+                "status": row["status"],
+                "avg_fill_price": float(row["avg_fill_price"]) if row["avg_fill_price"] else None,
+                "product_type": row["product_type"],
+                "validity": row["validity"],
+                "rejection_reason": row["rejection_reason"],
+                "source": row["source"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                "trade_count": row["trade_count"],
+                "total_filled_from_trades": row["total_filled_from_trades"],
+            })
+    
+        return {
+            "success": True,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
+            "orders": orders,
+        }

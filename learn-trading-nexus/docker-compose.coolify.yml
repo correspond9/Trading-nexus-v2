@@ -1,0 +1,10 @@
+services:
+  learn:
+    build:
+      context: ./learn-trading-nexus
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: https://tradingnexus.pro/api/v2
+      NEXT_PUBLIC_PORTAL_API_TOKEN: portal-signups-token
+      NODE_ENV: production
+    restart: always

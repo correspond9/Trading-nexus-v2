@@ -1,0 +1,269 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Refined Light Neumorphic Palette matched perfectly to new 3D icons */
+  --neo-bg: #F2F0FA;
+  --neo-shadow-dark: #D4D2EB;
+  --neo-shadow-light: #FFFFFF;
+
+  --neo-text-main: #3A435E;
+  --neo-text-muted: #8A98AC;
+  --neo-text-accent: #6569A5;
+
+  /* Vibrant Colors from Reference */
+  --neo-color-purple: #6569A5;
+  /* "Button" */
+  --neo-color-green: #2EA958;
+  /* "Accept" */
+  --neo-color-red: #E74C3C;
+  /* "Reject" */
+  --neo-color-blue: #3B82F6;
+  --neo-color-cyan: #06B6D4;
+  --neo-color-pink: #EC4899;
+  --neo-color-orange: #F97316;
+
+  --grad-vibrant: linear-gradient(135deg, #00F2FE 0%, #4FACFE 100%);
+  --grad-warm: linear-gradient(135deg, #FF0844 0%, #FFB199 100%);
+  --grad-neon-pink: linear-gradient(135deg, #FF1361, #FFF800);
+}
+
+@layer base {
+  body {
+    background-color: var(--neo-bg);
+    color: var(--neo-text-main);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: var(--neo-text-main);
+  }
+}
+
+@layer components {
+
+  /* Core raised card */
+  .neo-card {
+    background: var(--neo-bg);
+    border-radius: 1.5rem;
+    box-shadow:
+      12px 12px 24px var(--neo-shadow-dark),
+      -12px -12px 24px var(--neo-shadow-light);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    transition: all 0.3s ease;
+  }
+
+  .neo-card:hover {
+    box-shadow:
+      14px 14px 28px var(--neo-shadow-dark),
+      -14px -14px 28px var(--neo-shadow-light);
+  }
+
+  /* Deep dug-in (inset) regions */
+  .neo-dug {
+    background: var(--neo-bg);
+    border-radius: 1rem;
+    box-shadow:
+      inset 6px 6px 12px var(--neo-shadow-dark),
+      inset -6px -6px 12px var(--neo-shadow-light);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+  }
+
+  /* Distinctive Raised Button with Colorful Text */
+  .neo-btn {
+    @apply relative flex items-center justify-center gap-2 overflow-hidden rounded-full font-black tracking-wide transition-all;
+    background: var(--neo-bg);
+    box-shadow:
+      6px 6px 12px var(--neo-shadow-dark),
+      -6px -6px 12px var(--neo-shadow-light);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+  }
+
+  .neo-btn:hover {
+    box-shadow:
+      8px 8px 16px var(--neo-shadow-dark),
+      -8px -8px 16px var(--neo-shadow-light);
+    transform: translateY(-2px);
+  }
+
+  .neo-btn:active {
+    box-shadow:
+      inset 4px 4px 8px var(--neo-shadow-dark),
+      inset -4px -4px 8px var(--neo-shadow-light);
+    transform: translateY(1px);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Specific Colorful Buttons matching reference */
+  .neo-btn-purple {
+    color: var(--neo-color-purple);
+  }
+
+  .neo-btn-green {
+    color: var(--neo-color-green);
+  }
+
+  .neo-btn-red {
+    color: var(--neo-color-red);
+  }
+
+  .neo-btn-blue {
+    color: var(--neo-color-blue);
+  }
+
+  /* Dug-in Buttons (Like the Search bar or Pressed state) */
+  .neo-btn-dug {
+    @apply relative flex items-center justify-center gap-2 overflow-hidden rounded-full font-black tracking-wide transition-all;
+    background: var(--neo-bg);
+    color: var(--neo-color-purple);
+    box-shadow:
+      inset 5px 5px 10px var(--neo-shadow-dark),
+      inset -5px -5px 10px var(--neo-shadow-light);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+
+  /* Small round icon buttons from reference */
+  .neo-icon-btn {
+    @apply flex items-center justify-center rounded-full transition-all;
+    background: var(--neo-bg);
+    box-shadow:
+      5px 5px 10px var(--neo-shadow-dark),
+      -5px -5px 10px var(--neo-shadow-light);
+    border: 2px solid rgba(255, 255, 255, 0.9);
+  }
+
+  .neo-icon-btn:active {
+    box-shadow:
+      inset 3px 3px 6px var(--neo-shadow-dark),
+      inset -3px -3px 6px var(--neo-shadow-light);
+  }
+
+  /* Vibrant solid colored button */
+  .neo-btn-solid-green {
+    @apply relative flex items-center justify-center gap-2 overflow-hidden rounded-full font-black tracking-wide transition-all text-white;
+    background: var(--neo-color-green);
+    box-shadow:
+      5px 5px 15px rgba(46, 169, 88, 0.4),
+      -4px -4px 10px var(--neo-shadow-light);
+    border: none;
+  }
+
+  .neo-btn-solid-green:active {
+    box-shadow: inset 3px 3px 8px rgba(0, 0, 0, 0.2);
+    transform: translateY(2px);
+  }
+
+  .neo-btn-solid-purple {
+    @apply relative flex items-center justify-center gap-2 overflow-hidden rounded-full font-black tracking-wide transition-all text-white;
+    background: var(--neo-color-purple);
+    box-shadow:
+      5px 5px 15px rgba(101, 105, 165, 0.4),
+      -4px -4px 10px var(--neo-shadow-light);
+    border: none;
+  }
+
+  .neo-btn-solid-purple:active {
+    box-shadow: inset 3px 3px 8px rgba(0, 0, 0, 0.2);
+    transform: translateY(2px);
+  }
+
+  .neo-btn-solid-blue {
+    @apply relative flex items-center justify-center gap-2 overflow-hidden rounded-full font-black tracking-wide transition-all text-white;
+    background: var(--neo-color-blue);
+    box-shadow:
+      5px 5px 15px rgba(59, 130, 246, 0.4),
+      -4px -4px 10px var(--neo-shadow-light);
+    border: none;
+  }
+
+  .neo-btn-solid-blue:active {
+    box-shadow: inset 3px 3px 8px rgba(0, 0, 0, 0.2);
+    transform: translateY(2px);
+  }
+
+  /* Form inputs (dug-in) */
+  .neo-input {
+    @apply w-full px-5 py-3 text-sm focus:outline-none font-medium md:text-base;
+    background: var(--neo-bg);
+    border-radius: 1rem;
+    color: var(--neo-text-accent);
+    box-shadow:
+      inset 6px 6px 12px var(--neo-shadow-dark),
+      inset -6px -6px 12px var(--neo-shadow-light);
+    border: 2px solid transparent;
+    transition: all 0.3s ease;
+  }
+
+  .neo-input::placeholder {
+    color: #9CA8BA;
+  }
+
+  .neo-input:focus {
+    box-shadow:
+      inset 8px 8px 16px var(--neo-shadow-dark),
+      inset -8px -8px 16px var(--neo-shadow-light);
+  }
+
+  /* Badges */
+  .neo-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: 9999px;
+    background: var(--neo-bg);
+    box-shadow:
+      4px 4px 8px var(--neo-shadow-dark),
+      -4px -4px 8px var(--neo-shadow-light);
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: var(--neo-text-accent);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, var(--neo-color-purple), var(--neo-color-pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .neo-divider {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--neo-bg);
+    box-shadow:
+      inset 1px 1px 3px var(--neo-shadow-dark),
+      inset -1px -1px 3px var(--neo-shadow-light);
+  }
+}
+
+.neo-floating-cube {
+  box-shadow:
+    15px 15px 30px var(--neo-shadow-dark),
+    -15px -15px 30px var(--neo-shadow-light),
+    inset 2px 2px 5px rgba(255, 255, 255, 0.8),
+    inset -2px -2px 5px rgba(0, 0, 0, 0.05);
+}
+
+@keyframes float-slow {
+
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  50% {
+    transform: translateY(-10px) rotate(2deg);
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 6s ease-in-out infinite;
+}

@@ -1,7 +1,7 @@
 services:
   learn:
     build:
-      context: ./learn-trading-nexus
+      context: .
       dockerfile: Dockerfile
     environment:
       NEXT_PUBLIC_API_BASE_URL: https://tradingnexus.pro/api/v2

@@ -215,7 +215,7 @@ class PlaceOrderRequest(BaseModel):
     side:             Optional[str]   = Field(None, pattern="^(BUY|SELL)$")
     quantity:         int             = Field(default=1, gt=0)
     order_type:       str             = "MARKET"
-    product_type:     str             = "MIS"
+    product_type:     str             = "NORMAL"
     price:            Optional[float] = None
     limit_price:      Optional[float] = None
     trigger_price:    Optional[float] = None
@@ -669,12 +669,12 @@ async def place_paper_order(
                         INSERT INTO paper_orders
                             (order_id, user_id, instrument_token, symbol, exchange_segment,
                              side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
-                             status)
+                             status, product_type)
                         VALUES
-                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,0,'PENDING')
+                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,0,'PENDING',$11)
                         """,
                         order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                        side, ord_type, qty, lp, body.trigger_price,
+                        side, ord_type, qty, lp, body.trigger_price, prod,
                     )
                     _is_sl = True
                 elif ord_type == "LIMIT":
@@ -685,12 +685,12 @@ async def place_paper_order(
                         INSERT INTO paper_orders
                             (order_id, user_id, instrument_token, symbol, exchange_segment,
                              side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
-                             status)
+                             status, product_type)
                         VALUES
-                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,'PENDING')
+                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,'PENDING',$12)
                         """,
                         order_id, user_id, token or 0, body.symbol, body.exchange_segment,
-                        side, ord_type, qty, lp, body.trigger_price, lp,
+                        side, ord_type, qty, lp, body.trigger_price, lp, prod,
                     )
                     _is_sl = True  # Treat LIMIT like SL (queue for deferred fill)
                 else:
@@ -700,13 +700,13 @@ async def place_paper_order(
                         INSERT INTO paper_orders
                             (order_id, user_id, instrument_token, symbol, exchange_segment,
                              side, order_type, quantity, limit_price, trigger_price, fill_price, filled_qty,
-                             status)
+                             status, product_type)
                         VALUES
-                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                         """,
                         order_id, user_id, token or 0, body.symbol, body.exchange_segment,
                         side, ord_type, qty, lp, body.trigger_price, fill_price, market_filled_qty,
-                        market_status,
+                        market_status, prod,
                     )
                     _is_sl = False
 

@@ -60,6 +60,12 @@ async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
         {extra_filter}
         AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
         ORDER BY
+            -- Prioritize EQUITY and INDEX instruments first
+            CASE
+                WHEN instrument_type IN ('EQUITY', 'INDEX') THEN 0
+                ELSE 1
+            END,
+            -- Then match quality
             CASE
                 WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
                 WHEN upper(COALESCE(display_name, '')) = $2 OR upper(COALESCE(trading_symbol, '')) = $2 THEN 0
@@ -99,6 +105,12 @@ async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
             {extra_filter}
             AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
             ORDER BY
+                -- Prioritize EQUITY and INDEX instruments first
+                CASE
+                    WHEN instrument_type IN ('EQUITY', 'INDEX') THEN 0
+                    ELSE 1
+                END,
+                -- Then match quality
                 CASE
                     WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
                     WHEN upper(COALESCE(display_name, '')) = $2 OR upper(COALESCE(trading_symbol, '')) = $2 THEN 0
@@ -134,6 +146,12 @@ async def _search(q: str, extra_filter: str = "", limit: int = 50) -> list:
                 {extra_filter}
                 AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
                 ORDER BY
+                    -- Prioritize EQUITY and INDEX instruments first
+                    CASE
+                        WHEN instrument_type IN ('EQUITY', 'INDEX') THEN 0
+                        ELSE 1
+                    END,
+                    -- Then match quality
                     CASE
                         WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
                         WHEN upper(symbol) LIKE ($2 || '%') THEN 1
@@ -189,6 +207,12 @@ async def subscriptions_search(
                   AND im.tier = $2
                   AND (im.expiry_date IS NULL OR im.expiry_date >= CURRENT_DATE)
                 ORDER BY
+                    -- Prioritize EQUITY and INDEX instruments first
+                    CASE
+                        WHEN im.instrument_type IN ('EQUITY', 'INDEX') THEN 0
+                        ELSE 1
+                    END,
+                    -- Then match quality
                     CASE
                         WHEN upper(im.symbol) = $3 OR upper(COALESCE(im.underlying, '')) = $3 THEN 0
                         WHEN upper(COALESCE(im.display_name, '')) = $3 OR upper(COALESCE(im.trading_symbol, '')) = $3 THEN 0
@@ -223,6 +247,12 @@ async def subscriptions_search(
                  )
                   AND (im.expiry_date IS NULL OR im.expiry_date >= CURRENT_DATE)
                 ORDER BY
+                    -- Prioritize EQUITY and INDEX instruments first
+                    CASE
+                        WHEN instrument_type IN ('EQUITY', 'INDEX') THEN 0
+                        ELSE 1
+                    END,
+                    -- Then match quality
                     CASE
                         WHEN upper(symbol) = $2 OR upper(COALESCE(underlying, '')) = $2 THEN 0
                         WHEN upper(COALESCE(display_name, '')) = $2 OR upper(COALESCE(trading_symbol, '')) = $2 THEN 0
@@ -259,6 +289,12 @@ async def subscriptions_search(
                   AND im.tier = $2
                   AND (im.expiry_date IS NULL OR im.expiry_date >= CURRENT_DATE)
                 ORDER BY
+                    -- Prioritize EQUITY and INDEX instruments first
+                    CASE
+                        WHEN im.instrument_type IN ('EQUITY', 'INDEX') THEN 0
+                        ELSE 1
+                    END,
+                    -- Then match quality
                     CASE
                         WHEN upper(im.symbol) = $3 OR upper(COALESCE(im.underlying, '')) = $3 THEN 0
                         WHEN upper(im.symbol) LIKE ($3 || '%') THEN 1
@@ -288,6 +324,12 @@ async def subscriptions_search(
                  )
                   AND (im.expiry_date IS NULL OR im.expiry_date >= CURRENT_DATE)
                 ORDER BY
+                    -- Prioritize EQUITY and INDEX instruments first
+                    CASE
+                        WHEN im.instrument_type IN ('EQUITY', 'INDEX') THEN 0
+                        ELSE 1
+                    END,
+                    -- Then match quality
                     CASE
                         WHEN upper(im.symbol) = $2 OR upper(COALESCE(im.underlying, '')) = $2 THEN 0
                         WHEN upper(im.symbol) LIKE ($2 || '%') THEN 1

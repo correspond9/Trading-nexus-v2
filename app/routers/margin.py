@@ -365,6 +365,7 @@ async def margin_account(
     # ────────────────────────────────────────────────────────────────────────
     # FIX: Use actual SPAN + Exposure margins instead of percentage approximations
     # This ensures consistency with order placement margin checks
+    # ALSO: Include pending orders margin to prevent over-leveraging
     # ────────────────────────────────────────────────────────────────────────
     row = await pool.fetchrow(
         """
@@ -379,11 +380,12 @@ async def margin_account(
                     pp.quantity,
                     pp.product_type
                 )
-            ) FILTER (WHERE pp.status='OPEN' AND pp.quantity != 0), 0) AS used_margin
+            ) FILTER (WHERE pp.status='OPEN' AND pp.quantity != 0), 0) AS positions_margin,
+            COALESCE(calculate_pending_orders_margin(pa.user_id), 0) AS pending_orders_margin
         FROM paper_accounts pa
         LEFT JOIN paper_positions pp ON pp.user_id = pa.user_id
         WHERE pa.user_id = $1::uuid
-        GROUP BY pa.balance, pa.margin_allotted
+        GROUP BY pa.user_id, pa.balance, pa.margin_allotted
         """,
         uid,
     )
@@ -401,10 +403,14 @@ async def margin_account(
 
     wallet_balance  = float(row["wallet_balance"]  or 0)
     margin_allotted = float(row["margin_allotted"] or 0)
-    used_margin     = float(row["used_margin"]     or 0)
+    positions_margin = float(row["positions_margin"] or 0)
+    pending_orders_margin = float(row["pending_orders_margin"] or 0)
+    
+    # Total used margin includes both open positions AND pending orders
+    used_margin = positions_margin + pending_orders_margin
 
     # Calculate available margin consistently with order placement logic
-    # Available Margin = Allotted Margin - Used Margin (no wallet fallback)
+    # Available Margin = Allotted Margin - Used Margin (positions + pending orders)
     available = margin_allotted - used_margin
 
     return {

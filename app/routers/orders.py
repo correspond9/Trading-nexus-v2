@@ -616,7 +616,8 @@ async def place_paper_order(
                         raise HTTPException(status_code=403, detail="No margin account found for this user.")
 
                     try:
-                        used_margin = await conn.fetchval(
+                        # Calculate used margin from positions + pending orders
+                        positions_margin = await conn.fetchval(
                             """
                             SELECT COALESCE(SUM(
                                 calculate_position_margin(
@@ -634,6 +635,16 @@ async def place_paper_order(
                             """,
                             user_id,
                         )
+                        
+                        # Add margin reserved by pending orders
+                        pending_orders_margin = await conn.fetchval(
+                            """
+                            SELECT COALESCE(calculate_pending_orders_margin($1::uuid), 0)
+                            """,
+                            user_id,
+                        )
+                        
+                        used_margin = float(positions_margin or 0) + float(pending_orders_margin or 0)
                     except Exception as margin_exc:
                         # Fallback for environments where DB margin function is missing/outdated.
                         log.warning("Used-margin function unavailable; falling back to notional calc: %s", margin_exc)

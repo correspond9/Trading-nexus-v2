@@ -32,6 +32,7 @@ def _next_4pm_ist(now_ist: datetime) -> datetime:
 
 @dataclass
 class ArchiveResult:
+    cancelled_stale_orders: int
     archived_positions: int
     archived_orders: int
 
@@ -66,6 +67,20 @@ class EodClosedPositionArchiver:
     async def run_once(self) -> ArchiveResult:
         pool = get_pool()
         async with pool.acquire() as conn:
+            # cancel all active orders from previous trading days
+            # so they stop reserving margin overnight and remain visible as resolved history
+            cancel_status = await conn.execute(
+                """
+                UPDATE paper_orders
+                SET status = 'CANCELLED',
+                    updated_at = NOW(),
+                    archived_at = COALESCE(archived_at, NOW())
+                WHERE archived_at IS NULL
+                  AND DATE(placed_at AT TIME ZONE 'Asia/Kolkata') < CURRENT_DATE
+                  AND status::text IN ('PENDING', 'OPEN', 'PARTIAL', 'PARTIAL_FILL', 'PARTIALLY_FILLED')
+                """
+            )
+
             # archive all CLOSED positions that are not already archived
             pos_status = await conn.execute(
                 """
@@ -89,6 +104,11 @@ class EodClosedPositionArchiver:
         
         # asyncpg returns e.g. "UPDATE 123"
         try:
+            cancelled_stale_orders = int(str(cancel_status).split()[-1])
+        except Exception:
+            cancelled_stale_orders = 0
+
+        try:
             archived_positions = int(str(pos_status).split()[-1])
         except Exception:
             archived_positions = 0
@@ -98,7 +118,11 @@ class EodClosedPositionArchiver:
         except Exception:
             archived_orders = 0
             
-        return ArchiveResult(archived_positions=archived_positions, archived_orders=archived_orders)
+        return ArchiveResult(
+            cancelled_stale_orders=cancelled_stale_orders,
+            archived_positions=archived_positions,
+            archived_orders=archived_orders,
+        )
 
     async def _loop(self) -> None:
         while not self._stop.is_set():
@@ -123,7 +147,8 @@ class EodClosedPositionArchiver:
                 self.last_run_result = res
                 self.last_run_error = None
                 log.info(
-                    "EOD archiver: archived %s CLOSED position(s) and %s order(s).",
+                    "EOD archiver: cancelled %s stale active order(s), archived %s CLOSED position(s), archived %s order(s).",
+                    res.cancelled_stale_orders,
                     res.archived_positions,
                     res.archived_orders,
                 )

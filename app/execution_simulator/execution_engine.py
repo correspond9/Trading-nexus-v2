@@ -208,7 +208,7 @@ async def cancel_order(order_id: str, user_id: str) -> dict:
     
     # Clear depth snapshot for cancelled orders
     from app.execution_simulator.partial_fill_monitor import partial_fill_monitor
-    partial_fill_monitor.clear_snapshot(row["id"])
+    partial_fill_monitor.clear_snapshot(order_id)
     
     row_data = dict(row)
     qty = int(row_data.get("quantity") or 0)
@@ -392,14 +392,9 @@ async def _persist_fills(
         
         # Clear depth snapshot if order fully filled
         if remaining_after == 0:
-            # Get paper_orders.id (integer PK) for snapshot cleanup
-            order_row = await conn.fetchrow(
-                "SELECT id FROM paper_orders WHERE order_id = $1",
-                order_id
-            )
-            if order_row:
-                from app.execution_simulator.partial_fill_monitor import partial_fill_monitor
-                partial_fill_monitor.clear_snapshot(order_row["id"])
+            # Clear snapshot for fully filled orders
+            from app.execution_simulator.partial_fill_monitor import partial_fill_monitor
+            partial_fill_monitor.clear_snapshot(order_id)
 
         # Trade records
         for fill in fills:

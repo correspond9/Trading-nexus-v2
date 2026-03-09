@@ -80,7 +80,7 @@ class _PartialFillMonitor:
         rows = await pool.fetch(
             """
             SELECT 
-                po.id,
+                po.order_id,
                 po.user_id,
                 po.instrument_token,
                 po.transaction_type,
@@ -111,7 +111,7 @@ class _PartialFillMonitor:
 
     async def _check_single_order(self, order: dict) -> None:
         """Check one order and re-execute if depth conditions are met."""
-        order_id = order["id"]
+        order_id = order["order_id"]
         instrument_token = order["instrument_token"]
         transaction_type = order["transaction_type"]
         order_type = order.get("order_type", "MARKET")
@@ -221,9 +221,9 @@ class _PartialFillMonitor:
         from app.database import get_pool
         from decimal import Decimal
         
-        order_id = order["id"]  # integer PK
+        order_id = order["order_id"]  # UUID string
         user_id = order["user_id"]
-        order_uuid = str(order_id)  # Convert to string for logging
+        order_uuid = order_id  # Already a string UUID
         instrument_token = order["instrument_token"]
         remaining_qty = order["quantity"] - order["filled_quantity"]
         
@@ -347,10 +347,7 @@ class _PartialFillMonitor:
                         INSERT INTO paper_trades
                             (order_id, user_id, instrument_token, exchange_segment, symbol,
                              side, fill_qty, fill_price, slippage)
-                        VALUES (
-                            (SELECT order_id FROM paper_orders WHERE id=$1),
-                            $2,$3,$4,$5,$6,$7,$8,$9
-                        )
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
                         """,
                         order_id, user_id, instrument_token, 
                         _o.exchange_segment, _o.symbol,
@@ -379,7 +376,7 @@ class _PartialFillMonitor:
                 exc_info=True
             )
 
-    def clear_snapshot(self, order_id: int) -> None:
+    def clear_snapshot(self, order_id: str) -> None:
         """Clear depth snapshot when order is fully filled or cancelled."""
         _depth_snapshots.pop(order_id, None)
 

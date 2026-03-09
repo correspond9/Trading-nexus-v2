@@ -40,6 +40,7 @@ const TradeHistoryPage = () => {
   const [toDate, setToDate] = useState(today());
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [showRejected, setShowRejected] = useState(false);
   const [sortConfig, setSortConfig] = useState({ key: "placed_at", direction: "desc" });
   const [selectedTradeId, setSelectedTradeId] = useState(null);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
@@ -57,23 +58,62 @@ const TradeHistoryPage = () => {
       const params = {
         from_date: fromDate,
         to_date: toDate,
-        // No user_id parameter - API will use current user from auth context
       };
-      
-      const res = await apiService.get('/trading/orders/executed', params);
-      const filledOrders = Array.isArray(res?.data)
-        ? res.data
-        : Array.isArray(res?.data?.data)
-          ? res.data.data
-          : [];
-      setTrades(filledOrders);
+
+      if (isAdmin) {
+        const usersRes = await apiService.get('/admin/positions/userwise');
+        const users = Array.isArray(usersRes?.data?.data) ? usersRes.data.data : [];
+        const userMap = new Map(
+          users.map((u) => [
+            String(u.user_id || ''),
+            {
+              displayName: u.display_name || u.mobile || '—',
+              mobile: u.mobile || u.user_no || '—',
+            },
+          ])
+        );
+
+        const attachUserMeta = (orders) =>
+          orders.map((o) => {
+            const meta = userMap.get(String(o.user_id || ''));
+            if (!meta) return o;
+            return {
+              ...o,
+              display_name: o.display_name || meta.displayName,
+              user_name: o.user_name || meta.displayName,
+              mobile: o.mobile || meta.mobile,
+            };
+          });
+
+        const filledRes = await apiService.get('/trading/orders/historic/orders', params);
+        const filledOrders = Array.isArray(filledRes?.data?.data) ? filledRes.data.data : [];
+
+        if (showRejected) {
+          const rejectedRes = await apiService.get('/trading/orders/historic/orders', {
+            ...params,
+            status_filter: 'REJECTED',
+          });
+          const rejectedOrders = Array.isArray(rejectedRes?.data?.data) ? rejectedRes.data.data : [];
+          setTrades(attachUserMeta([...filledOrders, ...rejectedOrders]));
+        } else {
+          setTrades(attachUserMeta(filledOrders));
+        }
+      } else {
+        const res = await apiService.get('/trading/orders/executed', params);
+        const filledOrders = Array.isArray(res?.data)
+          ? res.data
+          : Array.isArray(res?.data?.data)
+            ? res.data.data
+            : [];
+        setTrades(filledOrders);
+      }
     } catch (err) {
       console.error('Error fetching trade history:', err);
       setTrades([]);
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, isAdmin, showRejected]);
 
   useEffect(() => {
     fetchTrades();
@@ -120,16 +160,18 @@ const TradeHistoryPage = () => {
   const handleSaveAsCsv = () => {
     const rows = sortedTrades.map((t) => [
       t.placed_at || t.created_at || "",
+      t.display_name || t.user_name || t.mobile || t.user_no || "",
       t.symbol || "",
       t.side || "",
-      t.order_type || t.orderMode || "",
+      `${t.order_type || t.orderMode || ""} (${t.product_type || t.productType || "MIS"})`,
+      t.status || "",
       Number(t.qty || t.quantity || 0),
       Number(t.execution_price || t.price || 0),
     ]);
 
     downloadCsv(
       `trade_history_${fromDate}_to_${toDate}.csv`,
-      ["Date & Time", "Symbol", "Side", "Type", "Qty", "Price"],
+      ["Date & Time", "User", "Symbol", "Side", "Type", "Status", "Qty", "Price"],
       rows,
     );
   };
@@ -150,7 +192,7 @@ const TradeHistoryPage = () => {
     tr: { borderBottom: '1px solid var(--border)', cursor: 'pointer' },
     trSelected: { background: 'var(--surface2)' },
     td: { padding: '10px 12px', color: 'var(--text)', whiteSpace: 'nowrap' },
-    details: { flex: isMobile ? '1 1 auto' : '1 0 300px', width: isMobile ? '100%' : 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', maxHeight: isMobile ? 'none' : '600px', overflowY: 'auto' },
+    details: { flex: isMobile ? '1 1 auto' : '1 0 280px', width: isMobile ? '100%' : 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '10px', maxHeight: isMobile ? 'none' : '420px', overflowY: 'auto' },
     layout: { display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '16px', marginTop: '16px' },
     tableWrapper: { flex: '2 1 0', minWidth: 0 },
   };
@@ -182,6 +224,20 @@ const TradeHistoryPage = () => {
             {loading ? "Loading…" : "Apply"}
           </button>
           {isAdmin && (
+            <button
+              onClick={() => setShowRejected((prev) => !prev)}
+              style={{
+                ...s.csvButton,
+                background: showRejected ? '#7c2d12' : 'var(--surface2)',
+                color: showRejected ? '#fff' : 'var(--text)',
+                borderColor: showRejected ? '#7c2d12' : 'var(--border)',
+              }}
+              title="Show or hide rejected orders"
+            >
+              {showRejected ? 'Hide Rejected' : 'Show Rejected'}
+            </button>
+          )}
+          {isAdmin && (
             <button onClick={handleSaveAsCsv} style={s.csvButton}>
               save as csv
             </button>
@@ -196,9 +252,11 @@ const TradeHistoryPage = () => {
               <thead style={s.thead}>
                 <tr>
                   {sortableHeader("Date & Time", "placed_at")}
+                  {isAdmin && sortableHeader("User", "display_name")}
                   {sortableHeader("Symbol", "symbol")}
                   {sortableHeader("Side", "side")}
                   {sortableHeader("Type", "order_type")}
+                  {sortableHeader("Status", "status")}
                   <th key="quantity" style={{...s.th, textAlign: 'right', color: sortConfig.key === 'quantity' ? 'var(--accent)' : 'var(--muted)'}} onClick={() => onHeaderClick('quantity')}>
                     Qty {sortConfig.key === 'quantity' && <span style={{ marginLeft: 4, fontSize: '10px' }}>{sortConfig.direction === "asc" ? "▲" : "▼"}</span>}
                   </th>
@@ -219,9 +277,23 @@ const TradeHistoryPage = () => {
                       onClick={() => handleRowClick(t.id)}
                     >
                       <td style={s.td}>{formatDateTime(t.placed_at || t.created_at)}</td>
+                      {isAdmin && <td style={s.td}>{t.display_name || t.user_name || t.mobile || t.user_no || '—'}</td>}
                       <td style={{...s.td, fontWeight: 600}}>{t.symbol || '—'}</td>
                       <td style={s.td}><span style={{padding: '2px 8px', borderRadius: '3px', background: t.side === 'BUY' ? '#1e40af33' : '#b91c1c33', color: t.side === 'BUY' ? '#60a5fa' : '#f87171'}}>{t.side}</span></td>
-                      <td style={s.td}>{t.order_type || t.orderMode || '—'}</td>
+                      <td style={s.td}>{`${t.order_type || t.orderMode || '—'} (${t.product_type || t.productType || 'MIS'})`}</td>
+                      <td style={s.td}>
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '3px',
+                            background: t.status === 'REJECTED' ? '#7f1d1d55' : '#065f4655',
+                            color: t.status === 'REJECTED' ? '#fca5a5' : '#6ee7b7',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {t.status || '—'}
+                        </span>
+                      </td>
                       <td style={{...s.td, textAlign: 'right'}}>{qty.toLocaleString('en-IN')}</td>
                       <td style={{...s.td, textAlign: 'right'}}>{formatCurrency(price)}</td>
                     </tr>
@@ -229,8 +301,8 @@ const TradeHistoryPage = () => {
                 })}
                 {sortedTrades.length === 0 && (
                   <tr>
-                    <td colSpan="6" style={{...s.td, textAlign: 'center', padding: '20px', color: 'var(--text)'}}>
-                      No executed trades found for the selected period.
+                    <td colSpan={isAdmin ? "8" : "7"} style={{...s.td, textAlign: 'center', padding: '20px', color: 'var(--text)'}}>
+                      No trades found for the selected period.
                     </td>
                   </tr>
                 )}
@@ -241,33 +313,35 @@ const TradeHistoryPage = () => {
 
         {selectedTrade && (
           <div style={s.details}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text)' }}>Trade Details</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text)' }}>Trade Details</div>
               <button 
                 onClick={() => setSelectedTradeId(null)} 
                 style={{ 
                   background: 'none', 
                   border: '1px solid var(--border)', 
                   borderRadius: '4px', 
-                  padding: '4px 8px', 
+                  padding: '2px 6px', 
                   color: 'var(--muted)', 
                   cursor: 'pointer',
-                  fontSize: '12px',
+                  fontSize: '11px',
                   fontWeight: '600'
                 }}
               >
                 ✕ Close
               </button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
-              <div><span style={{ color: 'var(--muted)' }}>Order ID:</span> <code style={{ fontSize: '10px', background: 'var(--surface2)', padding: '2px 6px', borderRadius: '3px' }}>{selectedTrade.id}</code></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 10px', fontSize: '11px' }}>
+              <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--muted)' }}>Order ID:</span> <code style={{ fontSize: '10px', background: 'var(--surface2)', padding: '2px 5px', borderRadius: '3px' }}>{selectedTrade.id}</code></div>
+              {isAdmin && <div><span style={{ color: 'var(--muted)' }}>User:</span> {selectedTrade.display_name || selectedTrade.user_name || selectedTrade.mobile || selectedTrade.user_no || '—'}</div>}
               <div><span style={{ color: 'var(--muted)' }}>Symbol:</span> {selectedTrade.symbol || '—'}</div>
               <div><span style={{ color: 'var(--muted)' }}>Side:</span> <span style={{ fontWeight: '600', color: selectedTrade.side === 'BUY' ? '#60a5fa' : '#f87171' }}>{selectedTrade.side}</span></div>
-              <div><span style={{ color: 'var(--muted)' }}>Order Type:</span> {selectedTrade.order_type || selectedTrade.orderMode || '—'}</div>
-              <div><span style={{ color: 'var(--muted)' }}>Quantity:</span> {Number(selectedTrade.qty || selectedTrade.quantity || 0).toLocaleString('en-IN')}</div>
-              <div><span style={{ color: 'var(--muted)' }}>Execution Price:</span> {formatCurrency(selectedTrade.execution_price || selectedTrade.price || 0)}</div>
-              <div><span style={{ color: 'var(--muted)' }}>Product Type:</span> {selectedTrade.product_type || selectedTrade.productType || 'MIS'}</div>
-              <div><span style={{ color: 'var(--muted)' }}>Executed At:</span> {formatDateTime(selectedTrade.placed_at || selectedTrade.created_at)}</div>
+              <div><span style={{ color: 'var(--muted)' }}>Status:</span> {selectedTrade.status || '—'}</div>
+              <div><span style={{ color: 'var(--muted)' }}>Type:</span> {selectedTrade.order_type || selectedTrade.orderMode || '—'}</div>
+              <div><span style={{ color: 'var(--muted)' }}>Product:</span> {selectedTrade.product_type || selectedTrade.productType || 'MIS'}</div>
+              <div><span style={{ color: 'var(--muted)' }}>Qty:</span> {Number(selectedTrade.qty || selectedTrade.quantity || 0).toLocaleString('en-IN')}</div>
+              <div><span style={{ color: 'var(--muted)' }}>Price:</span> {formatCurrency(selectedTrade.execution_price || selectedTrade.price || 0)}</div>
+              <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--muted)' }}>Time:</span> {formatDateTime(selectedTrade.placed_at || selectedTrade.created_at)}</div>
             </div>
           </div>
         )}

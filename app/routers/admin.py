@@ -2158,17 +2158,26 @@ async def positions_userwise(
                 FILTER (WHERE fp.status = 'OPEN'), 0)                        AS trial_after,
             pa.balance                                                        AS fund,
             COALESCE(pa.margin_allotted, 0)                                   AS margin_allotted,
-            COALESCE(SUM(
-                CASE
-                    WHEN (fp.exchange_segment ILIKE '%OPT%' OR fp.symbol ILIKE '%CE' OR fp.symbol ILIKE '%PE')
-                        THEN fp.ltp * ABS(fp.quantity)
-                    WHEN (fp.exchange_segment ILIKE '%FUT%' OR fp.symbol ILIKE '%FUT%')
-                        THEN fp.ltp * ABS(fp.quantity) * 0.15
-                    WHEN UPPER(COALESCE(fp.product_type,'MIS')) IN ('MIS','INTRADAY')
-                        THEN fp.ltp * ABS(fp.quantity) * 0.20
-                    ELSE fp.ltp * ABS(fp.quantity) * 1.0
-                END
-            ) FILTER (WHERE fp.status = 'OPEN' AND fp.quantity != 0), 0)     AS current_margin_usage,
+            (
+                COALESCE(SUM(
+                    calculate_position_margin(
+                        fp.instrument_token,
+                        fp.symbol,
+                        fp.exchange_segment,
+                        fp.quantity,
+                        fp.product_type
+                    )
+                ) FILTER (WHERE fp.status = 'OPEN' AND fp.quantity != 0), 0)
+                + COALESCE(calculate_pending_orders_margin(u.id), 0)
+            )                                                                 AS current_margin_usage,
+            COALESCE(calculate_pending_orders_margin(u.id), 0)                 AS pending_reserved_margin,
+            (
+                SELECT COUNT(*)
+                FROM paper_orders po
+                WHERE po.user_id = u.id
+                  AND po.archived_at IS NULL
+                  AND po.status::text IN ('PENDING', 'OPEN', 'PARTIAL', 'PARTIAL_FILL', 'PARTIALLY_FILLED')
+            )                                                                  AS pending_orders_count,
             COALESCE(SUM(fp.realized_pnl), 0)
                 + COALESCE(SUM(fp.mtm_calc) FILTER (WHERE fp.status = 'OPEN'), 0) AS pandl,
             -- Positions JSON
@@ -2233,13 +2242,77 @@ async def positions_userwise(
             "trial_by":            float(r["trial_by"] or 0),
             "trial_after":         float(r["trial_after"] or 0),
             "fund":                float(r["fund"] or 0),
-            "margin_allotted":     float(r["margin_allotted"] or 0),
-            "current_margin_usage":float(r["current_margin_usage"] or 0),
-            "pandl":               pandl,
-            "pandl_pct":           pandl_pct,
-            "positions":           positions,
+            "margin_allotted":       float(r["margin_allotted"] or 0),
+            "current_margin_usage":  float(r["current_margin_usage"] or 0),
+            "pending_reserved_margin":float(r["pending_reserved_margin"] or 0),
+            "pending_orders_count":   int(r["pending_orders_count"] or 0),
+            "pandl":                 pandl,
+            "pandl_pct":             pandl_pct,
+            "positions":             positions,
         })
     return {"data": result}
+
+
+@router.get("/positions/userwise/{user_id}/active-orders")
+async def userwise_active_orders(
+    user_id: str,
+    current_user: CurrentUser = Depends(get_admin_user),
+):
+    """Admin/Super-admin: show active (pending/open/partial) orders for a specific user."""
+    from app.database import get_pool as _get_pool
+
+    pool = _get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT
+            po.order_id,
+            po.user_id,
+            po.instrument_token,
+            po.symbol,
+            po.exchange_segment,
+            po.side,
+            po.order_type,
+            po.product_type,
+            po.status,
+            po.quantity,
+            COALESCE(po.filled_qty, 0) AS filled_qty,
+            GREATEST(po.quantity - COALESCE(po.filled_qty, 0), 0) AS unfilled_qty,
+            COALESCE(po.limit_price, po.fill_price) AS price,
+            po.trigger_price,
+            po.placed_at,
+            po.updated_at
+        FROM paper_orders po
+        WHERE po.user_id = $1::uuid
+          AND po.archived_at IS NULL
+          AND po.status::text IN ('PENDING', 'OPEN', 'PARTIAL', 'PARTIAL_FILL', 'PARTIALLY_FILLED')
+        ORDER BY po.placed_at DESC
+        LIMIT 200
+        """,
+        user_id,
+    )
+
+    data = []
+    for r in rows:
+        data.append({
+            "order_id": str(r["order_id"]),
+            "user_id": str(r["user_id"]),
+            "instrument_token": int(r["instrument_token"] or 0),
+            "symbol": r["symbol"],
+            "exchange_segment": r["exchange_segment"],
+            "side": r["side"],
+            "order_type": r["order_type"],
+            "product_type": r["product_type"],
+            "status": r["status"],
+            "quantity": int(r["quantity"] or 0),
+            "filled_qty": int(r["filled_qty"] or 0),
+            "unfilled_qty": int(r["unfilled_qty"] or 0),
+            "price": float(r["price"]) if r["price"] is not None else None,
+            "trigger_price": float(r["trigger_price"]) if r["trigger_price"] is not None else None,
+            "placed_at": r["placed_at"].isoformat() if r["placed_at"] else None,
+            "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+        })
+
+    return {"data": data}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

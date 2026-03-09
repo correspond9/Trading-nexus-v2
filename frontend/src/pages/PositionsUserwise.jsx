@@ -269,6 +269,9 @@ const PositionsUserwise = () => {
   const [loading,    setLoading]    = useState(true);
   const [sortLabel,  setSortLabel]  = useState("UserId(asc)");
   const [expandedId, setExpandedId] = useState(null); // user_id or null
+  const [expandedOrdersUserId, setExpandedOrdersUserId] = useState(null);
+  const [userActiveOrders, setUserActiveOrders] = useState({});
+  const [ordersLoadingByUser, setOrdersLoadingByUser] = useState({});
   const [liveTickByToken, setLiveTickByToken] = useState({}); // token -> tick data
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
   
@@ -426,6 +429,27 @@ const PositionsUserwise = () => {
   const sorted      = sortRows(rows, sortLabel);
   const toggleExpand = (uid) => setExpandedId(prev => prev === uid ? null : uid);
 
+  const toggleActiveOrders = useCallback(async (uid) => {
+    if (expandedOrdersUserId === uid) {
+      setExpandedOrdersUserId(null);
+      return;
+    }
+    setExpandedOrdersUserId(uid);
+    if (userActiveOrders[uid]) return;
+
+    setOrdersLoadingByUser(prev => ({ ...prev, [uid]: true }));
+    try {
+      const res = await apiService.get(`/admin/positions/userwise/${uid}/active-orders`);
+      const data = res?.data?.data || [];
+      setUserActiveOrders(prev => ({ ...prev, [uid]: data }));
+    } catch (err) {
+      console.error('Failed to load active orders:', err);
+      setUserActiveOrders(prev => ({ ...prev, [uid]: [] }));
+    } finally {
+      setOrdersLoadingByUser(prev => ({ ...prev, [uid]: false }));
+    }
+  }, [expandedOrdersUserId, userActiveOrders]);
+
   const SortTH = ({ children, field }) => (
     <th style={TH} title={`Sort by ${field}`}>
       {children}
@@ -502,7 +526,7 @@ const PositionsUserwise = () => {
               <th style={TH}>Overall P&L (Till date)</th>
               <th style={TH}>Wallet Balance</th>
               <th style={TH}>Margin Allotted</th>
-              <th style={TH}>Margin Usage</th>
+              <th style={TH}>Used Margin (Open + Pending)</th>
               <th style={TH}>P&L (Open Only)</th>
               <th style={TH}>P&L % (Open Only)</th>
               <th style={{ ...TH, cursor: "default" }}>Actions</th>
@@ -561,20 +585,38 @@ const PositionsUserwise = () => {
                       {PCT(openOnlyPnLPct)}
                     </td>
                     <td style={TD}>
-                      <button
-                        onClick={() => toggleExpand(r.user_id)}
-                        title={isExpanded ? "Hide positions" : "Show positions"}
-                        style={{
-                          width: "32px", height: "32px", borderRadius: "6px", border: "none",
-                          background: isExpanded ? "var(--surface2)" : "transparent",
-                          color: "#60a5fa", fontSize: "18px", cursor: "pointer",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          transition: "transform 0.2s, background 0.2s",
-                          transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                        }}
-                      >
-                        ⌄
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button
+                          onClick={() => toggleActiveOrders(r.user_id)}
+                          title={expandedOrdersUserId === r.user_id ? 'Hide active orders' : 'Show active orders'}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            background: expandedOrdersUserId === r.user_id ? '#7c3aed' : 'var(--surface2)',
+                            color: expandedOrdersUserId === r.user_id ? '#fff' : 'var(--text)',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Orders ({r.pending_orders_count || 0})
+                        </button>
+                        <button
+                          onClick={() => toggleExpand(r.user_id)}
+                          title={isExpanded ? "Hide positions" : "Show positions"}
+                          style={{
+                            width: "32px", height: "32px", borderRadius: "6px", border: "none",
+                            background: isExpanded ? "var(--surface2)" : "transparent",
+                            color: "#60a5fa", fontSize: "18px", cursor: "pointer",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            transition: "transform 0.2s, background 0.2s",
+                            transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                          }}
+                        >
+                          ⌄
+                        </button>
+                      </div>
                     </td>
                   </tr>
 
@@ -586,6 +628,57 @@ const PositionsUserwise = () => {
                         style={{ padding: 0, borderBottom: "2px solid #2563eb" }}
                       >
                         <UserPositions row={r} onExitDone={load} liveTickByToken={liveTickByToken} />
+                      </td>
+                    </tr>
+                  )}
+
+                  {expandedOrdersUserId === r.user_id && (
+                    <tr>
+                      <td colSpan={9} style={{ padding: 0, borderBottom: "2px solid #7c3aed" }}>
+                        <div style={{ padding: "12px 18px", background: "var(--surface)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                            <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--text)" }}>
+                              Active Orders for <span style={{ color: "#7c3aed" }}>{r.display_name}</span>
+                            </span>
+                            <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                              Pending Count: {r.pending_orders_count || 0}
+                            </span>
+                          </div>
+
+                          <div style={{ overflowX: "auto", borderRadius: "6px", border: "1px solid var(--border)" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "780px" }}>
+                              <thead>
+                                <tr>
+                                  {['Time','Symbol','Side','Type','Product','Qty','Filled','Pending','Price','Status'].map(h => (
+                                    <th key={h} style={SUB_TH}>{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {ordersLoadingByUser[r.user_id] ? (
+                                  <tr><td colSpan={10} style={{ ...SUB_TD, textAlign: 'center', color: 'var(--muted)' }}>Loading active orders…</td></tr>
+                                ) : (userActiveOrders[r.user_id] || []).length === 0 ? (
+                                  <tr><td colSpan={10} style={{ ...SUB_TD, textAlign: 'center', color: 'var(--muted)' }}>No active orders.</td></tr>
+                                ) : (
+                                  (userActiveOrders[r.user_id] || []).map((o) => (
+                                    <tr key={o.order_id}>
+                                      <td style={SUB_TD}>{o.placed_at ? new Date(o.placed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--'}</td>
+                                      <td style={{ ...SUB_TD, fontWeight: 700 }}>{o.symbol}</td>
+                                      <td style={SUB_TD}>{o.side}</td>
+                                      <td style={SUB_TD}>{o.order_type}</td>
+                                      <td style={SUB_TD}>{o.product_type}</td>
+                                      <td style={SUB_TD}>{o.quantity}</td>
+                                      <td style={SUB_TD}>{o.filled_qty}</td>
+                                      <td style={SUB_TD}>{o.unfilled_qty}</td>
+                                      <td style={SUB_TD}>{o.price !== null && o.price !== undefined ? INR(o.price) : '--'}</td>
+                                      <td style={SUB_TD}>{o.status}</td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   )}

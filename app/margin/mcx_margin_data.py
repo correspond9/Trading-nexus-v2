@@ -5,7 +5,7 @@ Downloads and parses MCX (Multi-Commodity Exchange) SPAN margin data daily.
 
 MCX Files downloaded:
   - Daily SPAN Risk Parameter Files from: 
-    https://www.mcxindia.com/education-training/daily-span-risk-parameter-file
+    https://www.mcxccl.com/risk-management/daily-span-risk-parameter-file
   - File pattern: mcxrpf-{YYYYMMDD}-{HHMM}-{SEQUENCE}-i.zip
   - Multiple files per day: Begin Day (05:06 IST) + Intra-day updates (09:30, 11:00, 12:00)
   - We use the Begin Day file (first one after midnight)
@@ -26,7 +26,9 @@ import asyncio
 import csv
 import io
 import logging
+import re
 import zipfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta, date as date_type
 from typing import Optional
@@ -57,8 +59,8 @@ IST = timezone(timedelta(hours=5, minutes=30))
 # ────────────────────────────────────────────────────────────────────────────
 
 # MCX SPAN Risk Parameter Files (public download, no auth required)
-# Base URL for daily files
-_MCX_RPF_BASE = "https://www.mcxindia.com/docs/default-source/market-operations/daily-span-risk-parameter-file"
+# Base URL for daily files from MCX Clearing Corporation
+_MCX_RPF_BASE = "https://www.mcxccl.com/risk-management/daily-span-risk-parameter-file"
 
 # File pattern: {YYYY}/{month_name}/mcxrpf-{YYYYMMDD}-{HHMM}-{SEQUENCE}-i.zip
 # Example: 2026/february/mcxrpf-20260220-0506-01-i.zip (Begin Day file at 05:06 IST)
@@ -213,7 +215,7 @@ async def _attempt_download(attempt_date: date_type) -> dict:
     Attempt to download MCX SPAN Risk Parameter File for a specific date.
     
     MCX files are hosted at:
-    https://www.mcxindia.com/docs/default-source/market-operations/daily-span-risk-parameter-file/{YYYY}/{month}/mcxrpf-{YYYYMMDD}-{HHMM}-{SEQUENCE}-i.zip
+    https://www.mcxccl.com/risk-management/daily-span-risk-parameter-file/{YYYY}/{month}/mcxrpf-{YYYYMMDD}-{HHMM}-{SEQUENCE}-i.zip
     
     We download the Begin Day file (SEQUENCE=01, released around 05:06 IST).
     Files are updated daily and several times intra-day (09:30, 11:00, 12:00 IST).
@@ -268,14 +270,27 @@ async def _attempt_download(attempt_date: date_type) -> dict:
             # Successfully downloaded ZIP file
             log.info(f"MCX SPAN file downloaded: {len(resp.content):,} bytes")
             
-            # TODO: Parse ZIP contents and extract SPAN data
-            # MCX files contain Risk Parameter data that needs to be parsed
-            # Format to be confirmed from actual file structure
-            # Expected: commodity symbols, reference prices, scan ranges, CVF values
+            # Parse ZIP contents and extract SPAN data
+            parsed_margins = _parse_mcx_span_zip(resp.content)
+            
+            if not parsed_margins:
+                log.error(f"MCX SPAN file parsing failed for {attempt_date}")
+                return {'success': False, 'error': 'Failed to parse SPAN data from ZIP'}
+            
+            # Update in-memory store
+            _mcx_store.margins.clear()
+            _mcx_store.margins.update(parsed_margins)
+            _mcx_store.last_download = attempt_date
+            _mcx_store.fallback_used = False
+            
+            # Persist to database
+            await _save_to_db(parsed_margins, attempt_date)
+            
+            log.info(f"MCX margin parsing successful: {len(parsed_margins)} symbols loaded")
             
             return {
                 'success': True,
-                'symbol_count': 0,  # TODO: Update after parsing implementation
+                'symbol_count': len(parsed_margins),
                 'file_size': len(resp.content),
                 'url': url,
             }
@@ -283,6 +298,206 @@ async def _attempt_download(attempt_date: date_type) -> dict:
     except Exception as exc:
         log.warning(f"MCX SPAN download attempt failed for {attempt_date}: {exc}")
         return {'success': False, 'error': str(exc)}
+
+
+# ── Parsers ───────────────────────────────────────────────────────────────────
+
+def _parse_mcx_span_zip(zip_content: bytes) -> dict[str, MCXMarginEntry]:
+    """
+    Parse MCX SPAN Risk Parameter ZIP file and extract margin data.
+    
+    MCX ZIP contains .spn XML files with SPAN margin parameters.
+    Format is similar to NSE SPAN XML (SPAN 4.00 standard).
+    
+    Returns: {symbol → MCXMarginEntry}
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_content)) as zf:
+            names = zf.namelist()
+            if not names:
+                log.error("MCX SPAN ZIP is empty")
+                return {}
+            
+            # Find .spn file (SPAN XML file)
+            spn_name = next((n for n in names if n.endswith(".spn")), None)
+            if not spn_name:
+                log.error(f"No .spn file found in MCX ZIP (files: {names})")
+                return {}
+            
+            log.info(f"MCX SPAN: extracting {spn_name}")
+            with zf.open(spn_name) as f:
+                xml_content = f.read()
+            
+            # Parse the XML content
+            return _parse_mcx_span_xml(xml_content)
+    
+    except zipfile.BadZipFile as exc:
+        log.error(f"MCX SPAN ZIP is corrupted: {exc}")
+        return {}
+    except Exception as exc:
+        log.error(f"MCX SPAN ZIP extraction failed: {exc}")
+        return {}
+
+
+def _parse_mcx_span_xml(content_bytes: bytes) -> dict[str, MCXMarginEntry]:
+    """
+    Parse MCX SPAN XML file and extract per-commodity margin parameters.
+    
+    MCX SPAN XML format (SPAN 4.00):
+      <phyPf>
+        <pfCode>GOLD</pfCode>        ← commodity symbol
+        <cvf>100</cvf>               ← contract value factor
+        <phy>
+          <p>62450.00</p>            ← reference price
+          <scanRate>
+            <r>1</r>                 ← rate 1 = initial margin
+            <priceScan>3500.00</priceScan>  ← SPAN scan range
+          </scanRate>
+        </phy>
+      </phyPf>
+    
+    Returns: {symbol → MCXMarginEntry}
+    """
+    result: dict[str, MCXMarginEntry] = {}
+    
+    try:
+        root = ET.fromstring(content_bytes.decode("utf-8", errors="replace"))
+    except ET.ParseError as exc:
+        log.warning(f"MCX SPAN XML parse failed ({exc}); trying regex fallback")
+        return _parse_mcx_span_xml_regex(
+            content_bytes.decode("utf-8", errors="replace")
+        )
+    
+    count = 0
+    for pf in root.iter("phyPf"):
+        pf_code = (pf.findtext("pfCode") or "").strip().upper()
+        if not pf_code:
+            continue
+        
+        # CVF (contract value factor) at portfolio level
+        try:
+            cvf = float(pf.findtext("cvf") or 1.0)
+        except ValueError:
+            cvf = 1.0
+        
+        # Check hardcoded CVF table for overrides
+        if pf_code in _MCX_CVF:
+            cvf = _MCX_CVF[pf_code]
+        
+        # Find <phy> block with scanRate r=1 (initial margin)
+        ref_price = 0.0
+        price_scan = 0.0
+        
+        for phy in pf.findall("phy"):
+            try:
+                ref_price = float(phy.findtext("p") or 0)
+            except ValueError:
+                ref_price = 0.0
+            
+            # Check for CVF override inside phy
+            try:
+                phy_cvf = float(phy.findtext("cvf") or cvf)
+            except ValueError:
+                phy_cvf = cvf
+            
+            # Find rate-1 scanRate (initial margin)
+            for sr in phy.findall("scanRate"):
+                rate_id = (sr.findtext("r") or "").strip()
+                if rate_id != "1":
+                    continue
+                
+                try:
+                    price_scan = float(sr.findtext("priceScan") or 0)
+                except ValueError:
+                    price_scan = 0.0
+                
+                if price_scan > 0:
+                    # Default ELM for MCX commodities
+                    # MCX typically uses 3-5% exposure margin
+                    # Using 3% as conservative default
+                    elm_pct = 3.0
+                    
+                    result[pf_code] = MCXMarginEntry(
+                        symbol=pf_code,
+                        ref_price=ref_price,
+                        price_scan=price_scan,
+                        cvf=phy_cvf if phy_cvf > 0 else cvf,
+                        elm_pct=elm_pct,
+                    )
+                    count += 1
+                    break
+            else:
+                continue
+            break
+    
+    log.info(f"MCX SPAN XML parsed: {count} commodities")
+    return result
+
+
+def _parse_mcx_span_xml_regex(content: str) -> dict[str, MCXMarginEntry]:
+    """
+    Fallback MCX SPAN parser using regex for large files.
+    
+    Used when ElementTree cannot parse the full XML at once.
+    """
+    result: dict[str, MCXMarginEntry] = {}
+    count = 0
+    
+    # Match each <phyPf>...</phyPf> block
+    pf_pattern = re.compile(r"<phyPf>(.*?)</phyPf>", re.DOTALL)
+    
+    def extract_float(tag: str, blob: str) -> float:
+        """Extract float value from XML tag."""
+        match = re.search(rf"<{tag}>([\d.\-]+)</{tag}>", blob)
+        return float(match.group(1)) if match else 0.0
+    
+    for pf_match in pf_pattern.finditer(content):
+        blob = pf_match.group(1)
+        
+        # Extract symbol
+        pf_code_match = re.search(r"<pfCode>([^<]+)</pfCode>", blob)
+        if not pf_code_match:
+            continue
+        symbol = pf_code_match.group(1).strip().upper()
+        
+        # Extract CVF
+        cvf_val = extract_float("cvf", blob)
+        cvf = cvf_val if cvf_val > 0 else 1.0
+        
+        # Check hardcoded CVF
+        if symbol in _MCX_CVF:
+            cvf = _MCX_CVF[symbol]
+        
+        # Find <phy> block
+        phy_match = re.search(r"<phy>(.*?)</phy>", blob, re.DOTALL)
+        if not phy_match:
+            continue
+        
+        phy_blob = phy_match.group(1)
+        ref_price = extract_float("p", phy_blob)
+        
+        # Find rate-1 <scanRate>
+        for sr_match in re.finditer(r"<scanRate>(.*?)</scanRate>", phy_blob, re.DOTALL):
+            sr_blob = sr_match.group(1)
+            if "<r>1</r>" not in sr_blob:
+                continue
+            
+            price_scan = extract_float("priceScan", sr_blob)
+            if price_scan > 0:
+                elm_pct = 3.0  # Default 3% ELM for MCX
+                
+                result[symbol] = MCXMarginEntry(
+                    symbol=symbol,
+                    ref_price=ref_price,
+                    price_scan=price_scan,
+                    cvf=cvf,
+                    elm_pct=elm_pct,
+                )
+                count += 1
+            break
+    
+    log.info(f"MCX SPAN XML (regex) parsed: {count} commodities")
+    return result
 
 
 async def _load_latest_from_db() -> bool:

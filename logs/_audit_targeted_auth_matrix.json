@@ -1,0 +1,114 @@
+[
+  {
+    "endpoint": "GET /auth/me",
+    "GUEST": 401,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 200,
+    "SUPER_USER": 200
+  },
+  {
+    "endpoint": "GET /admin/token/status",
+    "GUEST": 200,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 200,
+    "SUPER_USER": 200
+  },
+  {
+    "endpoint": "GET /admin/ws/status",
+    "GUEST": 200,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 200,
+    "SUPER_USER": 200
+  },
+  {
+    "endpoint": "GET /admin/subscriptions",
+    "GUEST": 200,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 200,
+    "SUPER_USER": 200
+  },
+  {
+    "endpoint": "GET /admin/users",
+    "GUEST": 401,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 403,
+    "SUPER_USER": 403
+  },
+  {
+    "endpoint": "GET /admin/positions/userwise",
+    "GUEST": 401,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 403,
+    "SUPER_USER": 403
+  },
+  {
+    "endpoint": "POST /admin/market-config",
+    "GUEST": 200,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 200,
+    "SUPER_USER": 200
+  },
+  {
+    "endpoint": "GET /market/stream-status",
+    "GUEST": 200,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 200,
+    "SUPER_USER": 200
+  },
+  {
+    "endpoint": "GET /margin/account",
+    "GUEST": 401,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 200,
+    "SUPER_USER": 200
+  },
+  {
+    "endpoint": "POST /margin/calculate",
+    "GUEST": 200,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 200,
+    "SUPER_USER": 200
+  },
+  {
+    "endpoint": "GET /trading/orders",
+    "GUEST": 401,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 200,
+    "SUPER_USER": 200
+  },
+  {
+    "endpoint": "POST /trading/orders",
+    "GUEST": 401,
+    "SUPER_ADMIN": 403,
+    "ADMIN": 403,
+    "USER": 403,
+    "SUPER_USER": 403
+  },
+  {
+    "endpoint": "GET /ledger",
+    "GUEST": 401,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 200,
+    "SUPER_USER": 200
+  },
+  {
+    "endpoint": "GET /payouts",
+    "GUEST": 401,
+    "SUPER_ADMIN": 200,
+    "ADMIN": 200,
+    "USER": 403,
+    "SUPER_USER": 403
+  }
+]

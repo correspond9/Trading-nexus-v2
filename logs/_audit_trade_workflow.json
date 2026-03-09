@@ -1,0 +1,80 @@
+{
+  "super_admin": {
+    "login_status": 200,
+    "user": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "Super Admin",
+      "mobile": "9999999999",
+      "role": "SUPER_ADMIN"
+    },
+    "token": "32e0ade7-173e-4419-9964-207ddfee972f"
+  },
+  "admin": {
+    "login_status": 200,
+    "user": {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "name": "Admin",
+      "mobile": "8888888888",
+      "role": "ADMIN"
+    },
+    "token": "926a08be-4dac-4511-965d-fc2b3e815dcf"
+  },
+  "user": {
+    "login_status": 200,
+    "user": {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "name": "Trader 1",
+      "mobile": "7777777777",
+      "role": "USER"
+    },
+    "token": "1153a8db-b513-49ad-abff-c86447cb5539"
+  },
+  "instrument_search": {
+    "status": 200,
+    "body": "[{\"instrument_token\":48532,\"symbol\":\"NIFTY 07 APR 19200 CALL\",\"exchange_segment\":\"NSE_FNO\",\"display_name\":null,\"trading_symbol\":null,\"underlying\":\"NIFTY\",\"instrument_type\":\"OPTIDX\",\"expiry_date\":\"2026-04-07\",\"strike_price\":19200.0,\"option_type\":\"CE\",\"ltp\":null,\"close\":null,\"token\":48532,\"security_id"
+  },
+  "snapshot_11536": {
+    "status": 404,
+    "body": "{\"detail\":\"Token 11536 not found\"}"
+  },
+  "order_place_idx": {
+    "status": 422,
+    "body": "{\"detail\":[{\"type\":\"string_pattern_mismatch\",\"loc\":[\"body\",\"exchange_segment\"],\"msg\":\"String should match pattern '^(NSE_EQ|NSE_FNO|BSE_EQ|BSE_FNO|MCX_FO|NSE_COM)$'\",\"input\":\"IDX_I\",\"ctx\":{\"pattern\":\"^(NSE_EQ|NSE_FNO|BSE_EQ|BSE_FNO|MCX_FO|NSE_COM)$\"}}]}"
+  },
+  "order_bad_qty": {
+    "status": 422,
+    "body": "{\"detail\":[{\"type\":\"greater_than\",\"loc\":[\"body\",\"quantity\"],\"msg\":\"Input should be greater than 0\",\"input\":0,\"ctx\":{\"gt\":0}}]}"
+  },
+  "order_bad_token_type": {
+    "status": 422,
+    "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"instrument_token\"],\"msg\":\"Value error, invalid literal for int() with base 10: 'abc'\",\"input\":\"abc\",\"ctx\":{\"error\":{}}}]}"
+  },
+  "orders": {
+    "status": 200,
+    "body": "{\"data\":[]}"
+  },
+  "orders_executed": {
+    "status": 200,
+    "body": "{\"data\":[]}"
+  },
+  "orders_historic": {
+    "status": 403,
+    "body": "{\"detail\":\"Only admins can access historic trades.\"}"
+  },
+  "positions": {
+    "status": 200,
+    "body": "{\"data\":[]}"
+  },
+  "pnl_summary": {
+    "status": 200,
+    "body": "{\"unrealized_pnl\":0.0,\"realized_pnl\":0.0,\"total_charges\":0.0,\"net_realized_pnl\":0.0,\"total_pnl\":0.0,\"charge_breakdown\":{\"brokerage\":0.0,\"stt_ctt\":0.0,\"exchange\":0.0,\"sebi\":0.0,\"stamp_duty\":0.0,\"ipft\":0.0,\"gst\":0.0,\"platform_cost\":0.0,\"trade_expense\":0.0}}"
+  },
+  "pnl_historic": {
+    "status": 200,
+    "body": "{\"data\":{\"closed\":[],\"open\":[],\"realized_pnl\":0,\"total_charges\":0,\"net_realized_pnl\":0,\"unrealized_pnl\":0,\"net_pnl\":0,\"closed_count\":0,\"open_count\":0,\"from_date\":\"2026-03-09\",\"to_date\":\"2026-03-09\"}}"
+  },
+  "ledger": {
+    "status": 200,
+    "body": "{\"data\":[]}"
+  }
+}

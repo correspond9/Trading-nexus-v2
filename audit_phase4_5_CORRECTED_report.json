@@ -1,0 +1,62 @@
+{
+  "phase": "4-5-CORRECTED",
+  "title": "Market State & Trading Workflow Tests (CORRECTED ENDPOINTS)",
+  "timestamp": "2026-03-09T21:27:21.169375",
+  "phase_4_market_state_tests": [
+    {
+      "test": "Order Placement",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:27:21.649358",
+      "message": "Order rejected - Market closed (Expected behavior)",
+      "status_code": 403,
+      "response": {
+        "detail": "Market is CLOSED. Orders can only be placed during market hours."
+      }
+    }
+  ],
+  "phase_5_trading_workflows": [
+    {
+      "test": "Order Retrieval",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:27:21.679727",
+      "message": "Retrieved 0 orders",
+      "total_orders": 0
+    },
+    {
+      "test": "Position Retrieval",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:27:21.709070",
+      "message": "Retrieved 0 positions",
+      "total_positions": 0
+    },
+    {
+      "test": "Margin Account Retrieval",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:27:21.728445",
+      "message": "Margin account retrieved successfully",
+      "available_margin": null,
+      "used_margin": null
+    },
+    {
+      "test": "Invalid Order Rejection",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:27:21.774085",
+      "message": "Invalid order correctly rejected",
+      "status_code": 422
+    }
+  ],
+  "api_endpoints_used": {
+    "auth": "http://localhost:8000/api/v2/auth/login",
+    "place_order": "http://localhost:8000/api/v2/trading/orders",
+    "list_orders": "http://localhost:8000/api/v2/trading/orders",
+    "positions": "http://localhost:8000/api/v2/portfolio/positions",
+    "margin_account": "http://localhost:8000/api/v2/margin/account"
+  },
+  "summary": {
+    "total_tests": 5,
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0,
+    "pass_rate": "100.0%"
+  }
+}

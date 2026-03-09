@@ -271,8 +271,8 @@ export default function RegisterPage() {
               </div>
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-[var(--neo-text-muted)] mb-1">Email Us</p>
-                <a href="mailto:info@tradewithstraddly.com" className="text-xs font-bold text-[var(--neo-text-main)] hover:text-blue-500">
-                  info@tradewithstraddly.com
+                <a href="mailto:info@tradingnexus.pro" className="text-xs font-bold text-[var(--neo-text-main)] hover:text-blue-500">
+                  info@tradingnexus.pro
                 </a>
               </div>
             </div>

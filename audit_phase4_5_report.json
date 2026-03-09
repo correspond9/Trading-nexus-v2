@@ -1,0 +1,51 @@
+{
+  "phase": "4-5",
+  "title": "Market State & Trading Workflow Tests",
+  "timestamp": "2026-03-09T20:40:30.257131",
+  "phase_4_market_state_tests": [
+    {
+      "test": "Order Placement",
+      "status": "FAIL",
+      "timestamp": "2026-03-09T20:40:30.527206",
+      "message": "Failed with status 404",
+      "response": "{\"detail\":\"Not Found\"}"
+    }
+  ],
+  "phase_5_trading_workflows": [
+    {
+      "test": "Order Retrieval",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:40:30.543749",
+      "message": "Retrieved 1 orders",
+      "total_orders": 1
+    },
+    {
+      "test": "Position Retrieval",
+      "status": "FAIL",
+      "timestamp": "2026-03-09T20:40:30.548533",
+      "message": "Failed with status 404"
+    },
+    {
+      "test": "Margin Account Retrieval",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:40:30.575226",
+      "message": "Margin account retrieved successfully",
+      "available_margin": null,
+      "used_margin": null
+    },
+    {
+      "test": "Invalid Order Rejection",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:40:30.579237",
+      "message": "Invalid order correctly rejected",
+      "status_code": 404
+    }
+  ],
+  "summary": {
+    "total_tests": 5,
+    "passed": 3,
+    "failed": 2,
+    "skipped": 0,
+    "pass_rate": "60.0%"
+  }
+}

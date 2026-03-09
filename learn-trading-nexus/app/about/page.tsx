@@ -171,8 +171,8 @@ export default function AboutPage() {
                                     </div>
                                     <div>
                                         <p className="text-[10px] font-black uppercase tracking-widest text-[var(--neo-text-muted)] mb-1">Email</p>
-                                        <a href="mailto:info@tradewithstraddly.com" className="text-base font-bold text-[var(--neo-text-main)] hover:text-blue-500 transition-colors">
-                                            info@tradewithstraddly.com
+                                        <a href="mailto:info@tradingnexus.pro" className="text-base font-bold text-[var(--neo-text-main)] hover:text-blue-500 transition-colors">
+                                            info@tradingnexus.pro
                                         </a>
                                     </div>
                                 </div>

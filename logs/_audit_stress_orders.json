@@ -1,0 +1,39 @@
+{
+  "count": 20,
+  "statuses": {
+    "403": 20
+  },
+  "slow_over_1000ms": 0,
+  "samples": [
+    {
+      "i": 1,
+      "status": 403,
+      "ms": 74.51,
+      "body": "{\"detail\":\"Market is CLOSED. Orders can only be placed during market hours.\"}"
+    },
+    {
+      "i": 2,
+      "status": 403,
+      "ms": 8.45,
+      "body": "{\"detail\":\"Market is CLOSED. Orders can only be placed during market hours.\"}"
+    },
+    {
+      "i": 3,
+      "status": 403,
+      "ms": 51.94,
+      "body": "{\"detail\":\"Market is CLOSED. Orders can only be placed during market hours.\"}"
+    },
+    {
+      "i": 4,
+      "status": 403,
+      "ms": 92.51,
+      "body": "{\"detail\":\"Market is CLOSED. Orders can only be placed during market hours.\"}"
+    },
+    {
+      "i": 5,
+      "status": 403,
+      "ms": 7.55,
+      "body": "{\"detail\":\"Market is CLOSED. Orders can only be placed during market hours.\"}"
+    }
+  ]
+}

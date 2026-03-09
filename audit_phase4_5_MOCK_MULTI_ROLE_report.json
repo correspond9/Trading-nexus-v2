@@ -1,0 +1,45 @@
+{
+  "phase": "4-5-MOCK-MULTI-ROLE",
+  "title": "Market State & Trading Workflow Tests (Mock Engine, Multi-Role)",
+  "timestamp": "2026-03-09T22:47:06.401405",
+  "test_environment": "LOCAL_DOCKER_WITH_MOCK_DHAN_ENGINE",
+  "roles_tested": [
+    "USER",
+    "SUPER_USER"
+  ],
+  "test_results_by_role": {
+    "USER": {
+      "phase_4_market_state_tests": [],
+      "phase_5_trading_workflows": []
+    },
+    "SUPER_USER": {
+      "phase_4_market_state_tests": [],
+      "phase_5_trading_workflows": []
+    }
+  },
+  "api_endpoints_used": {
+    "auth": "http://localhost:8000/api/v2/auth/login",
+    "place_order": "http://localhost:8000/api/v2/trading/orders",
+    "list_orders": "http://localhost:8000/api/v2/trading/orders",
+    "positions": "http://localhost:8000/api/v2/portfolio/positions",
+    "margin_account": "http://localhost:8000/api/v2/margin/account"
+  },
+  "summary_by_role": {
+    "USER": {
+      "total_tests": 0,
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "warned": 0,
+      "pass_rate": "0%"
+    },
+    "SUPER_USER": {
+      "total_tests": 0,
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "warned": 0,
+      "pass_rate": "0%"
+    }
+  }
+}

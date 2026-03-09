@@ -1,0 +1,19 @@
+{
+  "live_status": 200,
+  "picked": {
+    "token": 45535,
+    "price": 634.68
+  },
+  "place_limit": {
+    "status": 201,
+    "body": "{\"order_id\":\"f4a18e28-6e62-4fd9-9d96-aeb4582424bf\",\"status\":\"PENDING\",\"limit_price\":634.68}"
+  },
+  "orders_after": {
+    "status": 200,
+    "body": "{\"data\":[{\"order_id\":\"f4a18e28-6e62-4fd9-9d96-aeb4582424bf\",\"user_id\":\"00000000-0000-0000-0000-000000000003\",\"instrument_token\":45535,\"symbol\":null,\"exchange_segment\":\"NSE_FNO\",\"side\":\"BUY\",\"order_type\":\"LIMIT\",\"quantity\":1,\"trigger_price\":null,\"limit_price\":634.68,\"fill_price\":634.68,\"filled_qty\":0,\"status\":\"PENDING\",\"placed_at\":\"2026-03-09T14:45:05.539170+00:00\",\"filled_at\":null,\"transaction_type\":\"BUY\",\"product_type\":\"MIS\",\"security_id\":45535,\"is_super\":false,\"target_price\":null,\"stop_loss_price\":null,\"trailing_jump\":null,\"archived_at\":null,\"updated_at\":\"2026-03-09T14:45:05.539170+00:00\",\"id\":\"f4a18e28-6e62-4fd9-9d96-aeb4582424bf\",\"price\":634.68},{\"order_id\":\"c19ac010-632b-4ac2-abaf-46b937cb7ed6\",\"user_id\":\"00000000-0000-0000-0000-000000000003\",\"instrument_token\":45321,\"symbol\":null,\"exchange_segment\":\"NSE_FNO\",\"side\":\"BUY\",\"order_type\":\"LIMIT\",\"quantity\":1,\"trigger_price\":null,\"limit"
+  },
+  "cancel_first": {
+    "status": 200,
+    "body": "{\"success\":true,\"order_id\":\"f4a18e28-6e62-4fd9-9d96-aeb4582424bf\"}"
+  }
+}

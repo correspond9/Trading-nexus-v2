@@ -1090,14 +1090,25 @@ async def list_orders(
         q += f" AND status=${len(args)+1}"
         args.append(status_filter.upper())
     
-    # Filter by date range if provided
-    if from_date:
-        q += f" AND DATE(placed_at AT TIME ZONE 'Asia/Kolkata') >= ${len(args)+1}"
-        args.append(datetime.strptime(from_date, '%Y-%m-%d').date())
-    
-    if to_date:
-        q += f" AND DATE(placed_at AT TIME ZONE 'Asia/Kolkata') <= ${len(args)+1}"
-        args.append(datetime.strptime(to_date, '%Y-%m-%d').date())
+    # Filter by date range if provided.
+    # Keep ACTIVE orders visible regardless of date so old pending/open orders
+    # are not hidden from users when UI requests only today's orders.
+    if from_date or to_date:
+        date_parts = []
+        if from_date:
+            date_parts.append(f"DATE(placed_at AT TIME ZONE 'Asia/Kolkata') >= ${len(args)+1}")
+            args.append(datetime.strptime(from_date, '%Y-%m-%d').date())
+        if to_date:
+            date_parts.append(f"DATE(placed_at AT TIME ZONE 'Asia/Kolkata') <= ${len(args)+1}")
+            args.append(datetime.strptime(to_date, '%Y-%m-%d').date())
+
+        date_clause = " AND ".join(date_parts) if date_parts else "TRUE"
+        q += (
+            " AND ("
+            "status::text IN ('PENDING','OPEN','PARTIAL','PARTIAL_FILL','PARTIALLY_FILLED')"
+            f" OR ({date_clause})"
+            ")"
+        )
     
     # Filter to only current session if requested
     if current_session_only:

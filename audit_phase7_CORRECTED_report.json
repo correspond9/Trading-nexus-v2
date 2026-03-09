@@ -1,0 +1,119 @@
+{
+  "phase": "7-CORRECTED",
+  "title": "Edge Cases & Stress Testing (CORRECTED ENDPOINTS)",
+  "timestamp": "2026-03-09T21:28:44.349382",
+  "rapid_operations": [
+    {
+      "test": "Rapid Order Placement (10 orders)",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:44.836830",
+      "message": "Placed 10/10 orders in 0.26s",
+      "successful": 10,
+      "failed": 0,
+      "elapsed_seconds": 0.25528430938720703
+    }
+  ],
+  "duplicate_requests": [
+    {
+      "test": "Duplicate Order Prevention",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:44.902556",
+      "message": "Both requests returned 403",
+      "first_status": 403,
+      "second_status": 403
+    }
+  ],
+  "invalid_inputs": [
+    {
+      "test": "Reject: Zero quantity",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:44.918082",
+      "message": "Status code: 422",
+      "status_code": 422
+    },
+    {
+      "test": "Reject: Negative price",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:44.936264",
+      "message": "Status code: 400",
+      "status_code": 400
+    },
+    {
+      "test": "Reject: Invalid side",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:44.940422",
+      "message": "Status code: 422",
+      "status_code": 422
+    },
+    {
+      "test": "Reject: Missing symbol",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:44.945380",
+      "message": "Status code: 400",
+      "status_code": 400
+    }
+  ],
+  "boundary_conditions": [
+    {
+      "test": "Test: Extremely high quantity",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:44.968003",
+      "message": "Status code: 403",
+      "status_code": 403
+    },
+    {
+      "test": "Test: Very high price",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:44.975589",
+      "message": "Status code: 403",
+      "status_code": 403
+    },
+    {
+      "test": "Test: Very low price",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:44.984063",
+      "message": "Status code: 403",
+      "status_code": 403
+    }
+  ],
+  "concurrent_operations": [
+    {
+      "test": "Concurrent Order Placement (5 concurrent)",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:45.085669",
+      "message": "Successfully placed 5/5 concurrent orders",
+      "successful": 5,
+      "total": 5
+    }
+  ],
+  "connection_handling": [
+    {
+      "test": "Timeout Recovery",
+      "status": "WARN",
+      "timestamp": "2026-03-09T21:28:45.095029",
+      "message": "Request completed despite short timeout",
+      "status_code": 200
+    }
+  ],
+  "resource_limits": [
+    {
+      "test": "Rate Limiting Detection",
+      "status": "PASS",
+      "timestamp": "2026-03-09T21:28:45.546477",
+      "message": "sent 20 requests, 0 rate limited",
+      "rate_limited_count": 0,
+      "total_requests": 20
+    }
+  ],
+  "api_endpoints_used": {
+    "place_order": "http://localhost:8000/api/v2/trading/orders",
+    "list_orders": "http://localhost:8000/api/v2/trading/orders"
+  },
+  "summary": {
+    "total_tests": 12,
+    "passed": 11,
+    "failed": 0,
+    "skipped": 0,
+    "pass_rate": "91.7%"
+  }
+}

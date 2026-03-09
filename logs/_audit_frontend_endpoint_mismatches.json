@@ -1,0 +1,10 @@
+[
+  {
+    "endpoint": "/api/v2/admin/credentials/switch-mode",
+    "file": "frontend/src/hooks/useAuthSettings.js"
+  },
+  {
+    "endpoint": "/api/v2/admin/force-subscription-rollover",
+    "file": "frontend/src/pages/SuperAdmin.jsx"
+  }
+]

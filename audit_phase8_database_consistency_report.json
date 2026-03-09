@@ -1,0 +1,137 @@
+{
+  "phase": "8",
+  "title": "Database Consistency Audit",
+  "timestamp": "2026-03-09T20:44:14.945348",
+  "database_accessibility": [
+    {
+      "test": "Database Connection",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:44:14.962038",
+      "message": "Connected to trading_nexus at 127.0.0.1:5432",
+      "host": "127.0.0.1",
+      "port": 5432,
+      "database": "trading_nexus"
+    }
+  ],
+  "schema_validation": [
+    {
+      "test": "Schema Validity",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:44:14.966538",
+      "message": "Found 36 tables in schema",
+      "tables": [
+        "option_chain_data",
+        "background_jobs",
+        "bse_span_margin_cache",
+        "exchange_holidays",
+        "execution_log",
+        "brokerage_plans",
+        "ledger_entries",
+        "margin_download_logs",
+        "market_data",
+        "mcx_span_margin_cache",
+        "paper_positions",
+        "payout_requests",
+        "elm_margin_cache",
+        "basket_orders",
+        "paper_accounts",
+        "paper_trades",
+        "instrument_master",
+        "paper_orders",
+        "span_download_log",
+        "subscription_lists",
+        "system_notifications",
+        "system_config",
+        "span_margin_cache",
+        "subscription_state",
+        "ui_theme_definitions",
+        "user_sessions",
+        "v_current_paper_orders",
+        "watchlists",
+        "basket_order_legs",
+        "watchlist_items",
+        "portal_users",
+        "close_price_rollover_log",
+        "v_positions_with_margin",
+        "users",
+        "v_archived_paper_orders",
+        "v_user_margin_summary"
+      ],
+      "table_count": 36
+    },
+    {
+      "test": "Primary Key Definitions",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:44:14.972134",
+      "message": "Found 32 tables with primary keys",
+      "table_count": 32
+    }
+  ],
+  "foreign_key_integrity": [
+    {
+      "test": "Foreign Key Definition",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:44:14.974718",
+      "message": "Found 11 foreign key relationships",
+      "fk_count": 11
+    },
+    {
+      "test": "Orphaned Records Check",
+      "status": "SKIP",
+      "timestamp": "2026-03-09T20:44:14.975772",
+      "message": "Orders or users table not found: relation \"orders\" does not exist\nLINE 3:          "
+    }
+  ],
+  "data_consistency": [
+    {
+      "test": "NOT NULL Constraints",
+      "status": "FAIL",
+      "timestamp": "2026-03-09T20:44:14.976864",
+      "message": "Error: current transaction is aborted, commands ignored until end of transaction block\n"
+    },
+    {
+      "test": "UNIQUE Constraints",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:44:14.979740",
+      "message": "Found 10 UNIQUE constraints",
+      "constraint_count": 10
+    }
+  ],
+  "indexes_and_performance": [
+    {
+      "test": "Index Definition",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:44:14.985041",
+      "message": "Found 110 indexes",
+      "index_count": 110
+    },
+    {
+      "test": "Table Size Metrics",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:44:14.997254",
+      "message": "Analyzed 32 tables",
+      "table_count": 32
+    }
+  ],
+  "transaction_handling": [
+    {
+      "test": "Transaction Rollback",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:44:14.999641",
+      "message": "Transaction rollback successful"
+    },
+    {
+      "test": "Transaction Commit",
+      "status": "PASS",
+      "timestamp": "2026-03-09T20:44:15.001932",
+      "message": "Transaction commit successful"
+    }
+  ],
+  "summary": {
+    "total_tests": 11,
+    "passed": 9,
+    "failed": 1,
+    "skipped": 1,
+    "pass_rate": "81.8%"
+  }
+}

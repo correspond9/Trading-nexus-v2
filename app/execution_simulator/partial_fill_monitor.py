@@ -114,6 +114,8 @@ class _PartialFillMonitor:
         order_id = order["id"]
         instrument_token = order["instrument_token"]
         transaction_type = order["transaction_type"]
+        order_type = order.get("order_type", "MARKET")
+        limit_price = order.get("limit_price")
         
         # Get current market depth
         pool = get_pool()
@@ -138,8 +140,33 @@ class _PartialFillMonitor:
         if not depth_side:
             return
         
-        # Get top 2 quantities by size (not by price)
-        sorted_by_qty = sorted(depth_side, key=lambda x: x.get("qty", 0), reverse=True)
+        # Filter depth by limit price for LIMIT orders
+        # MARKET orders: use all available depth
+        # LIMIT orders: only monitor depth at valid prices
+        if order_type in ("LIMIT", "SLL", "SLM") and limit_price is not None:
+            eligible_depth = []
+            for level in depth_side:
+                price = level.get("price")
+                if price is None:
+                    continue
+                
+                # BUY LIMIT: only levels at or below limit price
+                if transaction_type == "BUY" and price <= limit_price:
+                    eligible_depth.append(level)
+                # SELL LIMIT: only levels at or above limit price
+                elif transaction_type == "SELL" and price >= limit_price:
+                    eligible_depth.append(level)
+            
+            depth_to_monitor = eligible_depth
+        else:
+            # MARKET orders: monitor all depth
+            depth_to_monitor = depth_side
+        
+        if not depth_to_monitor:
+            return
+        
+        # Get top 2 quantities by size from eligible depth
+        sorted_by_qty = sorted(depth_to_monitor, key=lambda x: x.get("qty", 0), reverse=True)
         top_2_qtys = tuple(
             level.get("qty", 0)
             for level in sorted_by_qty[:2]
@@ -165,8 +192,12 @@ class _PartialFillMonitor:
         # 1. Top 2 quantities have changed
         # 2. New max <= old max (signals consumption, not addition)
         if top_2_qtys != old_snapshot and current_top_1 <= old_top_1:
+            depth_info = ""
+            if order_type in ("LIMIT", "SLL", "SLM") and limit_price:
+                depth_info = f" (filtered by limit={limit_price})"
+            
             log.info(
-                f"Order {order_id}: Depth trigger met. "
+                f"Order {order_id} ({order_type}): Depth trigger met{depth_info}. "
                 f"Old top 2: ({old_top_1}, {old_top_2}), "
                 f"New top 2: ({current_top_1}, {current_top_2}). "
                 f"Re-executing partial fill..."

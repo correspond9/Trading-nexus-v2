@@ -66,6 +66,11 @@ const PositionsTab = ({ productFilter = null }) => {
   const [exitSubmitting, setExitSubmitting] = useState(false);
   const [exitError, setExitError] = useState('');
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
+  const [allUsers, setAllUsers] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState(null);
+  const [selectedUserName, setSelectedUserName] = useState('All Users');
+  const [pendingOrders, setPendingOrders] = useState([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 900);
@@ -80,6 +85,14 @@ const PositionsTab = ({ productFilter = null }) => {
         const users = res?.data?.data || res?.data || [];
         const normalizedFilter = String(productFilter || 'MIS').toUpperCase();
         const mapped = [];
+
+        // Also populate users list for filter dropdown
+        const usersList = users.map(u => ({
+          user_id: String(u.user_id || ''),
+          mobile: String(u.mobile || u.user_no || ''),
+          name: u.display_name || u.mobile || String(u.user_id || '')
+        }));
+        setAllUsers(usersList);
 
         users.forEach((userRow) => {
           const userId = String(userRow.user_id || '');
@@ -159,7 +172,73 @@ const PositionsTab = ({ productFilter = null }) => {
     } catch (err) { console.error('Error fetching positions:', err); }
   }, [isAdminScopedView, productFilter, user?.id, user?.mobile, user?.name]);
 
-  useEffect(() => { fetchPositions(); }, [fetchPositions]);
+  const fetchPendingOrders = useCallback(async (userId = null) => {
+    if (!isAdminScopedView) {
+      setPendingOrders([]);
+      return;
+    }
+
+    setLoadingOrders(true);
+    try {
+      if (userId) {
+        // Fetch for specific user
+        const res = await apiService.get(`/admin/positions/userwise/${userId}/active-orders`);
+        const orders = res?.data?.data || res?.data || [];
+        setPendingOrders(Array.isArray(orders) ? orders : []);
+      } else {
+        // Fetch for all users
+        const res = await apiService.get('/admin/positions/userwise');
+        const users = res?.data?.data || res?.data || [];
+        const allOrders = [];
+
+        for (const userRow of users) {
+          const uid = String(userRow.user_id || '');
+          try {
+            const ordersRes = await apiService.get(`/admin/positions/userwise/${uid}/active-orders`);
+            const userOrders = ordersRes?.data?.data || ordersRes?.data || [];
+            if (Array.isArray(userOrders)) {
+              userOrders.forEach(order => {
+                allOrders.push({
+                  ...order,
+                  userName: userRow.display_name || userRow.mobile || uid,
+                  userMobile: userRow.mobile || userRow.user_no || ''
+                });
+              });
+            }
+          } catch (err) {
+            console.error(`Error fetching orders for user ${uid}:`, err);
+          }
+        }
+
+        setPendingOrders(allOrders);
+      }
+    } catch (err) {
+      console.error('Error fetching pending orders:', err);
+      setPendingOrders([]);
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, [isAdminScopedView]);
+
+  const handleUserFilterChange = async (userId) => {
+    setSelectedUserId(userId);
+    
+    if (userId) {
+      const selectedUser = allUsers.find(u => u.user_id === userId);
+      setSelectedUserName(selectedUser?.name || userId);
+      await fetchPendingOrders(userId);
+    } else {
+      setSelectedUserName('All Users');
+      await fetchPendingOrders(null);
+    }
+  };
+
+  useEffect(() => { 
+    fetchPositions();
+    if (isAdminScopedView) {
+      fetchPendingOrders(null);
+    }
+  }, [fetchPositions, isAdminScopedView, fetchPendingOrders]);
 
   useEffect(() => {
     const handlePositionsUpdated = () => fetchPositions();
@@ -390,6 +469,16 @@ const PositionsTab = ({ productFilter = null }) => {
   const csvButtonStyle = { border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: 700, background: 'var(--surface2)', color: 'var(--text)' };
 
   const formatMoney = (v) => "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  const filterSelectStyle = { 
+    border: '1px solid var(--border)', 
+    background: 'var(--surface2)', 
+    color: 'var(--text)', 
+    borderRadius: '6px', 
+    padding: '8px 10px', 
+    fontSize: '12px',
+    cursor: 'pointer'
+  };
+  
   return (
     <div style={pageStyle}>
       <div style={mainCardStyle}>
@@ -399,6 +488,24 @@ const PositionsTab = ({ productFilter = null }) => {
             <button onClick={handleSaveAsCsv} style={csvButtonStyle}>
               save as csv
             </button>
+          </div>
+        )}
+
+        {isAdminScopedView && (
+          <div style={{...sectionHeaderRowStyle, marginBottom: '14px'}}>
+            <div style={labelStyle}>Filter by User:</div>
+            <select 
+              value={selectedUserId || ''} 
+              onChange={(e) => handleUserFilterChange(e.target.value || null)}
+              style={{...filterSelectStyle, minWidth: '200px'}}
+            >
+              <option value="">All Users</option>
+              {allUsers.map(u => (
+                <option key={u.user_id} value={u.user_id}>
+                  {u.name} ({u.mobile})
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
@@ -515,6 +622,79 @@ const PositionsTab = ({ productFilter = null }) => {
             </tbody>
           </table>
         </div>
+
+        {isAdminScopedView && (
+          <>
+            <div style={{ ...sectionHeaderRowStyle, marginTop: "24px" }}>
+              <div style={{...sectionTitleStyle, display: 'flex', alignItems: 'center', gap: '8px'}}>
+                Pending/Active Orders {selectedUserName !== 'All Users' && `(${selectedUserName})`} ({pendingOrders.length})
+                <button 
+                  onClick={() => fetchPendingOrders(selectedUserId)} 
+                  style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+                  title="Refresh orders"
+                >
+                  <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                </button>
+              </div>
+            </div>
+
+            {loadingOrders ? (
+              <div style={{padding: '16px', textAlign: 'center', color: 'var(--muted)'}}>Loading orders...</div>
+            ) : (
+              <div style={tableOuterStyle}>
+                <table style={tableStyle}>
+                  <thead style={theadStyle}>
+                    <tr>
+                      <th style={thStyle}>User</th>
+                      <th style={thStyle}>Symbol</th>
+                      <th style={thStyle}>Side</th>
+                      <th style={thStyle}>Type</th>
+                      <th style={thStyle}>Product</th>
+                      <th style={thRight}>Qty</th>
+                      <th style={thRight}>Filled</th>
+                      <th style={thRight}>Unfilled</th>
+                      <th style={thRight}>Price</th>
+                      <th style={thStyle}>Status</th>
+                      <th style={thStyle}>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingOrders.length === 0 ? (
+                      <tr><td style={tdStyle} colSpan="11">No pending/active orders.</td></tr>
+                    ) : (
+                      pendingOrders.map((order, idx) => {
+                        const placeTime = order.placed_at 
+                          ? new Date(order.placed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                          : '—';
+                        return (
+                          <tr key={`${order.order_id}:${idx}`} style={rowStyle}>
+                            <td style={tdStyle}>{order.userName || order.user_id}</td>
+                            <td style={tdStyle}>{order.symbol}</td>
+                            <td style={{...tdStyle, fontWeight: 600, color: order.side === 'BUY' ? '#10b981' : '#ef4444'}}>
+                              {order.side}
+                            </td>
+                            <td style={tdStyle}>{order.order_type}</td>
+                            <td style={tdStyle}>{order.product_type}</td>
+                            <td style={{...tdRight, ...qtyTextStyle}}>{Number(order.quantity || 0).toLocaleString('en-IN')}</td>
+                            <td style={{...tdRight, ...qtyTextStyle}}>{Number(order.filled_qty || 0).toLocaleString('en-IN')}</td>
+                            <td style={{...tdRight, ...qtyTextStyle, color: Number(order.unfilled_qty || 0) > 0 ? '#f97316' : 'var(--text)'}}>
+                              {Number(order.unfilled_qty || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td style={tdRight}>{order.price ? Number(order.price).toFixed(2) : (order.trigger_price ? `(T: ${Number(order.trigger_price).toFixed(2)})` : '—')}</td>
+                            <td style={{...tdStyle, fontWeight: 500, color: order.status === 'PENDING' ? '#f97316' : order.status === 'PARTIAL' || order.status === 'PARTIAL_FILL' ? '#3b82f6' : '#8b5cf6'}}>
+                              {order.status}
+                            </td>
+                            <td style={tdStyle}>{placeTime}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {exitModalOpen && exitRow && (

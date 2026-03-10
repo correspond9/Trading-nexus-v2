@@ -36,17 +36,31 @@ export default function RegisterPage() {
     setIsLoading(true);
     setErrorMsg("");
 
-    const apiUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL}/admin/portal-signups`;
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+    const apiUrl = baseUrl ? `${baseUrl}/auth/portal/signup` : "";
 
-    if (!apiUrl) {
+    if (!baseUrl) {
       console.error("API URL is missing!");
-      // Fallback for local testing if env is not set up
-      setTimeout(() => {
-        setIsLoading(false);
-        setIsSubmitted(true);
-      }, 1500);
+      setErrorMsg("Registration is temporarily unavailable. Please try again shortly.");
+      setIsLoading(false);
       return;
     }
+
+    const experienceMap: Record<string, string> = {
+      "0": "Beginner",
+      "2": "Intermediate",
+      "5": "Advanced",
+    };
+
+    const payload = {
+      name: formData.fullName,
+      email: formData.email,
+      experience_level: experienceMap[formData.experience] || "Beginner",
+      mobile: formData.mobile,
+      city: formData.city,
+      interest: formData.interest,
+      learning_goal: formData.learningGoal,
+    };
 
     try {
       const response = await fetch(apiUrl, {
@@ -54,23 +68,22 @@ export default function RegisterPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
         setIsLoading(false);
         setIsSubmitted(true);
       } else {
-        console.error("API Error:", response.status);
-        // Still mark as submitted for better UX - data was sent
+        const err = await response.json().catch(() => ({}));
+        console.error("API Error:", response.status, err);
+        setErrorMsg(err?.detail || "Could not complete registration. Please try again.");
         setIsLoading(false);
-        setIsSubmitted(true);
       }
     } catch (error) {
       console.error("Error submitting form", error);
-      // Still mark as submitted for better UX - data was sent even if there was an error
+      setErrorMsg("Network issue while submitting. Please try again.");
       setIsLoading(false);
-      setIsSubmitted(true);
     }
   };
 

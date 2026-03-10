@@ -67,8 +67,8 @@ class EodClosedPositionArchiver:
     async def run_once(self) -> ArchiveResult:
         pool = get_pool()
         async with pool.acquire() as conn:
-            # cancel all active orders from previous trading days
-            # so they stop reserving margin overnight and remain visible as resolved history
+                        # cancel all still-active orders at EOD (including same-day orders)
+                        # so nothing carries forward overnight in pending/open state
             cancel_status = await conn.execute(
                 """
                 UPDATE paper_orders
@@ -76,7 +76,7 @@ class EodClosedPositionArchiver:
                     updated_at = NOW(),
                     archived_at = COALESCE(archived_at, NOW())
                 WHERE archived_at IS NULL
-                  AND DATE(placed_at AT TIME ZONE 'Asia/Kolkata') < CURRENT_DATE
+                                    AND DATE(placed_at AT TIME ZONE 'Asia/Kolkata') <= CURRENT_DATE
                   AND status::text IN ('PENDING', 'OPEN', 'PARTIAL', 'PARTIAL_FILL', 'PARTIALLY_FILLED')
                 """
             )

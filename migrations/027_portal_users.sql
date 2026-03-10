@@ -8,7 +8,11 @@ CREATE TABLE IF NOT EXISTS portal_users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
+    mobile VARCHAR(20),
+    city VARCHAR(100),
     experience_level VARCHAR(100) NOT NULL,
+    interest VARCHAR(100),
+    learning_goal TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );

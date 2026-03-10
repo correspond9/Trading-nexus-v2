@@ -1348,26 +1348,30 @@ const SuperAdminDashboard = () => {
                     <tr className="text-xs text-zinc-400 border-b border-zinc-700">
                       <th className="text-left py-3 px-4">Name</th>
                       <th className="text-left py-3 px-4">Email</th>
-                      <th className="text-left py-3 px-4">Experience Level</th>
+                      <th className="text-left py-3 px-4">Mobile</th>
+                      <th className="text-left py-3 px-4">City</th>
+                      <th className="text-left py-3 px-4">Experience</th>
+                      <th className="text-left py-3 px-4">Interest</th>
+                      <th className="text-left py-3 px-4">Goal</th>
                       <th className="text-left py-3 px-4">Signup Date</th>
-                      <th className="text-left py-3 px-4">Last Updated</th>
                     </tr>
                   </thead>
                   <tbody>
                     {portalUsers.map((user, idx) => (
                       <tr key={user.id} className={`border-b border-zinc-700 hover:bg-zinc-700/30 ${idx % 2 === 0 ? 'bg-zinc-800/50' : ''}`}>
                         <td className="py-3 px-4 font-medium text-zinc-100">{user.name}</td>
-                        <td className="py-3 px-4 text-zinc-300">{user.email}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.email}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.mobile || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.city || '—'}</td>
                         <td className="py-3 px-4">
                           <span className="text-xs px-2 py-1 rounded-full bg-blue-900/40 text-blue-300 border border-blue-700/40">
                             {user.experience_level}
                           </span>
                         </td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.interest || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-400 max-w-xs truncate" title={user.learning_goal}>{user.learning_goal || '—'}</td>
                         <td className="py-3 px-4 text-xs text-zinc-400">
                           {user.created_at ? new Date(user.created_at).toLocaleString() : '—'}
-                        </td>
-                        <td className="py-3 px-4 text-xs text-zinc-400">
-                          {user.updated_at ? new Date(user.updated_at).toLocaleString() : '—'}
                         </td>
                       </tr>
                     ))}

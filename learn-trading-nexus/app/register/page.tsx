@@ -99,12 +99,12 @@ export default function RegisterPage() {
           <h2 className="text-3xl font-black text-[var(--neo-text-main)] mb-4">Registration Locked In! 🎉</h2>
           <p className="text-[var(--neo-text-muted)] font-medium mb-10 text-lg">
             Welcome to the elite cohort, <span className="text-emerald-600 font-bold">{formData.fullName}</span>.
-            Check your email for the next steps and the initial trader assessment.
+            Someone from our team will be in touch with you via email or WhatsApp.
           </p>
           <div className="space-y-6">
             <div className="flex items-center gap-4 text-left p-6 rounded-2xl neo-dug border-l-4 border-l-[var(--neo-color-blue)]">
               <Clock className="h-8 w-8 text-[var(--neo-color-blue)] shrink-0" />
-              <p className="text-sm font-bold text-[var(--neo-text-main)]">Detailed batch schedule will be sent via WhatsApp within 6 hours.</p>
+              <p className="text-sm font-bold text-[var(--neo-text-main)]">You'll hear from us shortly with details about the next steps.</p>
             </div>
             <Link href="/" className="neo-btn-solid-blue w-full mt-6 scale-105 py-4">
               Return to Dashboard

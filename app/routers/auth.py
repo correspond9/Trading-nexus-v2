@@ -46,7 +46,11 @@ class LogoutRequest(BaseModel):
 class PortalSignupRequest(BaseModel):
     name: str
     email: str
+    mobile: str
+    city: str
     experience_level: str
+    interest: str
+    learning_goal: str
 
 
 @router.post("/login")
@@ -157,11 +161,11 @@ async def portal_signup(body: PortalSignupRequest):
         # Insert new portal user
         user = await pool.fetchrow(
             """
-            INSERT INTO portal_users (name, email, experience_level)
-            VALUES ($1, $2, $3)
-            RETURNING id, name, email, created_at
+            INSERT INTO portal_users (name, email, mobile, city, experience_level, interest, learning_goal)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, name, email, mobile, city, experience_level, interest, learning_goal, created_at
             """,
-            name, email, experience_level
+            name, email, body.mobile, body.city, experience_level, body.interest, body.learning_goal
         )
         
         log.info(f"New portal signup: {email}")
@@ -204,8 +208,12 @@ async def get_portal_users(user: CurrentUser = Depends(get_current_user)):
             SELECT 
                 id, 
                 name, 
-                email, 
-                experience_level, 
+                email,
+                mobile,
+                city, 
+                experience_level,
+                interest,
+                learning_goal, 
                 created_at,
                 updated_at
             FROM portal_users
@@ -224,7 +232,11 @@ async def get_portal_users(user: CurrentUser = Depends(get_current_user)):
                 "id": str(u["id"]),
                 "name": u["name"],
                 "email": u["email"],
+                "mobile": u["mobile"],
+                "city": u["city"],
                 "experience_level": u["experience_level"],
+                "interest": u["interest"],
+                "learning_goal": u["learning_goal"],
                 "created_at": u["created_at"].isoformat() if u["created_at"] else None,
                 "updated_at": u["updated_at"].isoformat() if u["updated_at"] else None,
             }

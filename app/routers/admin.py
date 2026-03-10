@@ -1087,6 +1087,7 @@ async def save_credentials(req: CredentialsSaveRequest):
     
     errors = []
     saved_items = []
+    did_rotate_token = False
     
     try:
         # Update Client ID
@@ -1125,12 +1126,34 @@ async def save_credentials(req: CredentialsSaveRequest):
                 # without requiring a container restart.
                 await rotate_token(token, reconnect=True)
                 saved_items.append("access_token")
+                did_rotate_token = True
                 log.info(f"✅ Access token rotated and WebSocket reconnected")
             except Exception as e:
                 error_msg = f"Failed to update access token: {str(e)}"
                 errors.append(error_msg)
                 log.error(error_msg)
                 log.error(traceback.format_exc())
+
+        # Safety net: if credentials exist but live-feed slots are still disconnected,
+        # trigger the same runtime connect flow used by the explicit Connect button.
+        # This covers cases where token value is unchanged/masked and rotate path is skipped.
+        try:
+            if get_client_id() and get_access_token():
+                slots = ws_manager.get_status()
+                any_connected = any(bool(s.get("connected")) for s in slots)
+                if not any_connected:
+                    await dhan_connect()
+                    if "runtime_connect" not in saved_items:
+                        saved_items.append("runtime_connect")
+                    if did_rotate_token:
+                        log.info("✅ Save fallback: runtime connect verified after token rotation")
+                    else:
+                        log.info("✅ Save fallback: runtime connect triggered (token unchanged/masked)")
+        except Exception as e:
+            error_msg = f"Failed to auto-connect Dhan services after save: {str(e)}"
+            errors.append(error_msg)
+            log.error(error_msg)
+            log.error(traceback.format_exc())
         
         # Update Auth Mode
         if not token_refresher.is_enabled:

@@ -1,13 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
 .funded-page {
-  --bg: #f5f7fb;
-  --surface: #ffffff;
-  --accent: #5b7cfa;
-  --accent2: #00c2ff;
-  --text: #1c2434;
-  --muted: #6b7a90;
-  --shadow: 8px 8px 18px rgba(0, 0, 0, 0.08), -6px -6px 14px rgba(255, 255, 255, 0.9);
+  --bg: #f2f0fa;
+  --surface: #f2f0fa;
+  --neo-shadow-dark: #d4d2eb;
+  --neo-shadow-light: #ffffff;
+  --accent: #6569a5;
+  --accent2: #3b82f6;
+  --text: #3a435e;
+  --muted: #8a98ac;
+  --shadow: 12px 12px 24px var(--neo-shadow-dark), -12px -12px 24px var(--neo-shadow-light);
+  --shadow-soft: 6px 6px 12px var(--neo-shadow-dark), -6px -6px 12px var(--neo-shadow-light);
+  --border-hi: 2px solid rgba(255, 255, 255, 0.8);
 
   min-height: 100vh;
   font-family: Inter, sans-serif;
@@ -33,6 +37,7 @@
   background: var(--surface);
   border-radius: 16px;
   box-shadow: var(--shadow);
+  border: var(--border-hi);
 }
 
 .funded-logo-wrap {
@@ -68,6 +73,7 @@
   background: var(--surface);
   border-radius: 20px;
   box-shadow: var(--shadow);
+  border: var(--border-hi);
 }
 
 .funded-hero h1 {
@@ -75,7 +81,7 @@
 }
 
 .funded-gradient {
-  background: linear-gradient(90deg, #5b7cfa, #00c2ff);
+  background: linear-gradient(135deg, #6569a5, #ec4899);
   -webkit-background-clip: text;
   color: transparent;
 }
@@ -94,11 +100,11 @@
   margin-top: 40px;
   padding: 16px 40px;
   border-radius: 12px;
-  background: linear-gradient(90deg, #5b7cfa, #00c2ff);
+  background: var(--accent2);
   color: white;
   text-decoration: none;
   font-weight: 600;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  box-shadow: 5px 5px 15px rgba(59, 130, 246, 0.4), -4px -4px 10px var(--neo-shadow-light);
   transition: 0.3s;
 }
 
@@ -118,6 +124,7 @@
   background: var(--surface);
   border-radius: 18px;
   box-shadow: var(--shadow);
+  border: var(--border-hi);
   text-align: center;
   transition: 0.4s;
 }
@@ -160,6 +167,7 @@
   background: var(--surface);
   border-radius: 20px;
   box-shadow: var(--shadow);
+  border: var(--border-hi);
 }
 
 .funded-process h2 {
@@ -176,8 +184,9 @@
 .funded-step {
   padding: 25px;
   border-radius: 16px;
-  background: #f8f9fd;
-  box-shadow: var(--shadow);
+  background: var(--surface);
+  box-shadow: inset 6px 6px 12px var(--neo-shadow-dark), inset -6px -6px 12px var(--neo-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.4);
 }
 
 .funded-step h4 {
@@ -192,6 +201,7 @@
   background: var(--surface);
   border-radius: 20px;
   box-shadow: var(--shadow);
+  border: var(--border-hi);
 }
 
 .funded-final p {

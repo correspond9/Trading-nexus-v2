@@ -450,11 +450,33 @@ class _WebSocketManager:
     def __init__(self):
         self._conns = [_SingleWSConnection(i) for i in range(5)]
 
+    def _active_slots(self) -> list[int]:
+        """
+        Return slots that currently have assigned tokens.
+        Falls back to all slots if subscription state cannot be read.
+        """
+        try:
+            from app.instruments.subscription_manager import slot_count
+
+            active = [slot for slot in range(len(self._conns)) if slot_count(slot) > 0]
+            return active
+        except Exception:
+            # Fail open to preserve stream availability if diagnostics fail.
+            return list(range(len(self._conns)))
+
     async def start_all(self) -> None:
-        for conn in self._conns:
-            await conn.start()
-            await asyncio.sleep(2.0)   # light staggering; global gate handles the rest
-        log.info("All 5 WebSocket connections started.")
+        active_slots = self._active_slots()
+        if not active_slots:
+            log.warning("WS manager: no active subscription slots found; skipping WS startup.")
+            return
+
+        for idx, conn in enumerate(self._conns):
+            if idx in active_slots:
+                await conn.start()
+                await asyncio.sleep(2.0)   # light staggering; global gate handles the rest
+            else:
+                await conn.stop()
+        log.info(f"WS manager: started slots {active_slots} (inactive slots stopped).")
 
     async def stop_all(self) -> None:
         for conn in self._conns:
@@ -463,13 +485,27 @@ class _WebSocketManager:
 
     async def reconnect_all(self) -> None:
         """Token rotation — graceful reconnect of all connections."""
-        log.info("Reconnecting all WebSocket connections (token rotation)…")
-        for conn in self._conns:
-            await conn.reconnect()
-            await asyncio.sleep(0.5)  # stagger reconnects
-        log.info("All WebSocket connections reconnected.")
+        active_slots = self._active_slots()
+        if not active_slots:
+            log.warning("WS manager: no active subscription slots; skipping reconnect.")
+            return
+
+        log.info(f"WS manager: reconnecting active slots {active_slots} (token rotation)...")
+        for idx, conn in enumerate(self._conns):
+            if idx in active_slots:
+                await conn.reconnect()
+                await asyncio.sleep(1.0)  # safer staggering for Dhan handshake limits
+            else:
+                await conn.stop()
+        log.info("WS manager: active slot reconnect complete.")
 
     async def subscribe_tokens(self, slot: int, tokens: list[int]) -> None:
+        # Lazy-start slot connection on first demand; _resubscribe_all will replay
+        # the full slot token-set once connected.
+        conn = self._conns[slot]
+        if conn._task is None or conn._task.done():
+            await conn.start()
+            await asyncio.sleep(0.1)
         await self._conns[slot].subscribe_tokens(tokens)
 
     async def unsubscribe_tokens(self, slot: int, tokens: list[int]) -> None:

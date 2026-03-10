@@ -73,8 +73,13 @@ _LOCAL_LIST_FILES = {
     LIST_MCX_OPTIONS:    ("mcx-comm-options.csv",     "Commodity", False),
 }
 
-# Index underlyings always Tier-B (no list needed)
+# Index underlyings tracked for LTP / INDEX spot / FUTIDX
 _TIER_B_INDICES = {"NIFTY", "BANKNIFTY", "SENSEX", "MIDCPNIFTY", "FINNIFTY", "BANKEX", "NIFTYNXT50"}
+
+# Index underlyings whose OPTIONS (OPTIDX) are Tier-B (always subscribed).
+# All other index options (MIDCPNIFTY, FINNIFTY, BANKEX, NIFTYNXT50) are Tier-A
+# (on-demand) to keep DhanHQ WebSocket subscription counts within the 25 000 limit.
+_TIER_B_OPTIDX = {"NIFTY", "BANKNIFTY", "SENSEX"}
 
 
 def _ws_slot(token: int) -> int:
@@ -105,14 +110,24 @@ def _classify(row: dict, lists: dict[str, set[str]]) -> Optional[str]:
         if exch_id == "BSE" and symbol in {"SENSEX", "BANKEX"}:
             return "B"
 
-    # ── Index options & futures — always Tier-B ─────────────────────────────
-    # Default: restrict to NSE derivatives to avoid SECURITY_ID collisions across segments.
-    # Exception: SENSEX/BANKEX are BSE underlyings, so allow BSE derivatives for those.
-    if itype in ("OPTIDX", "FUTIDX") and underlying in _TIER_B_INDICES and seg_code == "D":
+    # ── Index futures — always Tier-B for all tracked indices ─────────────────
+    if itype == "FUTIDX" and underlying in _TIER_B_INDICES and seg_code == "D":
         if exch_id == "NSE":
             return "B"
         if exch_id == "BSE" and underlying in {"SENSEX", "BANKEX"}:
             return "B"
+
+    # ── Index options — Tier-B only for NIFTY / BANKNIFTY / SENSEX ──────────
+    # MIDCPNIFTY, FINNIFTY, BANKEX, NIFTYNXT50 options → Tier-A (on-demand)
+    # to keep DhanHQ WebSocket subscriptions well below the 25 000 limit.
+    if itype == "OPTIDX" and seg_code == "D":
+        if underlying in _TIER_B_OPTIDX and exch_id == "NSE":
+            return "B"
+        if underlying == "SENSEX" and exch_id == "BSE":
+            return "B"
+        # All remaining index options (MIDCPNIFTY, FINNIFTY, BANKEX, NIFTYNXT50) → on-demand
+        if underlying in _TIER_B_INDICES and exch_id in ("NSE", "BSE"):
+            return "A"
 
     # ── Stock options — Tier-A (on-demand) ──────────────────────────────────
     if itype == "OPTSTK" and underlying in lists[LIST_OPTIONS_STOCKS] and exch_id == "NSE" and seg_code == "D":
@@ -545,12 +560,30 @@ async def _reclassify_in_place() -> None:
         tier_b_indices,
     )
 
-    # Update Tier-B index derivatives (OPTIDX, FUTIDX) — always subscribed
+    # Update Tier-B index futures (FUTIDX) — all tracked indices always subscribed
     await pool.execute(
         """UPDATE instrument_master SET tier='B', ws_slot=(instrument_token % 5)
-           WHERE instrument_type IN ('OPTIDX','FUTIDX')
+           WHERE instrument_type = 'FUTIDX'
              AND underlying = ANY($1::text[])""",
         tier_b_indices,
+    )
+
+    # Update Tier-B index options (OPTIDX) — NIFTY, BANKNIFTY, SENSEX only
+    tier_b_optidx = list(_TIER_B_OPTIDX)
+    await pool.execute(
+        """UPDATE instrument_master SET tier='B', ws_slot=(instrument_token % 5)
+           WHERE instrument_type = 'OPTIDX'
+             AND underlying = ANY($1::text[])""",
+        tier_b_optidx,
+    )
+
+    # Demote remaining index options to Tier-A (MIDCPNIFTY, FINNIFTY, BANKEX, NIFTYNXT50)
+    tier_a_optidx = [idx for idx in tier_b_indices if idx not in _TIER_B_OPTIDX]
+    await pool.execute(
+        """UPDATE instrument_master SET tier='A', ws_slot=NULL
+           WHERE instrument_type = 'OPTIDX'
+             AND underlying = ANY($1::text[])""",
+        tier_a_optidx,
     )
 
     # Update each list

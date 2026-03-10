@@ -1,0 +1,94 @@
+.nexus-neo-page {
+  --neo-bg: #f2f0fa;
+  --neo-shadow-dark: #d4d2eb;
+  --neo-shadow-light: #ffffff;
+  --neo-text-main: #3a435e;
+  --neo-text-muted: #8a98ac;
+  --neo-text-accent: #6569a5;
+  --neo-color-purple: #6569a5;
+  --neo-color-green: #2ea958;
+  --neo-color-blue: #3b82f6;
+  --neo-color-pink: #ec4899;
+
+  min-height: 100vh;
+  background: var(--neo-bg);
+  color: var(--neo-text-main);
+}
+
+.nexus-neo-page .neo-card {
+  background: var(--neo-bg);
+  border-radius: 1.5rem;
+  box-shadow: 12px 12px 24px var(--neo-shadow-dark), -12px -12px 24px var(--neo-shadow-light);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+}
+
+.nexus-neo-page .neo-dug {
+  background: var(--neo-bg);
+  border-radius: 1rem;
+  box-shadow: inset 6px 6px 12px var(--neo-shadow-dark), inset -6px -6px 12px var(--neo-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+}
+
+.nexus-neo-page .neo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  border-radius: 9999px;
+  background: var(--neo-bg);
+  box-shadow: 4px 4px 8px var(--neo-shadow-dark), -4px -4px 8px var(--neo-shadow-light);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--neo-text-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.nexus-neo-page .neo-btn-solid-purple,
+.nexus-neo-page .neo-btn-solid-green {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  color: #fff;
+  border: 0;
+  padding: 0.75rem 1.5rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.nexus-neo-page .neo-btn-solid-purple {
+  background: var(--neo-color-purple);
+  box-shadow: 5px 5px 15px rgba(101, 105, 165, 0.35), -4px -4px 10px var(--neo-shadow-light);
+}
+
+.nexus-neo-page .neo-btn-solid-green {
+  background: var(--neo-color-green);
+  box-shadow: 5px 5px 15px rgba(46, 169, 88, 0.35), -4px -4px 10px var(--neo-shadow-light);
+}
+
+.nexus-neo-page .neo-btn-solid-purple:hover,
+.nexus-neo-page .neo-btn-solid-green:hover {
+  transform: translateY(-1px);
+}
+
+.nexus-neo-page .text-gradient {
+  background: linear-gradient(135deg, var(--neo-color-purple), var(--neo-color-pink));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.nexus-neo-page .nav-link {
+  color: var(--neo-text-main);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.nexus-neo-page .muted {
+  color: var(--neo-text-muted);
+}

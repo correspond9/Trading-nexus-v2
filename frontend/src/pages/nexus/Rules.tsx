@@ -1,9 +1,26 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import '../../styles/nexus/NeoTheme.css';
 
 const FUNDED_URL = '/funded';
 
 const Rules: React.FC = () => {
+  const [walletPayInInput, setWalletPayInInput] = useState('100000');
+
+  const walletPayIn = useMemo(() => {
+    const numeric = Number(walletPayInInput.replace(/[^\d]/g, ''));
+    return Number.isFinite(numeric) ? numeric : 0;
+  }, [walletPayInInput]);
+
+  const tradingNexusCapital = walletPayIn * 4;
+  const marginAllotedForTrading = walletPayIn + tradingNexusCapital;
+
+  const formatInr = (value: number) => `₹${value.toLocaleString('en-IN')}`;
+
+  const handleWalletPayInChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = event.target.value.replace(/[^\d]/g, '');
+    setWalletPayInInput(raw);
+  };
+
   return (
     <div className="rules-page">
       <div className="rules-container">
@@ -21,6 +38,10 @@ const Rules: React.FC = () => {
         </nav>
 
         <section className="rules-hero">
+          <div className="rules-hero-badge">
+            <span className="rules-badge-dot" aria-hidden="true" />
+            Live Capital Allocation Preview
+          </div>
           <h1>Trading Rules &amp; <span className="rules-gradient">Risk Framework</span></h1>
           <p>
             TradingNexus provides additional trading capital to traders while maintaining
@@ -39,18 +60,55 @@ const Rules: React.FC = () => {
             </p>
             <div className="rules-allocation-grid">
               <div className="rules-alloc-box">
-                <h4>Trader Deposit</h4>
-                <p className="rules-amount">₹1,00,000</p>
+                <div className="rules-alloc-title-wrap">
+                  <span className="rules-icon rules-icon-wallet" aria-hidden="true">₹</span>
+                  <h4>Trader Wallet Pay-In</h4>
+                </div>
+                <label htmlFor="wallet-pay-in" className="rules-input-label">Enter Amount</label>
+                <input
+                  id="wallet-pay-in"
+                  className="rules-payin-input"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="100000"
+                  value={walletPayInInput}
+                  onChange={handleWalletPayInChange}
+                />
+                <p className="rules-amount">{formatInr(walletPayIn)}</p>
               </div>
               <div className="rules-alloc-box">
-                <h4>TradingNexus Capital</h4>
-                <p className="rules-amount">₹4,00,000</p>
+                <div className="rules-alloc-title-wrap">
+                  <span className="rules-icon rules-icon-boost" aria-hidden="true">⚡</span>
+                  <h4>TradingNexus Capital</h4>
+                </div>
+                <p className="rules-ratio">1:5 Capital Structure</p>
+                <p className="rules-amount">{formatInr(tradingNexusCapital)}</p>
               </div>
               <div className="rules-alloc-box rules-alloc-highlight">
-                <h4>Total Trading Capital</h4>
-                <p className="rules-amount rules-gradient">₹5,00,000</p>
+                <div className="rules-alloc-title-wrap">
+                  <span className="rules-icon rules-icon-margin" aria-hidden="true">◎</span>
+                  <h4>Margin Alloted for Trading</h4>
+                </div>
+                <p className="rules-amount rules-gradient">{formatInr(marginAllotedForTrading)}</p>
               </div>
             </div>
+          </section>
+
+          <section className="rules-card rules-marketing-card">
+            <div className="rules-marketing-glow" aria-hidden="true" />
+            <div className="rules-marketing-head">
+              <span className="rules-marketing-icon" aria-hidden="true">◆</span>
+              <h2>Capital Acceleration for High-Conviction Traders</h2>
+            </div>
+            <p className="rules-muted rules-marketing-copy">
+              At TradingNexus, we identify disciplined and high-potential participants through
+              structured evaluation. Eligible selected traders can unlock up to <strong>400% additional capital</strong>,
+              creating the opportunity to scale strategy execution with stronger position size,
+              better compounding potential, and institutional-grade growth support.
+            </p>
+            <p className="rules-marketing-hook">
+              Trade with precision. Qualify with consistency. Scale with TradingNexus capital.
+            </p>
           </section>
 
           <section className="rules-card">

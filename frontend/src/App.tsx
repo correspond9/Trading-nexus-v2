@@ -24,6 +24,7 @@ const LandingPage = lazy(() => import('./pages/nexus/LandingPage'));
 const SignupPage = lazy(() => import('./pages/nexus/SignupPage'));
 const CrashCourse = lazy(() => import('./pages/nexus/CrashCourse'));
 const FundedProgram = lazy(() => import('./pages/nexus/FundedProgram'));
+const Rules = lazy(() => import('./pages/nexus/Rules'));
 const Background = lazy(() => import('./components/nexus/Background'));
 
 const Loader = () => (
@@ -49,6 +50,7 @@ const NexusPortal = () => {
         <Route path="/" element={<LandingPage toggleTheme={toggleTheme} theme={theme} />} />
         <Route path="/crash-course" element={<CrashCourse />} />
         <Route path="/funded" element={<FundedProgram />} />
+        <Route path="/rules" element={<Rules />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -70,6 +72,7 @@ export default function App() {
               <Suspense fallback={<Loader />}>
                 <Routes>
                   <Route path="/funded" element={<FundedProgram />} />
+                  <Route path="/rules" element={<Rules />} />
                   <Route path="/login" element={<Login />} />
                   <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                     <Route index element={<Navigate to="/trade" replace />} />

@@ -28,7 +28,7 @@ export default function TradingRules() {
 
           <Link href="/">Home</Link>
           <Link href="/funded-program">Funded Program</Link>
-          <Link href="/trading-rules">Trading Rules</Link>
+          <Link href="/rules">Trading Rules</Link>
 
           <Link
             href="/register"

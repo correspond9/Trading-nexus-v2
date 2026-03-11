@@ -225,7 +225,7 @@ export default function Home() {
             <Link href="/about" className="hover:text-[var(--neo-color-purple)] transition-colors">About Mentor</Link>
             <Link href="/course" className="hover:text-[var(--neo-color-green)] transition-colors">Curriculum</Link>
             <Link href="/funded-program" className="hover:text-[var(--neo-color-blue)] transition-colors">Funded Program</Link>
-            <Link href="/trading-rules" className="hover:text-[var(--neo-color-green)] transition-colors">Trading Rules</Link>
+            <Link href="/rules" className="hover:text-[var(--neo-color-green)] transition-colors">Trading Rules</Link>
             <Link href="/register" className="hover:text-[var(--neo-color-red)] transition-colors">Register</Link>
           </div>
         </div>

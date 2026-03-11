@@ -224,6 +224,8 @@ export default function Home() {
           <div className="flex flex-col gap-6 text-sm font-black uppercase tracking-[0.1em] shrink-0 text-[var(--neo-text-main)]">
             <Link href="/about" className="hover:text-[var(--neo-color-purple)] transition-colors">About Mentor</Link>
             <Link href="/course" className="hover:text-[var(--neo-color-green)] transition-colors">Curriculum</Link>
+            <Link href="/funded-program" className="hover:text-[var(--neo-color-blue)] transition-colors">Funded Program</Link>
+            <Link href="/trading-rules" className="hover:text-[var(--neo-color-green)] transition-colors">Trading Rules</Link>
             <Link href="/register" className="hover:text-[var(--neo-color-red)] transition-colors">Register</Link>
           </div>
         </div>

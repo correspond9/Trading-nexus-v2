@@ -27,7 +27,7 @@ export default function TradingRules() {
         <div className="flex gap-6 text-sm font-medium">
 
           <Link href="/">Home</Link>
-          <Link href="/funded">Funded Program</Link>
+          <Link href="/funded-program">Funded Program</Link>
           <Link href="/trading-rules">Trading Rules</Link>
 
           <Link

@@ -27,7 +27,7 @@ export default function Home() {
       <nav className="neo-card px-8 py-5 flex items-center justify-between gap-4 relative z-50">
         <Link href="/" className="group transition-transform hover:-translate-y-1">
           {/* Logo container allows any logo.png placed in the public folder to display naturally */}
-          <img src="/logo.png" alt="Trading Nexus" className="h-[80px] md:h-[100px] w-auto max-w-[300px] object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] animate-float-slow" />
+          <img src="/logo.png" alt="Trading Nexus" className="h-[120px] md:h-[120px] w-auto max-w-[420px] object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] animate-float-slow" />
         </Link>
         <div className="hidden flex-1 items-center justify-center gap-10 text-sm font-black text-[var(--neo-text-muted)] sm:flex uppercase tracking-widest">
           <Link href="/about" className="hover:text-[var(--neo-color-purple)] transition-colors">About Mentor</Link>
@@ -224,7 +224,7 @@ export default function Home() {
           <div className="flex flex-col gap-6 text-sm font-black uppercase tracking-[0.1em] shrink-0 text-[var(--neo-text-main)]">
             <Link href="/about" className="hover:text-[var(--neo-color-purple)] transition-colors">About Mentor</Link>
             <Link href="/course" className="hover:text-[var(--neo-color-green)] transition-colors">Curriculum</Link>
-            <Link href="/funded-program" className="hover:text-[var(--neo-color-blue)] transition-colors">Funded Program</Link>
+            <Link href="/funded" className="hover:text-[var(--neo-color-blue)] transition-colors">Funded Program</Link>
             <Link href="/rules" className="hover:text-[var(--neo-color-green)] transition-colors">Trading Rules</Link>
             <Link href="/register" className="hover:text-[var(--neo-color-red)] transition-colors">Register</Link>
           </div>

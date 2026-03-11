@@ -126,7 +126,7 @@ export default function RegisterPage() {
       </Link>
 
       <div className="fixed top-8 right-8 z-50 hidden md:block">
-        <img src="/logo.png" alt="Trading Nexus" className="h-[60px] w-auto max-w-[200px] object-contain drop-shadow-[0_10px_10px_var(--neo-shadow-dark)]" />
+        <img src="/logo.png" alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] object-contain drop-shadow-[0_10px_10px_var(--neo-shadow-dark)]" />
       </div>
 
       <div className="w-full max-w-2xl mt-[6rem] md:mt-[4rem]">

@@ -1,21 +1,21 @@
 import Image from "next/image";
 import Link from "next/link";
 
-export default function TradingRules() {
+export default function FundedProgram() {
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
 
       {/* NAVBAR */}
 
-      <nav className="neo-card flex justify-between items-center p-4 mb-12">
+      <nav className="flex items-center justify-between neo-card p-4 mb-12">
 
         <div className="flex items-center gap-3">
 
           <Image
             src="/logo.png"
             alt="TradingNexus"
-            width={40}
-            height={40}
+            width={120}
+            height={120}
           />
 
           <span className="font-bold text-lg">
@@ -27,8 +27,9 @@ export default function TradingRules() {
         <div className="flex gap-6 text-sm font-medium">
 
           <Link href="/">Home</Link>
-          <Link href="/funded-program">Funded Program</Link>
-          <Link href="/rules">Trading Rules</Link>
+          <Link href="/about">About</Link>
+          <Link href="/course">Courses</Link>
+          <Link href="/funded">Funded Program</Link>
 
           <Link
             href="/register"
@@ -41,74 +42,182 @@ export default function TradingRules() {
 
       </nav>
 
-      {/* HEADER */}
+      {/* HERO */}
 
       <section className="neo-card text-center p-12">
 
-        <h1 className="text-4xl font-bold mb-4">
-          Trading Rules & Risk Framework
+        <div className="neo-badge mb-4">
+          Funded Trader Opportunity
+        </div>
+
+        <h1 className="text-4xl font-bold mb-6">
+          Become a <span className="text-gradient">Funded Trader</span>
         </h1>
 
-        <p className="max-w-2xl mx-auto text-lg text-[var(--neo-text-muted)]">
+        <p className="max-w-2xl mx-auto text-[var(--neo-text-muted)] text-lg">
 
-          TradingNexus provides additional trading capital to traders while
-          maintaining strict risk controls to ensure stability of the system.
+          TradingNexus is launching a program to discover talented derivatives
+          traders across India.
 
-          The following framework governs how funded trading accounts operate.
+          Participate in our <b>Free 2-Day Derivatives Crash Course</b> where
+          we will observe trading discipline, strategy thinking and
+          decision-making ability.
+
+          Top performers may receive the opportunity to trade with
+          <b> 80% capital provided by TradingNexus.</b>
 
         </p>
+
+        <div className="mt-8">
+
+          <Link
+            href="/register"
+            className="neo-btn-solid-purple px-6 py-3"
+          >
+            Sign Up Now
+          </Link>
+
+        </div>
 
       </section>
 
-      {/* FUNDING MODEL */}
+      {/* BENEFITS */}
 
-      <section className="neo-card p-10 mt-12">
+      <section className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mt-12">
 
-        <h2 className="text-2xl font-bold mb-6">
-          Capital Allocation Model
+        <div className="neo-card p-6 text-center">
+
+          <Image
+            src="/vector_monitor.png"
+            alt="Course"
+            width={60}
+            height={60}
+            className="mx-auto animate-float-slow mb-4"
+          />
+
+          <h3 className="font-semibold mb-2">
+            Derivatives Crash Course
+          </h3>
+
+          <p className="text-sm text-[var(--neo-text-muted)]">
+            A structured 2-day program covering practical futures and options
+            trading concepts.
+          </p>
+
+        </div>
+
+        <div className="neo-card p-6 text-center">
+
+          <Image
+            src="/vector_brain_bulb.png"
+            alt="Skill Evaluation"
+            width={60}
+            height={60}
+            className="mx-auto animate-float-slow mb-4"
+          />
+
+          <h3 className="font-semibold mb-2">
+            Skill Evaluation
+          </h3>
+
+          <p className="text-sm text-[var(--neo-text-muted)]">
+            Participants will be evaluated through discussions,
+            exercises and a short test.
+          </p>
+
+        </div>
+
+        <div className="neo-card p-6 text-center">
+
+          <Image
+            src="/vector_cert.png"
+            alt="Certification"
+            width={60}
+            height={60}
+            className="mx-auto animate-float-slow mb-4"
+          />
+
+          <h3 className="font-semibold mb-2">
+            Certification
+          </h3>
+
+          <p className="text-sm text-[var(--neo-text-muted)]">
+            Participants who complete the program successfully will receive
+            TradingNexus certification.
+          </p>
+
+        </div>
+
+        <div className="neo-card p-6 text-center">
+
+          <Image
+            src="/vector_target.png"
+            alt="Funding"
+            width={60}
+            height={60}
+            className="mx-auto animate-float-slow mb-4"
+          />
+
+          <h3 className="font-semibold mb-2">
+            80% Capital Funding
+          </h3>
+
+          <p className="text-sm text-[var(--neo-text-muted)]">
+            Top candidates may be selected to trade with TradingNexus capital
+            under structured risk guidelines.
+          </p>
+
+        </div>
+
+      </section>
+
+      {/* PROCESS */}
+
+      <section className="neo-card p-10 mt-16">
+
+        <h2 className="text-2xl font-bold text-center mb-8">
+          Selection Process
         </h2>
 
-        <p className="text-[var(--neo-text-muted)] mb-6">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
 
-          TradingNexus enables traders to trade with higher capital by
-          allocating additional funds to their account.
+          <div className="neo-dug p-6">
 
-        </p>
+            <h4 className="font-semibold mb-2">Step 1</h4>
 
-        <div className="grid md:grid-cols-3 gap-6">
-
-          <div className="neo-dug p-6 text-center">
-
-            <h4 className="font-semibold mb-2">
-              Trader Deposit
-            </h4>
-
-            <p className="text-xl font-bold">
-              ₹1,00,000
+            <p className="text-sm text-[var(--neo-text-muted)]">
+              Register for the Free Derivatives Crash Course.
             </p>
 
           </div>
 
-          <div className="neo-dug p-6 text-center">
+          <div className="neo-dug p-6">
 
-            <h4 className="font-semibold mb-2">
-              TradingNexus Capital
-            </h4>
+            <h4 className="font-semibold mb-2">Step 2</h4>
 
-            <p className="text-xl font-bold">
-              ₹4,00,000
+            <p className="text-sm text-[var(--neo-text-muted)]">
+              Attend the 2-day live training program.
             </p>
 
           </div>
 
-          <div className="neo-dug p-6 text-center">
+          <div className="neo-dug p-6">
 
-            <h4 className="font-semibold mb-2">
-              Total Trading Capital
-            </h4>
+            <h4 className="font-semibold mb-2">Step 3</h4>
 
-            <p className="text-xl font-bold text-gradient">
-              ₹5,00,000
+            <p className="text-sm text-[var(--neo-text-muted)]">
+              Complete the evaluation test conducted during the program.
+            </p>
+
+          </div>
+
+          <div className="neo-dug p-6">
+
+            <h4 className="font-semibold mb-2">Step 4</h4>
+
+            <p className="text-sm text-[var(--neo-text-muted)]">
+              Top candidates are shortlisted for TradingNexus funded trading
+              opportunities.
             </p>
 
           </div>
@@ -117,138 +226,26 @@ export default function TradingRules() {
 
       </section>
 
-      {/* RMS */}
-
-      <section className="neo-card p-10 mt-12">
-
-        <h2 className="text-2xl font-bold mb-6">
-          Risk Monitoring (RMS)
-        </h2>
-
-        <p className="text-[var(--neo-text-muted)]">
-
-          TradingNexus maintains a dedicated Risk Management System (RMS)
-          team that continuously monitors trading activity. The objective of
-          RMS monitoring is to maintain trading discipline and ensure that
-          risk exposure remains within acceptable limits.
-
-        </p>
-
-      </section>
-
-      {/* STOP LOSS */}
-
-      <section className="neo-card p-10 mt-12">
-
-        <h2 className="text-2xl font-bold mb-6">
-          Maximum Loss Protection
-        </h2>
-
-        <p className="text-[var(--neo-text-muted)]">
-
-          A strict system-level stop loss is enforced to protect trading
-          capital. If the mark-to-market (MTM) loss on live positions reaches
-          <b> 50% of the trader's base capital</b>, positions may be
-          automatically squared off by the system.
-
-        </p>
-
-      </section>
-
-      {/* CAPITAL STABILITY */}
-
-      <section className="neo-card p-10 mt-12">
-
-        <h2 className="text-2xl font-bold mb-6">
-          Capital Stability During the Month
-        </h2>
-
-        <p className="text-[var(--neo-text-muted)]">
-
-          Once capital allocation is provided at the beginning of the month,
-          it will not be reduced during the same month even if losses occur.
-
-          Adjustments, if any, are applied only during the settlement cycle.
-
-        </p>
-
-      </section>
-
-      {/* SETTLEMENT */}
-
-      <section className="neo-card p-10 mt-12">
-
-        <h2 className="text-2xl font-bold mb-6">
-          Monthly Settlement
-        </h2>
-
-        <p className="text-[var(--neo-text-muted)]">
-
-          Final settlement of profits and losses for funded trading accounts
-          is calculated on the <b>last Thursday of every month.</b>
-
-          Withdrawals between settlement cycles are not permitted.
-
-        </p>
-
-      </section>
-
-      {/* PROFIT POLICY */}
-
-      <section className="neo-card p-10 mt-12">
-
-        <h2 className="text-2xl font-bold mb-6">
-          Profit Policy
-        </h2>
-
-        <p className="text-[var(--neo-text-muted)]">
-
-          TradingNexus does not operate on a profit sharing model.
-
-          Traders retain the profits generated through their trading
-          activities.
-
-        </p>
-
-      </section>
-
-      {/* PLATFORM CHARGES */}
-
-      <section className="neo-card p-10 mt-12">
-
-        <h2 className="text-2xl font-bold mb-6">
-          Platform Charges
-        </h2>
-
-        <p className="text-[var(--neo-text-muted)]">
-
-          TradingNexus charges a platform fee of
-          <b> 0.005 × turnover</b> for facilitating trading on the system.
-
-        </p>
-
-        <p className="text-[var(--neo-text-muted)] mt-4">
-
-          If no trading activity occurs during a month, no platform
-          charges are applied.
-
-        </p>
-
-      </section>
-
       {/* CTA */}
 
       <section className="neo-card text-center p-12 mt-16">
 
         <h2 className="text-2xl font-bold mb-4">
-          Start Trading With Higher Capital
+          Limited Seats Available
         </h2>
 
+        <p className="text-[var(--neo-text-muted)] mb-6">
+
+          Join the upcoming batch of the Free Derivatives Crash Course and
+          get the opportunity to become a funded trader.
+
+        </p>
+
         <Link
-          href="/funded"
+          href="/register"
           className="neo-btn-solid-green px-8 py-3"
         >
-          View Funded Program
+          Secure Your Seat
         </Link>
 
       </section>

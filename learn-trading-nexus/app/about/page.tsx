@@ -23,7 +23,7 @@ export default function AboutPage() {
             {/* Navigation */}
             <nav className="flex items-center justify-between mb-16 px-6 py-4 neo-card">
                 <Link href="/" className="group transition-transform hover:-translate-y-1">
-                    <img src="/logo.png" alt="Trading Nexus" className="h-[80px] md:h-[100px] w-auto max-w-[300px] object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] animate-float-slow" />
+                    <img src="/logo.png" alt="Trading Nexus" className="h-[120px] md:h-[120px] w-auto max-w-[420px] object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] animate-float-slow" />
                 </Link>
                 <Link href="/" className="flex items-center gap-2 text-sm font-bold text-[var(--neo-text-muted)] hover:text-[var(--neo-text-main)] transition-colors">
                     <ArrowLeft className="h-4 w-4" />

@@ -88,3 +88,13 @@ watch_deployment.py
 wait_and_check.py
 analyze_ssh_keys.py
 .gitignore
+
+# Local untracked files to suppress from status
+.tmp_nse_bse_pkg/
+.tmp_nse_bse_runtime/
+LEARN_SUBDOMAIN_DEPLOYMENT_GUIDE.md
+LEARN_SUBDOMAIN_INTEGRATION_MAINTENANCE.md
+LEARN_SUBDOMAIN_REMOVED_README.md
+REPOSITORY_SEPARATION_GUIDE.md
+_tmp_check_funded.py
+_tmp_fix_logo.py

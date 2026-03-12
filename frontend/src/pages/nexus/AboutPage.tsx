@@ -4,7 +4,7 @@ import '../../styles/nexus/NeoTheme.css';
 
 const AboutPage: React.FC = () => {
   return (
-    <main className="relative mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-20 pt-8 md:px-8">
+    <main className="neo-page relative mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-20 pt-8 md:px-8">
       <nav className="neo-card mb-16 flex items-center justify-between px-6 py-4">
         <Link to="/" className="group transition-transform hover:-translate-y-1">
           <img src="/logo.png" alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />

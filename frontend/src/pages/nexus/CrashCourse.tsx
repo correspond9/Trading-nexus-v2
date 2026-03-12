@@ -64,7 +64,7 @@ const CrashCourse: React.FC = () => {
   ];
 
   return (
-    <main className="relative mx-auto min-h-screen max-w-6xl px-4 pb-20 pt-10 md:px-8">
+    <main className="neo-page relative mx-auto min-h-screen max-w-6xl px-4 pb-20 pt-10 md:px-8">
       <nav className="neo-card mb-16 flex items-center justify-between px-6 py-4">
         <Link to="/" className="group flex items-center gap-2">
           <div className="relative flex items-center justify-center rounded-xl p-1 transition-transform group-hover:scale-105">

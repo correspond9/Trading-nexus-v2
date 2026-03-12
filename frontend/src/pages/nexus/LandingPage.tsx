@@ -24,7 +24,7 @@ interface LandingPageProps {
 
 const LandingPage: React.FC<LandingPageProps> = () => {
     return (
-        <main className="relative mx-auto flex min-h-screen max-w-6xl flex-col gap-24 px-4 pb-20 pt-10 md:px-8 md:pt-16 lg:pt-20">
+        <main className="neo-page relative mx-auto flex min-h-screen max-w-6xl flex-col gap-24 px-4 pb-20 pt-10 md:px-8 md:pt-16 lg:pt-20">
             <nav className="neo-card relative z-50 flex items-center justify-between gap-4 px-8 py-5">
                 <Link to="/" className="group transition-transform hover:-translate-y-1">
                     <img src="/logo.png" alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />

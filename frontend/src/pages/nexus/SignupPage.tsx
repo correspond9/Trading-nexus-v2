@@ -68,7 +68,7 @@ const SignupPage: React.FC = () => {
 
     if (isSubmitted) {
         return (
-            <main className="flex min-h-screen items-center justify-center p-4">
+            <main className="neo-page flex min-h-screen items-center justify-center p-4">
                 <div className="neo-card max-w-lg p-12 text-center">
                     <div className="mb-8 flex justify-center">
                         <div className="neo-btn rounded-full border border-emerald-500/30 p-6">
@@ -95,7 +95,7 @@ const SignupPage: React.FC = () => {
     }
 
     return (
-        <main className="relative flex min-h-screen flex-col items-center justify-center px-4 py-20">
+        <main className="neo-page relative flex min-h-screen flex-col items-center justify-center px-4 py-20">
             <Link to="/" className="neo-btn fixed left-8 top-8 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-sm font-bold hover:text-[var(--neo-text-accent)]">
                 <ArrowLeft className="h-4 w-4" />
                 Back to Home

@@ -1,5 +1,224 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
+/* ── Shared Neo Theme (Landing / About / Course / Signup) ─────────────── */
+
+.neo-page {
+  --neo-bg: #edf1f9;
+  --neo-surface: #edf1f9;
+  --neo-shadow-dark: rgba(170, 184, 212, 0.65);
+  --neo-shadow-light: rgba(255, 255, 255, 0.95);
+  --neo-text-main: #1f2a44;
+  --neo-text-muted: #5f6f8d;
+  --neo-text-accent: #5f46d8;
+  --neo-color-purple: #6d5efc;
+  --neo-color-blue: #2f80ed;
+  --neo-color-green: #16a34a;
+  --neo-color-red: #e11d48;
+  --neo-color-orange: #f97316;
+  --neo-color-pink: #db2777;
+  --neo-border-hi: 1px solid rgba(255, 255, 255, 0.9);
+  --neo-shadow-main: 14px 14px 28px var(--neo-shadow-dark), -14px -14px 28px var(--neo-shadow-light);
+  --neo-shadow-soft: 8px 8px 16px var(--neo-shadow-dark), -8px -8px 16px var(--neo-shadow-light);
+  --neo-shadow-inset: inset 8px 8px 16px var(--neo-shadow-dark), inset -8px -8px 16px var(--neo-shadow-light);
+
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(109, 94, 252, 0.12), transparent 32%),
+    radial-gradient(circle at 88% 12%, rgba(47, 128, 237, 0.1), transparent 30%),
+    linear-gradient(145deg, #e9effa 0%, #f1f5fc 48%, #f8fbff 100%);
+  color: var(--neo-text-main);
+  font-family: Inter, sans-serif;
+  position: relative;
+  overflow-x: clip;
+}
+
+.neo-page * {
+  box-sizing: border-box;
+}
+
+.neo-page::before,
+.neo-page::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.neo-page::before {
+  width: 320px;
+  height: 320px;
+  top: -120px;
+  right: -90px;
+  background: radial-gradient(circle, rgba(109, 94, 252, 0.2), rgba(109, 94, 252, 0));
+  animation: neoFloat 8s ease-in-out infinite;
+}
+
+.neo-page::after {
+  width: 260px;
+  height: 260px;
+  bottom: -100px;
+  left: -70px;
+  background: radial-gradient(circle, rgba(22, 163, 74, 0.16), rgba(22, 163, 74, 0));
+  animation: neoFloat 10s ease-in-out infinite reverse;
+}
+
+.neo-card {
+  position: relative;
+  z-index: 1;
+  background: var(--neo-surface);
+  border: var(--neo-border-hi);
+  border-radius: 28px;
+  box-shadow: var(--neo-shadow-main);
+}
+
+.neo-dug {
+  background: var(--neo-surface);
+  box-shadow: var(--neo-shadow-inset);
+}
+
+.neo-divider {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(31, 42, 68, 0.26), transparent);
+}
+
+.neo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: var(--neo-border-hi);
+  background: var(--neo-surface);
+  box-shadow: var(--neo-shadow-soft);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--neo-text-main);
+}
+
+.neo-btn,
+.neo-btn-dug,
+.neo-btn-solid-purple,
+.neo-btn-solid-green,
+.neo-btn-solid-blue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 18px;
+  text-decoration: none;
+  font-weight: 800;
+  border: 1px solid transparent;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.neo-btn {
+  background: var(--neo-surface);
+  color: var(--neo-text-main);
+  border: var(--neo-border-hi);
+  box-shadow: var(--neo-shadow-soft);
+}
+
+.neo-btn:hover,
+.neo-btn-dug:hover,
+.neo-btn-solid-purple:hover,
+.neo-btn-solid-green:hover,
+.neo-btn-solid-blue:hover {
+  transform: translateY(-2px);
+}
+
+.neo-btn-dug {
+  background: var(--neo-surface);
+  color: var(--neo-text-main);
+  box-shadow: var(--neo-shadow-inset);
+}
+
+.neo-btn-purple {
+  color: var(--neo-color-purple);
+}
+
+.neo-btn-green {
+  color: var(--neo-color-green);
+}
+
+.neo-btn-solid-purple {
+  color: #fff;
+  background: linear-gradient(135deg, #6d5efc, #8b5cf6);
+  box-shadow: 0 12px 24px rgba(109, 94, 252, 0.35);
+}
+
+.neo-btn-solid-green {
+  color: #fff;
+  background: linear-gradient(135deg, #16a34a, #10b981);
+  box-shadow: 0 12px 24px rgba(22, 163, 74, 0.28);
+}
+
+.neo-btn-solid-blue {
+  color: #fff;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.3);
+}
+
+.neo-input {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  background: var(--neo-surface);
+  color: var(--neo-text-main);
+  border-radius: 18px;
+  padding: 14px 18px;
+  box-shadow: var(--neo-shadow-inset);
+  outline: none;
+}
+
+.neo-input::placeholder {
+  color: color-mix(in srgb, var(--neo-text-muted) 80%, #ffffff);
+}
+
+.neo-input:focus {
+  box-shadow: 0 0 0 3px rgba(109, 94, 252, 0.2), var(--neo-shadow-inset);
+}
+
+.text-gradient {
+  background: linear-gradient(130deg, #5b4ee4, #0ea5e9, #db2777);
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.neo-floating-cube {
+  box-shadow: var(--neo-shadow-main);
+}
+
+.animate-float-slow {
+  animation: neoFloat 6s ease-in-out infinite;
+}
+
+@keyframes neoFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@media (max-width: 768px) {
+  .neo-card {
+    border-radius: 22px;
+  }
+
+  .neo-page {
+    background:
+      radial-gradient(circle at 10% 8%, rgba(109, 94, 252, 0.1), transparent 32%),
+      radial-gradient(circle at 90% 12%, rgba(47, 128, 237, 0.08), transparent 28%),
+      linear-gradient(145deg, #e9effa 0%, #f3f6fc 48%, #f9fbff 100%);
+  }
+}
+
 .funded-page {
   --bg: #f2f0fa;
   --surface: #f2f0fa;

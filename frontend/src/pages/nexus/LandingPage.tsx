@@ -1,4 +1,19 @@
-import { LineChart, ShieldCheck, Users, Sparkles, CheckCircle2, PlayCircle, BadgeCheck, ArrowDownCircle, ChevronRight } from 'lucide-react';
+import {
+    LineChart,
+    ShieldCheck,
+    Users,
+    Clock,
+    Brain,
+    Sparkles,
+    CheckCircle2,
+    PlayCircle,
+    BadgeCheck,
+    ArrowDownCircle,
+    ChevronRight,
+    TrendingUp,
+    Activity,
+    Crosshair,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import '../../styles/nexus/NeoTheme.css';
 
@@ -92,7 +107,7 @@ const LandingPage: React.FC<LandingPageProps> = () => {
 
                         <div className="space-y-6 pt-2 text-lg font-medium leading-relaxed text-[var(--neo-text-muted)]">
                             <p>
-                                The stock market is an incredibly challenging environment. We believe that professional financial education should not be locked behind a massive paywall. Too many aspiring traders spend their capital on courses before they ever place their first trade. Our mission is to democratize access to institutional-grade trading frameworks.
+                                The stock market is an incredibly challenging environment. We believe that professional financial education shouldn&apos;t be locked behind a massive paywall. Too many aspiring traders spend their capital on courses before they ever place their first trade. Our mission is to democratize access to institutional-grade trading frameworks.
                             </p>
                             <p>
                                 Throughout our programs, we actively monitor our students. Exceptional candidates who demonstrate consistent emotional control and strategic discipline may be considered for a highly exclusive, merit-based opportunity: the chance to trade alongside our proprietary desk using leveraged firm capital.

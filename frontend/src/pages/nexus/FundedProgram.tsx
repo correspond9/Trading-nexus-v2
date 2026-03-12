@@ -60,12 +60,16 @@ function renderProcessGraphic(graphic: ProcessGraphic) {
   if (graphic === 'training') {
     return (
       <div className="funded-mini-scene funded-mini-scene-training" aria-hidden="true">
-        <div className="funded-mini-chart">
-          <span className="funded-mini-bar funded-mini-bar-1" />
-          <span className="funded-mini-bar funded-mini-bar-2" />
-          <span className="funded-mini-bar funded-mini-bar-3" />
-          <span className="funded-mini-bar funded-mini-bar-4" />
-          <span className="funded-mini-bar funded-mini-bar-5" />
+        <div className="funded-mini-training-stack">
+          <div className="funded-mini-training-card funded-mini-training-card-cap">
+            <span className="funded-mini-training-icon">🎓</span>
+            <span className="funded-mini-training-label">Live Training</span>
+          </div>
+
+          <div className="funded-mini-training-card funded-mini-training-card-cert">
+            <span className="funded-mini-training-icon">📜</span>
+            <span className="funded-mini-training-label">Certificate</span>
+          </div>
         </div>
         <div className="funded-mini-tag">2 Days</div>
       </div>
@@ -156,7 +160,9 @@ const FundedProgram: React.FC = () => {
         <section className="funded-process">
           <div className="funded-process-heading">
             <span className="funded-process-kicker">Selection Process</span>
-            <h2>The Path To TradingNexus Funding</h2>
+            <h2>
+              The Path To <span className="funded-gradient">TradingNexus Funding</span>
+            </h2>
             <p>
               A clearer visual journey from free course registration to final funding shortlist.
             </p>
@@ -200,7 +206,9 @@ const FundedProgram: React.FC = () => {
 
             <div className="funded-skip-course-copy">
               <span className="funded-process-kicker">Alternate Route</span>
-              <h3>Or skip the course and get instant funding.</h3>
+              <h3>
+                Or skip the course and get <span className="funded-highlight-cool">instant funding</span>.
+              </h3>
               <p>
                 If you want a direct route, choose the instant-funding path and move straight into a faster capital access journey.
               </p>

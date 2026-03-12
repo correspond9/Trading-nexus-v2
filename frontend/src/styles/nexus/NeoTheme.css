@@ -226,6 +226,7 @@
   --neo-shadow-light: #ffffff;
   --accent: #6569a5;
   --accent2: #3b82f6;
+  --accent3: #ff7a18;
   --text: #3a435e;
   --muted: #8a98ac;
   --shadow: 12px 12px 24px var(--neo-shadow-dark), -12px -12px 24px var(--neo-shadow-light);
@@ -596,6 +597,52 @@
   gap: 16px;
 }
 
+.funded-mini-training-stack {
+  width: 100%;
+  max-width: 194px;
+  display: grid;
+  gap: 12px;
+}
+
+.funded-mini-training-card {
+  min-height: 60px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(220, 232, 252, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 8px 8px 20px rgba(198, 214, 240, 0.66), -8px -8px 18px rgba(255, 255, 255, 0.88);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.funded-mini-training-card-cap {
+  transform: translateX(-8px);
+}
+
+.funded-mini-training-card-cert {
+  transform: translateX(8px);
+}
+
+.funded-mini-training-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  background: linear-gradient(135deg, rgba(101, 105, 165, 0.18), rgba(59, 130, 246, 0.2));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.funded-mini-training-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #4d5980;
+  letter-spacing: 0.02em;
+}
+
 .funded-mini-chart {
   width: 100%;
   max-width: 180px;
@@ -800,6 +847,13 @@
 .funded-cta-secondary {
   white-space: nowrap;
   background: linear-gradient(135deg, var(--accent3), #ff9a3d);
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(77, 40, 0, 0.25);
+  box-shadow: 6px 6px 16px rgba(255, 122, 24, 0.35), -4px -4px 12px rgba(255, 255, 255, 0.75);
+}
+
+.funded-highlight-cool {
+  color: #4e66d6;
 }
 
 .funded-final {

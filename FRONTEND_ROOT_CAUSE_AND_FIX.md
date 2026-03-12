@@ -1,5 +1,10 @@
 # Frontend Not Updating - Root Cause & Solution
 
+## Status
+
+This document is historical context from an earlier incident.
+For current production routing and ownership policy, follow DEPLOYMENT_MAP.md only.
+
 ## Investigation Results
 
 ### ✓ What's Working:

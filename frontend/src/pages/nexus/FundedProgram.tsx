@@ -1,7 +1,7 @@
 import React from 'react';
 import '../../styles/nexus/NeoTheme.css';
 
-const REGISTER_URL = 'https://learn.tradingnexus.pro/register';
+const REGISTER_URL = '/register';
 
 const FundedProgram: React.FC = () => {
   return (

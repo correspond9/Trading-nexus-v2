@@ -1,4 +1,9 @@
-# 📱 Mobile Optimization Summary
+# Mobile Optimization Summary
+
+## Status
+
+This document is a UI implementation summary.
+For deployment ownership, domain mapping, and production policy, use DEPLOYMENT_MAP.md as the single source of truth.
 
 ## Overview
 Successfully implemented comprehensive mobile-first responsive design for Trading Nexus platform, covering all landing pages and components.

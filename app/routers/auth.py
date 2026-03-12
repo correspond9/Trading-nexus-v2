@@ -5,9 +5,10 @@ POST /auth/logout                   {token}                              → {su
 GET  /auth/me                                                            → user from X-AUTH header
 POST /auth/portal/signup            {name, email, experience_level}      → {success, message, user_id}
 GET  /auth/portal/users             (admin only)                         → {users: [...], total: int}
+POST /auth/portal/users/delete      (admin only)                         → bulk delete by user_ids
 """
 import logging
-from typing import Optional
+from typing import Optional, List
 import re
 
 import bcrypt
@@ -51,6 +52,10 @@ class PortalSignupRequest(BaseModel):
     experience_level: str
     interest: str
     learning_goal: str
+
+
+class PortalUsersBulkDeleteRequest(BaseModel):
+    user_ids: List[str]
 
 
 @router.post("/login")
@@ -253,3 +258,54 @@ async def get_portal_users(user: CurrentUser = Depends(get_current_user)):
     except Exception as e:
         log.error(f"Error fetching portal users: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch portal users")
+
+
+@router.post("/portal/users/delete")
+async def delete_portal_users(
+    body: PortalUsersBulkDeleteRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Bulk delete portal signup registrations.
+
+    Super admin only.
+    """
+    if user.role != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only super admins can delete portal users")
+
+    user_ids = [str(uid).strip() for uid in (body.user_ids or []) if str(uid).strip()]
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="No portal user IDs provided")
+
+    pool = get_pool()
+
+    try:
+        deleted_count = await pool.fetchval(
+            """
+            WITH deleted AS (
+                DELETE FROM portal_users
+                WHERE id = ANY($1::uuid[])
+                RETURNING id
+            )
+            SELECT COUNT(*)::int FROM deleted
+            """,
+            user_ids,
+        )
+
+        return {
+            "success": True,
+            "deleted": int(deleted_count or 0),
+            "requested": len(user_ids),
+            "message": f"Deleted {int(deleted_count or 0)} portal signup(s)",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Most common error case here is invalid UUID in user_ids.
+        msg = str(e).lower()
+        if "uuid" in msg or "invalid input syntax" in msg:
+            raise HTTPException(status_code=400, detail="One or more portal user IDs are invalid")
+
+        log.error(f"Error deleting portal users: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete portal users")

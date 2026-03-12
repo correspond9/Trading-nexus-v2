@@ -97,6 +97,9 @@ const SuperAdminDashboard = () => {
   const [portalUsersLoading, setPortalUsersLoading] = useState(false);
   const [portalUsersError, setPortalUsersError]   = useState('');
   const [portalUsersTotal, setPortalUsersTotal]   = useState(0);
+  const [selectedPortalUserIds, setSelectedPortalUserIds] = useState(new Set());
+  const [portalUsersDeleteLoading, setPortalUsersDeleteLoading] = useState(false);
+  const [portalUsersDeleteMsg, setPortalUsersDeleteMsg] = useState('');
 
   // ── Backdate position ──
   const [backdateForm, setBackdateForm]     = useState({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', trade_time: '09:15', instrument_type: 'EQ', exchange: 'NSE', product_type: 'MIS' });
@@ -254,6 +257,7 @@ const SuperAdminDashboard = () => {
   const fetchPortalUsers = useCallback(async () => {
     setPortalUsersLoading(true);
     setPortalUsersError('');
+    setPortalUsersDeleteMsg('');
     try {
       const res = await req('/auth/portal/users');
       if (res.ok) {
@@ -270,6 +274,106 @@ const SuperAdminDashboard = () => {
       setPortalUsersLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    setSelectedPortalUserIds((prev) => {
+      if (!prev.size) return prev;
+      const validIds = new Set(portalUsers.map((u) => u.id));
+      const filtered = new Set([...prev].filter((id) => validIds.has(id)));
+      return filtered.size === prev.size ? prev : filtered;
+    });
+  }, [portalUsers]);
+
+  const togglePortalUserSelection = (userId) => {
+    setSelectedPortalUserIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllPortalUsers = () => {
+    if (!portalUsers.length) return;
+    setSelectedPortalUserIds((prev) => {
+      if (prev.size === portalUsers.length) {
+        return new Set();
+      }
+      return new Set(portalUsers.map((u) => u.id));
+    });
+  };
+
+  const handleDeleteSelectedPortalUsers = async () => {
+    const ids = Array.from(selectedPortalUserIds);
+    if (!ids.length) return;
+
+    if (!window.confirm(`Delete ${ids.length} selected portal signup(s)? This cannot be undone.`)) return;
+
+    setPortalUsersDeleteLoading(true);
+    setPortalUsersError('');
+    setPortalUsersDeleteMsg('');
+    try {
+      const res = await req('/auth/portal/users/delete', {
+        method: 'POST',
+        body: JSON.stringify({ user_ids: ids }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPortalUsersError(data.detail || 'Failed to delete selected signups');
+      } else {
+        setPortalUsersDeleteMsg(data.message || `Deleted ${data.deleted || 0} signup(s)`);
+        setSelectedPortalUserIds(new Set());
+        await fetchPortalUsers();
+      }
+    } catch (e) {
+      setPortalUsersError(e?.message || 'Failed to delete selected signups');
+    } finally {
+      setPortalUsersDeleteLoading(false);
+    }
+  };
+
+  const escapeCsv = (value) => {
+    const raw = value == null ? '' : String(value);
+    return `"${raw.replace(/"/g, '""')}"`;
+  };
+
+  const handleExportPortalUsersCsv = () => {
+    if (!portalUsers.length) return;
+    const headers = [
+      'name',
+      'email',
+      'mobile',
+      'city',
+      'experience_level',
+      'interest',
+      'learning_goal',
+      'created_at',
+    ];
+    const rows = portalUsers.map((u) => [
+      u.name,
+      u.email,
+      u.mobile,
+      u.city,
+      u.experience_level,
+      u.interest,
+      u.learning_goal,
+      u.created_at,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map(escapeCsv).join(','))
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    anchor.href = url;
+    anchor.download = `portal-signups-${stamp}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
 
   // Load portal users when tab is active
   useEffect(() => {
@@ -1318,10 +1422,28 @@ const SuperAdminDashboard = () => {
                   Total registrations: <span className="font-semibold text-zinc-100">{portalUsersTotal}</span>
                 </p>
               </div>
-              <button onClick={fetchPortalUsers} disabled={portalUsersLoading} className={btnCls('blue')}>
-                {portalUsersLoading ? 'Loading…' : 'Refresh'}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={handleExportPortalUsersCsv} disabled={!portalUsers.length || portalUsersLoading} className={btnCls('green')}>
+                  Export CSV
+                </button>
+                <button
+                  onClick={handleDeleteSelectedPortalUsers}
+                  disabled={!selectedPortalUserIds.size || portalUsersDeleteLoading || portalUsersLoading}
+                  className={btnCls('red')}
+                >
+                  {portalUsersDeleteLoading ? 'Deleting…' : `Delete Selected${selectedPortalUserIds.size ? ` (${selectedPortalUserIds.size})` : ''}`}
+                </button>
+                <button onClick={fetchPortalUsers} disabled={portalUsersLoading} className={btnCls('blue')}>
+                  {portalUsersLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
             </div>
+
+            {portalUsersDeleteMsg && (
+              <div className="mb-4 p-3 bg-green-900/20 border border-green-700/40 rounded-lg text-xs text-green-300">
+                {portalUsersDeleteMsg}
+              </div>
+            )}
 
             {portalUsersError && (
               <div className="mb-4 p-3 bg-red-900/20 border border-red-700/40 rounded-lg text-xs text-red-300">
@@ -1346,6 +1468,14 @@ const SuperAdminDashboard = () => {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="text-xs text-zinc-400 border-b border-zinc-700">
+                      <th className="text-left py-3 px-4">
+                        <input
+                          type="checkbox"
+                          checked={portalUsers.length > 0 && selectedPortalUserIds.size === portalUsers.length}
+                          onChange={toggleSelectAllPortalUsers}
+                          title="Select all"
+                        />
+                      </th>
                       <th className="text-left py-3 px-4">Name</th>
                       <th className="text-left py-3 px-4">Email</th>
                       <th className="text-left py-3 px-4">Mobile</th>
@@ -1359,6 +1489,14 @@ const SuperAdminDashboard = () => {
                   <tbody>
                     {portalUsers.map((user, idx) => (
                       <tr key={user.id} className={`border-b border-zinc-700 hover:bg-zinc-700/30 ${idx % 2 === 0 ? 'bg-zinc-800/50' : ''}`}>
+                        <td className="py-3 px-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedPortalUserIds.has(user.id)}
+                            onChange={() => togglePortalUserSelection(user.id)}
+                            title={`Select ${user.name}`}
+                          />
+                        </td>
                         <td className="py-3 px-4 font-medium text-zinc-100">{user.name}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.email}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.mobile || '—'}</td>

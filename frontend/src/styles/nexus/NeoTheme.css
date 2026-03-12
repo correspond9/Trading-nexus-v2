@@ -266,8 +266,8 @@
 }
 
 .funded-logo-img {
-  width: 24px;
-  height: 24px;
+  width: 48px;
+  height: 48px;
   object-fit: contain;
 }
 
@@ -641,9 +641,18 @@
 }
 
 .rules-card h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 22px;
   margin-bottom: 16px;
   color: var(--text);
+}
+
+.rules-section-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
 }
 
 .rules-muted {
@@ -849,7 +858,9 @@
 }
 
 .rules-cta {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 16px 44px;
   border-radius: 12px;
   background: var(--accent2);

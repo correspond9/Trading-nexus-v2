@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import '../../styles/nexus/NeoTheme.css';
+import NexusAssetImage from '../../components/nexus/NexusAssetImage';
+import { usePortalLogo } from '../../hooks/usePortalLogo';
 
 interface LandingPageProps {
     toggleTheme?: () => void;
@@ -23,11 +25,13 @@ interface LandingPageProps {
 }
 
 const LandingPage: React.FC<LandingPageProps> = () => {
+    const logo = usePortalLogo();
+
     return (
         <main className="neo-page relative mx-auto flex min-h-screen max-w-6xl flex-col gap-24 px-4 pb-20 pt-10 md:px-8 md:pt-16 lg:pt-20">
             <nav className="neo-card relative z-50 flex items-center justify-between gap-4 px-8 py-5">
                 <Link to="/" className="group transition-transform hover:-translate-y-1">
-                    <img src="/logo.png" alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
+                    <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
                 </Link>
                 <div className="hidden flex-1 items-center justify-center gap-10 text-sm font-black uppercase tracking-widest text-[var(--neo-text-muted)] sm:flex">
                     <Link to="/about" className="transition-colors hover:text-[var(--neo-color-purple)]">About Mentor</Link>
@@ -87,7 +91,7 @@ const LandingPage: React.FC<LandingPageProps> = () => {
                 </div>
 
                 <div className="relative flex h-[500px] w-full items-center justify-center">
-                    <img src="/vector_monitor.png" alt="3D Trading Monitor" className="h-auto w-[100%] max-w-[550px] animate-float-slow object-contain" />
+                    <NexusAssetImage src="/vector_monitor.png" fallbackSrc="/icon_monitor.png" alt="3D Trading Monitor" className="h-auto w-[100%] max-w-[550px] animate-float-slow object-contain" />
                 </div>
             </section>
 
@@ -96,7 +100,7 @@ const LandingPage: React.FC<LandingPageProps> = () => {
                     <div className="space-y-10">
                         <div className="flex items-center gap-3">
                             <div className="-ml-4 flex h-28 w-28 items-center justify-center">
-                                <img src="/vector_crystal_ball.png" alt="Crystal Ball" className="h-full w-full animate-float-slow object-contain" />
+                                <NexusAssetImage src="/vector_crystal_ball.png" fallbackSrc="/icon_crystal_ball.png" alt="Crystal Ball" className="h-full w-full animate-float-slow object-contain" />
                             </div>
                             <span className="relative z-10 text-sm font-black uppercase tracking-[0.2em] text-[var(--neo-color-purple)]">Our Philosophy</span>
                         </div>
@@ -148,9 +152,9 @@ const LandingPage: React.FC<LandingPageProps> = () => {
 
                 <div className="grid gap-12 md:grid-cols-3">
                     {[
-                        { icon: <img src="/vector_research.png" alt="Research" className="h-40 w-auto animate-float-slow" />, title: 'Foundation Mastery', desc: 'Stocks, indices, lot sizes, margins.', points: ['Market myths', 'Basics of Equity'] },
-                        { icon: <img src="/vector_brain_bulb.png" alt="Brain Intel" className="h-40 w-auto animate-float-slow" style={{ animationDelay: '1s' }} />, title: 'Technical Intel', desc: 'Read price action and psychology.', points: ['Support / Resistance', 'Volume confirmation'] },
-                        { icon: <img src="/vector_cert.png" alt="Risk Cert" className="h-40 w-auto animate-float-slow" style={{ animationDelay: '2s' }} />, title: 'Risk Architecture', desc: 'Survive long enough to grow in capital.', points: ['Position sizing', 'Risk-to-Reward'] }
+                        { icon: <NexusAssetImage src="/vector_research.png" fallbackSrc="/icon_research.png" alt="Research" className="h-40 w-auto animate-float-slow" />, title: 'Foundation Mastery', desc: 'Stocks, indices, lot sizes, margins.', points: ['Market myths', 'Basics of Equity'] },
+                        { icon: <NexusAssetImage src="/vector_brain_bulb.png" fallbackSrc="/icon_brain_bulb.png" alt="Brain Intel" className="h-40 w-auto animate-float-slow" style={{ animationDelay: '1s' }} />, title: 'Technical Intel', desc: 'Read price action and psychology.', points: ['Support / Resistance', 'Volume confirmation'] },
+                        { icon: <NexusAssetImage src="/vector_cert.png" fallbackSrc="/icon_cert.png" alt="Risk Cert" className="h-40 w-auto animate-float-slow" style={{ animationDelay: '2s' }} />, title: 'Risk Architecture', desc: 'Survive long enough to grow in capital.', points: ['Position sizing', 'Risk-to-Reward'] }
                     ].map((card, idx) => (
                         <div key={idx} className="neo-card group flex flex-col items-center p-12 text-center">
                             <div className="mb-6 flex h-48 w-48 items-center justify-center overflow-visible">
@@ -186,7 +190,7 @@ const LandingPage: React.FC<LandingPageProps> = () => {
                         <p className="text-lg font-medium text-[var(--neo-text-muted)]">Explore lesson plans and session timings.</p>
                     </div>
                     <div className="flex shrink-0 items-center justify-center">
-                        <img src="/vector_laptop.png" alt="Detailed Portal" className="h-auto w-[140px] transition-transform group-hover:scale-110 xl:w-[160px]" />
+                        <NexusAssetImage src="/vector_laptop.png" fallbackSrc="/icon_laptop.png" alt="Detailed Portal" className="h-auto w-[140px] transition-transform group-hover:scale-110 xl:w-[160px]" />
                     </div>
                 </Link>
 

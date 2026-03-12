@@ -1,9 +1,12 @@
 import React, { useMemo, useState } from 'react';
+import { ShieldCheck, AlertTriangle, CalendarClock, HandCoins, LineChart, TrendingUp, Wallet, Gauge } from 'lucide-react';
 import '../../styles/nexus/NeoTheme.css';
+import { usePortalLogo } from '../../hooks/usePortalLogo';
 
 const FUNDED_URL = '/funded';
 
 const Rules: React.FC = () => {
+  const logo = usePortalLogo();
   const [walletPayInInput, setWalletPayInInput] = useState('100000');
 
   const walletPayIn = useMemo(() => {
@@ -27,7 +30,7 @@ const Rules: React.FC = () => {
 
         <nav className="rules-nav">
           <div className="rules-logo-wrap">
-            <img src="/logo.png" alt="TradingNexus" className="rules-logo-img" />
+            <img src={logo} alt="TradingNexus" className="rules-logo-img" />
             <div className="rules-logo">TradingNexus</div>
           </div>
           <div className="rules-nav-links">
@@ -53,7 +56,7 @@ const Rules: React.FC = () => {
         <div className="rules-sections">
 
           <section className="rules-card">
-            <h2>Capital Allocation Model</h2>
+            <h2><Wallet className="rules-section-icon" /> Capital Allocation Model</h2>
             <p className="rules-muted">
               TradingNexus enables traders to trade with higher capital by allocating
               additional funds to their account.
@@ -112,7 +115,7 @@ const Rules: React.FC = () => {
           </section>
 
           <section className="rules-card">
-            <h2>Risk Monitoring (RMS)</h2>
+            <h2><ShieldCheck className="rules-section-icon" /> Risk Monitoring (RMS)</h2>
             <p className="rules-muted">
               TradingNexus maintains a dedicated Risk Management System (RMS) team that
               continuously monitors trading activity. The objective of RMS monitoring is
@@ -122,7 +125,7 @@ const Rules: React.FC = () => {
           </section>
 
           <section className="rules-card">
-            <h2>Maximum Loss Protection</h2>
+            <h2><AlertTriangle className="rules-section-icon" /> Maximum Loss Protection</h2>
             <p className="rules-muted">
               A strict system-level stop loss is enforced to protect trading capital. If
               the mark-to-market (MTM) loss on live positions reaches{' '}
@@ -132,7 +135,7 @@ const Rules: React.FC = () => {
           </section>
 
           <section className="rules-card">
-            <h2>Capital Stability During the Month</h2>
+            <h2><Gauge className="rules-section-icon" /> Capital Stability During the Month</h2>
             <p className="rules-muted">
               Once capital allocation is provided at the beginning of the month, it will
               not be reduced during the same month even if losses occur. Adjustments, if
@@ -141,7 +144,7 @@ const Rules: React.FC = () => {
           </section>
 
           <section className="rules-card">
-            <h2>Monthly Settlement</h2>
+            <h2><CalendarClock className="rules-section-icon" /> Monthly Settlement</h2>
             <p className="rules-muted">
               Final settlement of profits and losses for funded trading accounts is
               calculated on the <strong>last Thursday of every month.</strong>{' '}
@@ -150,7 +153,7 @@ const Rules: React.FC = () => {
           </section>
 
           <section className="rules-card">
-            <h2>Profit Policy</h2>
+            <h2><TrendingUp className="rules-section-icon" /> Profit Policy</h2>
             <p className="rules-muted">
               TradingNexus does not operate on a profit sharing model. Traders retain
               the profits generated through their trading activities.
@@ -158,7 +161,7 @@ const Rules: React.FC = () => {
           </section>
 
           <section className="rules-card">
-            <h2>Platform Charges</h2>
+            <h2><HandCoins className="rules-section-icon" /> Platform Charges</h2>
             <p className="rules-muted">
               TradingNexus charges a platform fee of{' '}
               <strong>0.005 × turnover</strong> for facilitating trading on the system.
@@ -173,6 +176,7 @@ const Rules: React.FC = () => {
         <section className="rules-cta-section">
           <h2>Start Trading With Higher Capital</h2>
           <a className="rules-cta" href={FUNDED_URL}>
+            <LineChart size={16} />
             View Funded Program
           </a>
         </section>

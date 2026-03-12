@@ -2,8 +2,12 @@ import React, { useState } from 'react';
 import { ArrowLeft, CheckCircle2, Clock, Sparkles, ShieldCheck, Send, MessageSquare, MapPin, Mail, Phone } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import '../../styles/nexus/NeoTheme.css';
+import NexusAssetImage from '../../components/nexus/NexusAssetImage';
+import { usePortalLogo } from '../../hooks/usePortalLogo';
 
 const SignupPage: React.FC = () => {
+    const logo = usePortalLogo();
+
     const [formData, setFormData] = useState({
         fullName: '',
         email: '',
@@ -102,13 +106,13 @@ const SignupPage: React.FC = () => {
             </Link>
 
             <div className="fixed right-8 top-8 z-50 hidden md:block">
-                <img src="/logo.png" alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] object-contain drop-shadow-[0_10px_10px_var(--neo-shadow-dark)]" />
+                <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] object-contain drop-shadow-[0_10px_10px_var(--neo-shadow-dark)]" />
             </div>
 
             <div className="mt-[6rem] w-full max-w-2xl md:mt-[4rem]">
                 <div className="relative mb-16 text-center">
                     <div className="absolute left-1/2 top-[-8rem] -translate-x-1/2 transform">
-                        <img src="/vector_rocket.png" alt="Rocket" className="h-[120px] w-auto animate-float-slow drop-shadow-xl" />
+                        <NexusAssetImage src="/vector_rocket.png" alt="Rocket" className="h-[120px] w-auto animate-float-slow drop-shadow-xl" />
                     </div>
                     <div className="neo-badge mb-8 mt-12 border border-indigo-200 shadow-md shadow-indigo-500/10">
                         <Sparkles className="h-4 w-4 text-[var(--neo-color-purple)]" />

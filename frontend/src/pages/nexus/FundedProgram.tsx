@@ -1,15 +1,18 @@
 import React from 'react';
 import '../../styles/nexus/NeoTheme.css';
+import { usePortalLogo } from '../../hooks/usePortalLogo';
 
 const REGISTER_URL = '/register';
 
 const FundedProgram: React.FC = () => {
+  const logo = usePortalLogo();
+
   return (
     <div className="funded-page">
       <div className="funded-container">
         <nav className="funded-nav">
           <div className="funded-logo-wrap">
-            <img src="/logo.png" alt="TradingNexus" className="funded-logo-img" />
+            <img src={logo} alt="TradingNexus" className="funded-logo-img" />
             <div className="funded-logo">TradingNexus</div>
           </div>
           <a href={REGISTER_URL}>Sign Up</a>

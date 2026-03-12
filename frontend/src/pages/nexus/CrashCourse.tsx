@@ -1,14 +1,18 @@
 import { ArrowLeft, BookOpen, Users, Clock, Award, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import '../../styles/nexus/NeoTheme.css';
+import NexusAssetImage from '../../components/nexus/NexusAssetImage';
+import { usePortalLogo } from '../../hooks/usePortalLogo';
 
 const CrashCourse: React.FC = () => {
+  const logo = usePortalLogo();
+
   const modules = [
     {
       id: 1,
       title: 'Module 1: Introduction to Trading (The Foundation)',
       desc: 'Build a solid understanding of what trading really means and the tools you\'ll use.',
-      icon: <img src="/vector_clipboard.png" alt="Clipboard" className="h-14 w-14 object-contain drop-shadow-md transition-transform group-hover:scale-110" />,
+      icon: <NexusAssetImage src="/vector_clipboard.png" alt="Clipboard" className="h-14 w-14 object-contain drop-shadow-md transition-transform group-hover:scale-110" />,
       topics: [
         { name: '1. Basics of Trading', details: 'Distinguishing trading (short-term) from investing (long-term). Understanding the goal: profit from price movements.' },
         { name: '2. Types of Trading', details: 'Defining Scalping (seconds/minutes), Day Trading (intraday), Swing Trading (days/weeks), and Position Trading (weeks/years).' },
@@ -19,7 +23,7 @@ const CrashCourse: React.FC = () => {
       id: 2,
       title: 'Module 2: Technical Analysis and Charting',
       desc: 'Learn to read charts like a pro and identify high-probability setups.',
-      icon: <img src="/vector_monitor.png" alt="Monitor" className="h-14 w-14 object-contain drop-shadow-md transition-transform group-hover:scale-110" />,
+      icon: <NexusAssetImage src="/vector_monitor.png" fallbackSrc="/icon_monitor.png" alt="Monitor" className="h-14 w-14 object-contain drop-shadow-md transition-transform group-hover:scale-110" />,
       topics: [
         { name: '1. Introduction to TA', details: 'The three pillars: Price discounts everything, price moves in trends, history repeats. Focus on price action over fundamentals.' },
         { name: '2. Understanding Charts', details: 'Focus on Candlestick Charts (OHLC data). The difference between Bullish (Green) and Bearish (Red) candles.' },
@@ -30,7 +34,7 @@ const CrashCourse: React.FC = () => {
       id: 3,
       title: 'Module 3: Risk Management and Position Sizing',
       desc: 'The most critical skill - protecting your capital so you can trade another day.',
-      icon: <img src="/vector_scale.png" alt="Risk Scale" className="h-14 w-14 object-contain drop-shadow-md transition-transform group-hover:scale-110" />,
+      icon: <NexusAssetImage src="/vector_scale.png" alt="Risk Scale" className="h-14 w-14 object-contain drop-shadow-md transition-transform group-hover:scale-110" />,
       topics: [
         { name: '1. Risk Philosophy', details: 'The golden rule: Preserve capital first. Never risk more than a small, fixed percentage of the account on any single trade (e.g., 1% to 2%).' },
         { name: '2. Defining Risk', details: 'Calculating the Maximum Dollar Risk per trade (Account Size x Risk Percentage).' },
@@ -42,7 +46,7 @@ const CrashCourse: React.FC = () => {
       id: 4,
       title: 'Module 4: Strategy Development and Psychology',
       desc: 'Build a repeatable trading process and master the mental game.',
-      icon: <img src="/vector_brain_bulb.png" alt="Brain Intel" className="h-14 w-14 object-contain drop-shadow-md transition-transform group-hover:scale-110" />,
+      icon: <NexusAssetImage src="/vector_brain_bulb.png" fallbackSrc="/icon_brain_bulb.png" alt="Brain Intel" className="h-14 w-14 object-contain drop-shadow-md transition-transform group-hover:scale-110" />,
       topics: [
         { name: '1. Developing a Strategy', details: 'Creating an objective Checklist of entry, exit, and management rules. Understanding the concept of a statistical \"Edge\".' },
         { name: '2. Risk-to-Reward Ratio', details: 'Defining the R:R (Reward / Risk). Understanding why aiming for 1 : 1.5 or 1 : 2 is necessary for long-term profitability, even with losses.' },
@@ -54,7 +58,7 @@ const CrashCourse: React.FC = () => {
       id: 5,
       title: 'Module 5: Practical Implementation and Tools',
       desc: 'Put it all together - choosing a broker, placing orders, and executing your first trade.',
-      icon: <img src="/vector_rocket.png" alt="Execution" className="h-14 w-14 object-contain drop-shadow-md transition-transform group-hover:scale-110" />,
+      icon: <NexusAssetImage src="/vector_rocket.png" alt="Execution" className="h-14 w-14 object-contain drop-shadow-md transition-transform group-hover:scale-110" />,
       topics: [
         { name: '1. Choosing a Broker', details: 'Criteria for selection: Regulation, low commissions/spreads, and a reliable Trading Platform.' },
         { name: '2. Order Execution', details: 'Differentiating between Market Orders (immediate execution) and Limit Orders (execution only at a desired price).' },
@@ -68,7 +72,7 @@ const CrashCourse: React.FC = () => {
       <nav className="neo-card mb-16 flex items-center justify-between px-6 py-4">
         <Link to="/" className="group flex items-center gap-2">
           <div className="relative flex items-center justify-center rounded-xl p-1 transition-transform group-hover:scale-105">
-            <img src="/logo.png" alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
+            <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
           </div>
         </Link>
         <Link to="/" className="flex items-center gap-2 text-sm font-bold text-[var(--neo-text-muted)] transition-colors hover:text-[var(--neo-text-main)]">

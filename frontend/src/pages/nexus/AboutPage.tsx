@@ -1,13 +1,17 @@
 import { ArrowLeft, ShieldCheck, Users, Briefcase, Target, BadgeCheck, Globe, Star, CheckCircle2, MapPin, Mail, Phone } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import '../../styles/nexus/NeoTheme.css';
+import NexusAssetImage from '../../components/nexus/NexusAssetImage';
+import { usePortalLogo } from '../../hooks/usePortalLogo';
 
 const AboutPage: React.FC = () => {
+  const logo = usePortalLogo();
+
   return (
     <main className="neo-page relative mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-20 pt-8 md:px-8">
       <nav className="neo-card mb-16 flex items-center justify-between px-6 py-4">
         <Link to="/" className="group transition-transform hover:-translate-y-1">
-          <img src="/logo.png" alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
+          <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
         </Link>
         <Link to="/" className="flex items-center gap-2 text-sm font-bold text-[var(--neo-text-muted)] transition-colors hover:text-[var(--neo-text-main)]">
           <ArrowLeft className="h-4 w-4" />
@@ -30,7 +34,7 @@ const AboutPage: React.FC = () => {
             professional-grade frameworks designed for real market survival.
           </p>
           <div className="flex items-center justify-center pt-8">
-            <img src="/vector_target.png" alt="Target" className="h-40 w-auto animate-float-slow drop-shadow-xl" />
+            <NexusAssetImage src="/vector_target.png" alt="Target" className="h-40 w-auto animate-float-slow drop-shadow-xl" />
           </div>
         </section>
 

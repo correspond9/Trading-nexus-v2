@@ -4,6 +4,98 @@ import { usePortalLogo } from '../../hooks/usePortalLogo';
 
 const REGISTER_URL = '/register';
 
+type ProcessGraphic = 'register' | 'training' | 'evaluation' | 'funding';
+
+const processSteps: Array<{
+  step: string;
+  eyebrow: string;
+  title: string;
+  text: string;
+  graphic: ProcessGraphic;
+}> = [
+  {
+    step: 'Step 1',
+    eyebrow: 'Free Enrollment',
+    title: 'Register For The Crash Course',
+    text: 'Reserve your seat in the free derivatives crash course and enter the selection pipeline.',
+    graphic: 'register',
+  },
+  {
+    step: 'Step 2',
+    eyebrow: 'Live Training',
+    title: 'Attend The 2-Day Program',
+    text: 'Go through the structured training sessions covering the core concepts and live market thinking.',
+    graphic: 'training',
+  },
+  {
+    step: 'Step 3',
+    eyebrow: 'Evaluation',
+    title: 'Complete The Assessment',
+    text: 'Take the evaluation during the program so your discipline, understanding, and decision-making can be measured.',
+    graphic: 'evaluation',
+  },
+  {
+    step: 'Step 4',
+    eyebrow: 'Funding Decision',
+    title: 'Get Shortlisted For Funding',
+    text: 'Top candidates move forward to the TradingNexus funded trader shortlist.',
+    graphic: 'funding',
+  },
+];
+
+function renderProcessGraphic(graphic: ProcessGraphic) {
+  if (graphic === 'register') {
+    return (
+      <div className="funded-mini-scene funded-mini-scene-register" aria-hidden="true">
+        <div className="funded-mini-window">
+          <span className="funded-mini-chip">Free</span>
+          <div className="funded-mini-line funded-mini-line-wide" />
+          <div className="funded-mini-line" />
+          <div className="funded-mini-button">Join</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (graphic === 'training') {
+    return (
+      <div className="funded-mini-scene funded-mini-scene-training" aria-hidden="true">
+        <div className="funded-mini-chart">
+          <span className="funded-mini-bar funded-mini-bar-1" />
+          <span className="funded-mini-bar funded-mini-bar-2" />
+          <span className="funded-mini-bar funded-mini-bar-3" />
+          <span className="funded-mini-bar funded-mini-bar-4" />
+          <span className="funded-mini-bar funded-mini-bar-5" />
+        </div>
+        <div className="funded-mini-tag">2 Days</div>
+      </div>
+    );
+  }
+
+  if (graphic === 'evaluation') {
+    return (
+      <div className="funded-mini-scene funded-mini-scene-evaluation" aria-hidden="true">
+        <div className="funded-mini-checklist">
+          <div className="funded-mini-check funded-mini-check-on" />
+          <div className="funded-mini-check funded-mini-check-on" />
+          <div className="funded-mini-check" />
+        </div>
+        <div className="funded-mini-score">Score</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="funded-mini-scene funded-mini-scene-funding" aria-hidden="true">
+      <div className="funded-mini-wallet">
+        <div className="funded-mini-wallet-band" />
+        <div className="funded-mini-wallet-text">4X Capital</div>
+      </div>
+      <div className="funded-mini-badge">Selected</div>
+    </div>
+  );
+}
+
 const FundedProgram: React.FC = () => {
   const logo = usePortalLogo();
 
@@ -62,27 +154,61 @@ const FundedProgram: React.FC = () => {
         </section>
 
         <section className="funded-process">
-          <h2>Selection Process</h2>
-          <div className="funded-steps">
-            <div className="funded-step">
-              <h4>Step 1</h4>
-              <p>Register for the free crash course.</p>
+          <div className="funded-process-heading">
+            <span className="funded-process-kicker">Selection Process</span>
+            <h2>The Path To TradingNexus Funding</h2>
+            <p>
+              A clearer visual journey from free course registration to final funding shortlist.
+            </p>
+          </div>
+
+          <div className="funded-process-flow">
+            {processSteps.map((step, index) => (
+              <React.Fragment key={step.step}>
+                <article className="funded-step-card">
+                  <div className="funded-step-card-top">
+                    <span className="funded-step-pill">{step.step}</span>
+                    <span className="funded-step-eyebrow">{step.eyebrow}</span>
+                  </div>
+
+                  <div className="funded-step-visual">
+                    {renderProcessGraphic(step.graphic)}
+                  </div>
+
+                  <h3>{step.title}</h3>
+                  <p>{step.text}</p>
+                </article>
+
+                {index < processSteps.length - 1 ? (
+                  <div className="funded-step-connector" aria-hidden="true">
+                    <span className="funded-step-connector-line" />
+                    <span className="funded-step-connector-dot" />
+                  </div>
+                ) : null}
+              </React.Fragment>
+            ))}
+          </div>
+
+          <div className="funded-skip-course">
+            <div className="funded-skip-course-visual" aria-hidden="true">
+              <div className="funded-skip-bolt" />
+              <div className="funded-skip-card">
+                <span className="funded-skip-card-title">Instant Funding</span>
+                <span className="funded-skip-card-value">Fast Track</span>
+              </div>
             </div>
 
-            <div className="funded-step">
-              <h4>Step 2</h4>
-              <p>Attend the 2-day derivatives training program.</p>
+            <div className="funded-skip-course-copy">
+              <span className="funded-process-kicker">Alternate Route</span>
+              <h3>Or skip the course and get instant funding.</h3>
+              <p>
+                If you want a direct route, choose the instant-funding path and move straight into a faster capital access journey.
+              </p>
             </div>
 
-            <div className="funded-step">
-              <h4>Step 3</h4>
-              <p>Complete the evaluation test during the program.</p>
-            </div>
-
-            <div className="funded-step">
-              <h4>Step 4</h4>
-              <p>Top candidates are shortlisted for TradingNexus funding.</p>
-            </div>
+            <a className="funded-cta funded-cta-secondary" href={REGISTER_URL}>
+              Explore Instant Funding
+            </a>
           </div>
         </section>
 

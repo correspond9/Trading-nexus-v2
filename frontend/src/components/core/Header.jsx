@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { THEMES, getInitialTheme, setTheme } from '../../utils/theme';
+import { usePortalLogo } from '../../hooks/usePortalLogo';
 
 const NAV_ITEMS = [
   { label: 'Trade',       path: '/trade',                          roles: null },
@@ -23,25 +24,7 @@ const Header = () => {
   const navigate  = useNavigate();
   const displayFirstName = user?.first_name || (user?.name ? String(user.name).trim().split(/\s+/)[0] : '') || user?.mobile || '';
   const [themeMode, setThemeMode] = React.useState(getInitialTheme());
-  const [logo, setLogo] = React.useState('TN');
-
-  // Fetch logo from backend
-  React.useEffect(() => {
-    const fetchLogo = async () => {
-      try {
-        const res = await fetch('/api/v2/admin/logo');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.logo) {
-            setLogo(data.logo);
-          }
-        }
-      } catch {
-        // Keep default "TN"
-      }
-    };
-    fetchLogo();
-  }, []);
+  const logo = usePortalLogo();
 
   const handleLogout = () => {
     logout();
@@ -71,9 +54,9 @@ const Header = () => {
       <div className="tn-header-inner">
         {/* Logo */}
         <Link to="/trade" className="tn-header-logo" style={{ color: 'var(--header-text)' }}>
-          {typeof logo === 'string' && logo.startsWith('data:image')
+          {logo
             ? <img src={logo} alt="Logo" style={{ height: '32px', maxWidth: '120px', objectFit: 'contain' }} />
-            : logo
+            : 'TN'
           }
         </Link>
 

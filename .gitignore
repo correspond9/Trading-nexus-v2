@@ -57,6 +57,11 @@ build/
 !.dockerignore
 !requirements.txt
 !.env.example
+!frontend/public/
+!frontend/public/*.png
+!frontend/public/*.jpg
+!frontend/public/*.jpeg
+!frontend/public/*.gif
 
 # Reference folder
 __reference_trade_nexuss/

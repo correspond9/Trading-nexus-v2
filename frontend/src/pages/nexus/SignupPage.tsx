@@ -106,7 +106,11 @@ const SignupPage: React.FC = () => {
             </Link>
 
             <div className="fixed right-8 top-8 z-50 hidden md:block">
-                <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] object-contain drop-shadow-[0_10px_10px_var(--neo-shadow-dark)]" />
+                {logo ? (
+                    <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] object-contain drop-shadow-[0_10px_10px_var(--neo-shadow-dark)]" />
+                ) : (
+                    <span className="text-xl font-black tracking-wide text-[var(--neo-text-main)]">Trading Nexus</span>
+                )}
             </div>
 
             <div className="mt-[6rem] w-full max-w-2xl md:mt-[4rem]">

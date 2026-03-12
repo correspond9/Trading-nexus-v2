@@ -266,8 +266,8 @@
 }
 
 .funded-logo-img {
-  width: 48px;
-  height: 48px;
+  width: 96px;
+  height: 96px;
   object-fit: contain;
 }
 
@@ -540,8 +540,8 @@
 }
 
 .rules-logo-img {
-  width: 24px;
-  height: 24px;
+  width: 48px;
+  height: 48px;
   object-fit: contain;
 }
 

@@ -31,7 +31,11 @@ const LandingPage: React.FC<LandingPageProps> = () => {
         <main className="neo-page relative mx-auto flex min-h-screen max-w-6xl flex-col gap-24 px-4 pb-20 pt-10 md:px-8 md:pt-16 lg:pt-20">
             <nav className="neo-card relative z-50 flex items-center justify-between gap-4 px-8 py-5">
                 <Link to="/" className="group transition-transform hover:-translate-y-1">
-                    <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
+                    {logo ? (
+                        <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
+                    ) : (
+                        <span className="text-2xl font-black tracking-wide text-[var(--neo-text-main)]">Trading Nexus</span>
+                    )}
                 </Link>
                 <div className="hidden flex-1 items-center justify-center gap-10 text-sm font-black uppercase tracking-widest text-[var(--neo-text-muted)] sm:flex">
                     <Link to="/about" className="transition-colors hover:text-[var(--neo-color-purple)]">About Mentor</Link>

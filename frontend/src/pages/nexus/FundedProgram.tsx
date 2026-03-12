@@ -12,7 +12,7 @@ const FundedProgram: React.FC = () => {
       <div className="funded-container">
         <nav className="funded-nav">
           <div className="funded-logo-wrap">
-            <img src={logo} alt="TradingNexus" className="funded-logo-img" />
+            {logo ? <img src={logo} alt="TradingNexus" className="funded-logo-img" /> : null}
             <div className="funded-logo">TradingNexus</div>
           </div>
           <a href={REGISTER_URL}>Sign Up</a>

@@ -30,7 +30,7 @@ const Rules: React.FC = () => {
 
         <nav className="rules-nav">
           <div className="rules-logo-wrap">
-            <img src={logo} alt="TradingNexus" className="rules-logo-img" />
+            {logo ? <img src={logo} alt="TradingNexus" className="rules-logo-img" /> : null}
             <div className="rules-logo">TradingNexus</div>
           </div>
           <div className="rules-nav-links">

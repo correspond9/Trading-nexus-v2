@@ -71,8 +71,16 @@ const CrashCourse: React.FC = () => {
     <main className="neo-page relative mx-auto min-h-screen max-w-6xl px-4 pb-20 pt-10 md:px-8">
       <nav className="neo-card mb-16 flex items-center justify-between px-6 py-4">
         <Link to="/" className="group flex items-center gap-2">
-          <div className="relative flex items-center justify-center rounded-xl p-1 transition-transform group-hover:scale-105">
-            <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
+          <div className="relative flex items-center gap-4 rounded-xl p-1 transition-transform group-hover:scale-105">
+            {logo ? (
+              <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
+            ) : (
+              <span className="text-2xl font-black tracking-wide text-[var(--neo-text-main)]">Trading Nexus</span>
+            )}
+            <div className="hidden md:block">
+              <p className="text-lg font-black text-[var(--neo-text-main)]">Trading Nexus Academy</p>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--neo-text-muted)]">Derivatives Crash Course</p>
+            </div>
           </div>
         </Link>
         <Link to="/" className="flex items-center gap-2 text-sm font-bold text-[var(--neo-text-muted)] transition-colors hover:text-[var(--neo-text-main)]">

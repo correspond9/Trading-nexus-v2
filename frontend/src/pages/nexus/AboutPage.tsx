@@ -11,7 +11,11 @@ const AboutPage: React.FC = () => {
     <main className="neo-page relative mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-20 pt-8 md:px-8">
       <nav className="neo-card mb-16 flex items-center justify-between px-6 py-4">
         <Link to="/" className="group transition-transform hover:-translate-y-1">
-          <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
+          {logo ? (
+            <img src={logo} alt="Trading Nexus" className="h-[120px] w-auto max-w-[420px] animate-float-slow object-contain drop-shadow-[0_15px_15px_var(--neo-shadow-dark)] md:h-[120px]" />
+          ) : (
+            <span className="text-2xl font-black tracking-wide text-[var(--neo-text-main)]">Trading Nexus</span>
+          )}
         </Link>
         <Link to="/" className="flex items-center gap-2 text-sm font-bold text-[var(--neo-text-muted)] transition-colors hover:text-[var(--neo-text-main)]">
           <ArrowLeft className="h-4 w-4" />

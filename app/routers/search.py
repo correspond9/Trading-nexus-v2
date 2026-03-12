@@ -377,7 +377,11 @@ async def option_strikes_search(
     q_up = q_raw.upper()
 
     # Tokenize query so "NIFTY 25550" matches symbols like "NIFTY-Feb2026-25550-CE".
-    tokens = re.findall(r"[A-Z]+|\d+(?:\.\d+)?", q_up)
+    raw_tokens = re.findall(r"[A-Z]+|\d+(?:\.\d+)?", q_up)
+    tokens = [
+        ("PE" if t == "PUT" else "CE" if t == "CALL" else t)
+        for t in raw_tokens
+    ]
     like_pattern = f"%{'%'.join(tokens)}%" if tokens else f"%{q_raw}%"
 
     strike: Optional[float] = None
@@ -409,23 +413,31 @@ async def option_strikes_search(
             if exists:
                 underlying = alpha
 
-    parts = ["AND instrument_type IN ('OPTIDX','OPTSTK','OPTFUT')", "AND expiry_date >= CURRENT_DATE"]
-    args: list = [like_pattern]
+    has_structured = any([underlying, expiry, strike is not None, opt_type])
 
-    if underlying:
-        parts.append(f"AND underlying = ${len(args)+1}")
-        args.append(underlying.upper())
-    if expiry:
-        parts.append(f"AND expiry_date = ${len(args)+1}::date")
-        args.append(expiry)
-    if strike is not None:
-        parts.append(f"AND strike_price = ${len(args)+1}::numeric")
-        args.append(strike)
-    if opt_type:
-        parts.append(f"AND option_type = ${len(args)+1}")
-        args.append(opt_type)
+    def _build_where_and_args(include_strike: bool = True):
+        parts = ["instrument_type IN ('OPTIDX','OPTSTK','OPTFUT')", "expiry_date >= CURRENT_DATE"]
+        args: list = []
 
-    filter_str = " ".join(parts)
+        # For structured option queries (underlying/strike/type/expiry parsed),
+        # avoid forcing a strict full-string LIKE that can accidentally exclude valid rows.
+        if not has_structured:
+            parts.append("(symbol ILIKE $1 OR underlying ILIKE $1)")
+            args.append(like_pattern)
+
+        if underlying:
+            parts.append(f"underlying = ${len(args)+1}")
+            args.append(underlying.upper())
+        if expiry:
+            parts.append(f"expiry_date = ${len(args)+1}::date")
+            args.append(expiry)
+        if include_strike and strike is not None:
+            parts.append(f"strike_price = ${len(args)+1}::numeric")
+            args.append(strike)
+        if opt_type:
+            parts.append(f"option_type = ${len(args)+1}")
+            args.append(opt_type)
+        return " AND ".join(parts), args
 
     atm: Optional[float] = None
     if underlying:
@@ -464,9 +476,11 @@ async def option_strikes_search(
                 except Exception:
                     atm = None
 
-    if atm is not None:
+    where_str, args = _build_where_and_args(include_strike=True)
+    order_centre = strike if strike is not None else atm
+    if order_centre is not None:
         order_by = f"ORDER BY ABS(strike_price - ${len(args)+1}::numeric), expiry_date, option_type"
-        args.append(atm)
+        args.append(order_centre)
     else:
         order_by = "ORDER BY expiry_date, strike_price, option_type"
 
@@ -474,10 +488,26 @@ async def option_strikes_search(
          SELECT instrument_token, symbol, exchange_segment,
              underlying, instrument_type, expiry_date, strike_price, option_type
         FROM instrument_master
-         WHERE (symbol ILIKE $1 OR underlying ILIKE $1)
-        {filter_str}
+            WHERE {where_str}
         {order_by}
         LIMIT 200
     """
     rows = await pool.fetch(sql, *args)
+
+    # If exact strike returned nothing, fallback to nearest available strikes
+    # (same underlying/expiry/type constraints) so users still get actionable results.
+    if not rows and strike is not None:
+        fb_where, fb_args = _build_where_and_args(include_strike=False)
+        fb_order_by = f"ORDER BY ABS(strike_price - ${len(fb_args)+1}::numeric), expiry_date, option_type"
+        fb_args.append(strike)
+        fb_sql = f"""
+             SELECT instrument_token, symbol, exchange_segment,
+                 underlying, instrument_type, expiry_date, strike_price, option_type
+            FROM instrument_master
+                WHERE {fb_where}
+            {fb_order_by}
+            LIMIT 200
+        """
+        rows = await pool.fetch(fb_sql, *fb_args)
+
     return {"data": [_fmt_instrument(r) for r in rows]}

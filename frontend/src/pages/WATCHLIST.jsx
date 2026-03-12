@@ -286,16 +286,129 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
     const seq = ++searchSeq.current;
     setIsSearching(true);
     try {
+      const normalize = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+      const canonicalizeToken = (t) => {
+        if (t === 'PUT') return 'PE';
+        if (t === 'CALL') return 'CE';
+        return t;
+      };
+      const monthMap = {
+        JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,
+        JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11,
+      };
+      const monthTokens = new Set(Object.keys(monthMap));
+      const qTokens = normalize(q).split(/\s+/).filter(Boolean).map(canonicalizeToken);
+      const hasOptionToken = qTokens.includes('PE') || qTokens.includes('CE');
+      const hasFutureToken = qTokens.includes('FUT') || qTokens.includes('FUTURE');
+      const hasStrikeToken = qTokens.some(t => /^\d{3,}$/.test(t));
+      const hasOptionIntent = hasOptionToken || (hasStrikeToken && !hasFutureToken);
+      const hasFutureIntent = hasFutureToken;
+
+      const qFirstAlpha = qTokens.find(t =>
+        /^[A-Z]+$/.test(t) &&
+        t !== 'CE' &&
+        t !== 'PE' &&
+        t !== 'FUT' &&
+        t !== 'FUTURE' &&
+        !monthTokens.has(t)
+      ) || '';
+
+      const parseExpiryFromQuery = () => {
+        if (!hasOptionIntent) return null;
+        for (let i = 0; i < qTokens.length - 1; i += 1) {
+          const a = qTokens[i];
+          const b = qTokens[i + 1];
+
+          if (/^\d{1,2}$/.test(a) && monthTokens.has(b)) {
+            const day = Number(a);
+            const month = monthMap[b];
+            if (!Number.isFinite(day) || day < 1 || day > 31) continue;
+            const now = new Date();
+            let year = now.getFullYear();
+            let d = new Date(year, month, day);
+            d.setHours(0, 0, 0, 0);
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            if (d < today) d = new Date(year + 1, month, day);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${dd}`;
+          }
+
+          if (monthTokens.has(a) && /^\d{1,2}$/.test(b)) {
+            const day = Number(b);
+            const month = monthMap[a];
+            if (!Number.isFinite(day) || day < 1 || day > 31) continue;
+            const now = new Date();
+            let year = now.getFullYear();
+            let d = new Date(year, month, day);
+            d.setHours(0, 0, 0, 0);
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            if (d < today) d = new Date(year + 1, month, day);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${dd}`;
+          }
+        }
+        return null;
+      };
+
+      const levenshtein = (a, b) => {
+        const s = String(a || '');
+        const t = String(b || '');
+        if (s === t) return 0;
+        if (!s.length) return t.length;
+        if (!t.length) return s.length;
+        const dp = Array.from({ length: s.length + 1 }, (_, i) => [i]);
+        for (let j = 1; j <= t.length; j += 1) dp[0][j] = j;
+        for (let i = 1; i <= s.length; i += 1) {
+          for (let j = 1; j <= t.length; j += 1) {
+            const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+            dp[i][j] = Math.min(
+              dp[i - 1][j] + 1,
+              dp[i][j - 1] + 1,
+              dp[i - 1][j - 1] + cost,
+            );
+          }
+        }
+        return dp[s.length][t.length];
+      };
+
+      const parseUnderlyingFromQuery = () => {
+        if (!hasOptionIntent || !qFirstAlpha) return null;
+        const knownIndexUnderlyings = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX', 'NIFTYNXT50'];
+        if (knownIndexUnderlyings.includes(qFirstAlpha)) return qFirstAlpha;
+
+        let best = null;
+        let bestDist = Number.POSITIVE_INFINITY;
+        knownIndexUnderlyings.forEach((u) => {
+          const d = levenshtein(qFirstAlpha, u);
+          if (d < bestDist) {
+            bestDist = d;
+            best = u;
+          }
+        });
+        if (best && bestDist <= 2) return best;
+        return null;
+      };
+
+      const parsedExpiry = parseExpiryFromQuery();
+      const parsedUnderlying = parseUnderlyingFromQuery();
+      const optionParams = { q };
+      if (parsedUnderlying) optionParams.underlying = parsedUnderlying;
+      if (parsedExpiry) optionParams.expiry = parsedExpiry;
+
       const [tierA, tierB, futures, optStrikes, equity] = await Promise.allSettled([
         apiService.get('/subscriptions/search', { tier: 'TIER_A', q }),
         apiService.get('/subscriptions/search', { tier: 'TIER_B', q }),
         apiService.get('/instruments/futures/search', { q }),
-        apiService.get('/options/strikes/search', { q }),
+        apiService.get('/options/strikes/search', optionParams),
         apiService.get('/instruments/search', { q }),
       ]);
       const results = [];
       const seen = new Set();
-      const addResults = (res) => {
+      const addResults = (res, source) => {
         if (res.status !== 'fulfilled') return;
         const list = res.value?.data || res.value || [];
         if (!Array.isArray(list)) return;
@@ -318,15 +431,21 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
             ltp: item.ltp ?? null,
             close: item.close ?? null,
             change_pct: item.change_pct ?? null,
+            source,
           });
         });
       };
-      [tierA, tierB, futures, optStrikes, equity].forEach(addResults);
-      const normalize = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
-      const qTokens = normalize(q).split(/\s+/).filter(Boolean);
+
+      const sourceMap = { tierA, tierB, futures, optStrikes, equity };
+      const sourceOrder = hasOptionIntent
+        ? ['optStrikes', 'futures', 'equity', 'tierB', 'tierA']
+        : hasFutureIntent
+          ? ['futures', 'equity', 'tierB', 'tierA', 'optStrikes']
+          : ['equity', 'tierB', 'tierA', 'futures', 'optStrikes'];
+      sourceOrder.forEach(src => addResults(sourceMap[src], src));
+
       const qStrike = qTokens.find(t => /^\d{3,}$/.test(t)) || null;
       const qStrikeNum = qStrike ? Number(qStrike) : null;
-      const qFirstAlpha = qTokens.find(t => /^[A-Z]+$/.test(t) && t !== 'CE' && t !== 'PE') || '';
 
       const score = (r) => {
         const symU = String(r.symbol || '').toUpperCase();
@@ -349,6 +468,16 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
         if (isEtf) s += 400;
         if (isFuture) s += 8000;
         if (isOption) s += 6000;
+
+        if (hasOptionIntent) {
+          if (r.source === 'optStrikes') s += 2600;
+          if (r.source === 'futures') s += 600;
+        } else if (hasFutureIntent) {
+          if (r.source === 'futures') s += 2600;
+          if (r.source === 'equity') s += 600;
+        } else {
+          if (r.source === 'equity' || r.source === 'tierA' || r.source === 'tierB') s += 1800;
+        }
 
         if (qFirstAlpha) {
           if (undU === qFirstAlpha) s += 5000;
@@ -383,6 +512,20 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
           }
         }
 
+        // Prefer nearest expiry for options to keep weekly/monthly contracts on top.
+        if (isOption && r.expiryDate) {
+          const exp = new Date(r.expiryDate);
+          if (!Number.isNaN(exp.getTime())) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const expDay = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate());
+            const daysAhead = Math.floor((expDay.getTime() - today.getTime()) / 86400000);
+            if (daysAhead >= 0) {
+              s += Math.max(0, 1800 - Math.min(daysAhead * 20, 1800));
+            }
+          }
+        }
+
         s += Math.max(0, 500 - Math.min(symU.length, 500));
         return s;
       };
@@ -393,7 +536,21 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
           const undN = normalize(r.underlying);
           const dispN = normalize(r.displayName);
           const tsN = normalize(r.tradingSymbol);
-          return qTokens.every(t => symN.includes(t) || undN.includes(t) || dispN.includes(t) || tsN.includes(t));
+          const optU = String(r.optionType || '').toUpperCase();
+          const isOption = String(r.instrumentType || '').toUpperCase().startsWith('OPT');
+          return qTokens.every(t => {
+            if (t === 'PE' || t === 'CE') {
+              return optU === t || symN.includes(t) || undN.includes(t) || dispN.includes(t) || tsN.includes(t);
+            }
+            if (/^\d{3,}$/.test(t) && isOption && r.strikePrice !== null && r.strikePrice !== undefined) {
+              const strikeVal = Number(r.strikePrice);
+              const queryStrike = Number(t);
+              if (Number.isFinite(strikeVal) && Number.isFinite(queryStrike)) {
+                if (Math.abs(strikeVal - queryStrike) <= 300) return true;
+              }
+            }
+            return symN.includes(t) || undN.includes(t) || dispN.includes(t) || tsN.includes(t);
+          });
         })
         .sort((a, b) => score(b) - score(a));
 

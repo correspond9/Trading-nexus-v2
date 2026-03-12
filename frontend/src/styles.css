@@ -286,6 +286,11 @@ textarea::placeholder {
   color: var(--muted);
 }
 
+.tn-login-input::placeholder {
+  color: #9ca3af !important;
+  opacity: 1;
+}
+
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 .app-shell {
   display: flex;

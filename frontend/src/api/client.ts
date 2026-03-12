@@ -8,8 +8,18 @@
  */
 import axios from 'axios'
 
+const envApiUrl = ((import.meta.env.VITE_API_URL as string) || '').trim()
+const isNativeCapacitor =
+  typeof window !== 'undefined' &&
+  typeof (window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor !== 'undefined' &&
+  !!(window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
+
+const fallbackApiUrl = isNativeCapacitor
+  ? 'https://api.tradingnexus.pro/api/v2'
+  : '/api/v2'
+
 const api = axios.create({
-  baseURL: (import.meta.env.VITE_API_URL as string) || '/api/v2',
+  baseURL: envApiUrl || fallbackApiUrl,
   timeout: 15_000,
   headers: { 'Content-Type': 'application/json' },
 })

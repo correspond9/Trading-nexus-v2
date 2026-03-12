@@ -64,6 +64,7 @@ const Login = () => {
               </label>
               <div style={{ marginTop: '0.25rem' }}>
                 <input
+                  className="tn-login-input"
                   id="mobile"
                   name="mobile"
                   type="tel"
@@ -91,6 +92,7 @@ const Login = () => {
               </label>
               <div style={{ marginTop: '0.25rem' }}>
                 <input
+                  className="tn-login-input"
                   id="password"
                   name="password"
                   type="password"

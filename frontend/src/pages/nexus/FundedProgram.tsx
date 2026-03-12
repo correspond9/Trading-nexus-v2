@@ -87,8 +87,7 @@ function renderProcessGraphic(graphic: ProcessGraphic) {
         </div>
 
         <div className="funded-mini-score-wrap">
-          <div className="funded-mini-score">82</div>
-          <div className="funded-mini-score-label">Score</div>
+          <div className="funded-mini-score">82%</div>
         </div>
       </div>
     );

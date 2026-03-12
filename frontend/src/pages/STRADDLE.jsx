@@ -28,34 +28,43 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     error: chainError,
     refresh: refreshChain,
     recalibrate: recalibrateChain,
-    getATMStrike,
   } = useAuthoritativeOptionChain(symbol, expiry, {
     autoRefresh: true,
     refreshInterval: 1000, // 1 second real-time updates
   });
 
+  // Ignore stale payloads from the previous symbol/expiry while the new request is in flight.
+  const chainMatchesSelection =
+    !!chainData &&
+    chainData.underlying === symbol &&
+    (expiry == null || chainData.expiry === expiry);
+  const activeChainData = chainMatchesSelection ? chainData : null;
+
   // Keep displayed LTP aligned only with the authoritative /options/live payload.
   // Do not fall back to /market/underlying-ltp because it can be stale.
   useEffect(() => {
-    const ltp = Number(chainData?.underlying_ltp || 0);
+    const ltp = Number(activeChainData?.underlying_ltp || 0);
     if (ltp > 0) {
       setUnderlyingPrice(ltp);
       return;
     }
 
     setUnderlyingPrice(null);
-  }, [chainData?.underlying_ltp]);
+  }, [activeChainData?.underlying_ltp]);
 
   // ATM RULE (unified for both OPTIONS and STRADDLE):
   // Primary = underlying LTP rounded to strike interval (from hook helper).
   // Fallback = backend ATM cache.
   const straddleAtmStrike = useMemo(() => {
-    const fromLtp = getATMStrike();
-    if (typeof fromLtp === 'number' && fromLtp > 0) return fromLtp;
+    const ltp = Number(activeChainData?.underlying_ltp || 0);
+    const interval = Number(activeChainData?.strike_interval || 0);
+    if (ltp > 0 && interval > 0) {
+      return Math.round(ltp / interval) * interval;
+    }
 
-    const backendAtm = chainData?.atm_strike || chainData?.atm || null;
+    const backendAtm = activeChainData?.atm_strike || activeChainData?.atm || null;
     return (typeof backendAtm === 'number' && backendAtm > 0) ? backendAtm : null;
-  }, [getATMStrike, chainData?.atm_strike, chainData?.atm]);
+  }, [activeChainData?.underlying_ltp, activeChainData?.strike_interval, activeChainData?.atm_strike, activeChainData?.atm]);
 
   // Compute center strike from straddle ATM (exclusive logic for this tab)
   useEffect(() => {
@@ -78,10 +87,10 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
 
   // Convert authoritative chain data to straddle format
   const straddles = useMemo(() => {
-    if (!chainData || !chainData.strikes) {
+    if (!activeChainData || !activeChainData.strikes) {
       if (snapshotStrikes.length) {
         const configuredLot = getConfiguredLotSize(symbol);
-        const lotSize = chainData?.lot_size && chainData.lot_size > 0 ? chainData.lot_size : configuredLot;
+        const lotSize = activeChainData?.lot_size && activeChainData.lot_size > 0 ? activeChainData.lot_size : configuredLot;
         return snapshotStrikes
           .map((s) => {
             const strike = Number(s.strike);
@@ -116,12 +125,12 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
 
     const atmStrike = straddleAtmStrike;
     const configuredLot = getConfiguredLotSize(symbol);
-    const lotSize = chainData?.lot_size && chainData.lot_size > 0 ? chainData.lot_size : configuredLot;
+    const lotSize = activeChainData?.lot_size && activeChainData.lot_size > 0 ? activeChainData.lot_size : configuredLot;
     const snapshotMap = Object.fromEntries(
       (snapshotStrikes || []).map((s) => [Number(s.strike), s])
     );
 
-    return Object.entries(chainData.strikes)
+    return Object.entries(activeChainData.strikes)
       .map(([strikeStr, strikeData]) => {
         const strike = parseFloat(strikeStr);
         let ceLtp = Number(
@@ -166,7 +175,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
         };
       })
       .sort((a, b) => a.strike - b.strike);
-  }, [chainData, symbol, straddleAtmStrike, snapshotStrikes]);
+  }, [activeChainData, symbol, straddleAtmStrike, snapshotStrikes]);
 
   const displayedStraddles = useMemo(() => {
     if (!straddles.length) return [];

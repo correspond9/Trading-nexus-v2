@@ -26,8 +26,6 @@ export function useAuthoritativeOptionChain(
   const wsRef          = useRef(null);
   const timerRef       = useRef(null);
   const mountedRef     = useRef(true);
-  const requestSeqRef  = useRef(0);
-  const activeQueryRef = useRef(null);
 
   // ── ATM drift detection ──────────────────────────────────────────────────
   // Tracks the ATM at the time of the last full calibration (re-fetch).
@@ -41,8 +39,6 @@ export function useAuthoritativeOptionChain(
   // ── REST fetch ──────────────────────────────────────────────────────────
   const fetchData = useCallback(async (ul = underlying, exp = expiry) => {
     if (!ul || !exp) return;
-    const requestKey = `${ul}::${exp}`;
-    const requestId = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -51,7 +47,7 @@ export function useAuthoritativeOptionChain(
       // the true ATM (derived from live option premiums) is always inside the dataset,
       // even when the backend's cached ATM or the index LTP is stale.
       const result = await apiService.get('/options/live', { underlying: ul, expiry: exp, strikes_around: 50 });
-      if (!mountedRef.current || activeQueryRef.current !== requestKey || requestId !== requestSeqRef.current) return;
+      if (!mountedRef.current) return;
       // Backend returns an object: { underlying, expiry, underlying_ltp, lot_size, strike_interval, atm, strikes }
       if (result && typeof result === 'object' && !Array.isArray(result)) {
         const normalized = {
@@ -89,7 +85,7 @@ export function useAuthoritativeOptionChain(
       wsRef.current = ws;
 
       ws.onmessage = (evt) => {
-        if (!mountedRef.current || activeQueryRef.current !== `${underlying}::${expiry}`) return;
+        if (!mountedRef.current) return;
         try {
           const msg = JSON.parse(evt.data);
           // Backend WS sends: { type: 'option_chain', strikes: { ... } }
@@ -119,10 +115,8 @@ export function useAuthoritativeOptionChain(
 
   useEffect(() => {
     mountedRef.current = true;
-    activeQueryRef.current = underlying && expiry ? `${underlying}::${expiry}` : null;
-    requestSeqRef.current += 1;
     setError(null);
-    setServedExpiry(expiry ?? null);
+    setServedExpiry(expiry);
     if (underlying && expiry) {
       fetchData();
       connectWS();
@@ -219,11 +213,7 @@ export function useAuthoritativeOptionChain(
     fetchData();
   }, [fetchData, underlying]);
 
-  const activeData = data && data.underlying === underlying && data.expiry === expiry
-    ? data
-    : null;
-
-  return { data: activeData, loading, error, refresh, recalibrate, getATMStrike, getLotSize: () => lotSize, servedExpiry };
+  return { data, loading, error, refresh, recalibrate, getATMStrike, getLotSize: () => lotSize, servedExpiry };
 }
 
 export default useAuthoritativeOptionChain;

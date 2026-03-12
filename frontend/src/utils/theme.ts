@@ -1,11 +1,11 @@
 export const THEME_KEY = 'tn_theme_mode';
 
-export const THEMES = ['light', 'dark', 'grey'] as const;
+export const THEMES = ['light', 'dark'] as const;
 export type ThemeMode = typeof THEMES[number];
 
 export const normalizeTheme = (value: unknown): ThemeMode => {
   const raw = String(value || '').trim().toLowerCase();
-  if (raw === 'dark' || raw === 'grey') return raw;
+  if (raw === 'dark') return raw;
   return 'light';
 };
 

@@ -638,13 +638,13 @@ const SuperAdminDashboard = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 rounded-lg p-1 overflow-x-auto bg-gray-950 border border-gray-700">
+      <div className="flex gap-1 rounded-lg p-1 overflow-x-auto sa-tabs-bar border">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)}
             className={`flex-shrink-0 px-4 py-2 rounded text-sm font-medium transition-all ${
               activeTab === t.id 
                 ? 'bg-blue-600 text-white font-semibold shadow-lg' 
-                : 'text-zinc-100 bg-gray-800 hover:bg-gray-700'
+                : 'sa-tab-btn border hover:bg-gray-700'
             }`}>
             {t.label}
           </button>
@@ -1094,7 +1094,7 @@ const SuperAdminDashboard = () => {
       {activeTab === 'historic' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Backdate */}
-          <div className="rounded-xl p-5 space-y-4 bg-gray-900 border border-gray-700">            <h2 className="text-base font-bold text-zinc-100">Backdate Position</h2>
+          <div className="rounded-xl p-5 space-y-4 sa-card border">
             <h2 className="text-base font-semibold">Backdate Position</h2>
             <p className="text-xs text-gray-400">Manually add a historic trade position for any user.</p>
             
@@ -1270,7 +1270,7 @@ const SuperAdminDashboard = () => {
           </div>
 
           {/* Force Exit */}
-          <div className="rounded-xl p-5 space-y-4 bg-gray-900 border border-gray-700">            <h2 className="text-base font-bold text-zinc-100">Force Exit Position</h2>
+          <div className="rounded-xl p-5 space-y-4 sa-card border">
             <h2 className="text-base font-semibold">Force Exit Position</h2>
             <p className="text-xs text-gray-400">Manually close an open position at a specified price.</p>
             <FormField label="User ID">

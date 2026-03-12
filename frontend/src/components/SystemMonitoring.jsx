@@ -38,7 +38,7 @@ const StatusBadge = ({ status }) => {
 };
 
 const StatusCard = ({ title, status, detail, icon: Icon }) => (
-  <div className="rounded-xl p-4 flex flex-col gap-1 bg-zinc-800 border border-zinc-700">
+  <div className="rounded-xl p-4 flex flex-col gap-1 sa-card border">
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2 text-xs tn-muted">
         {Icon && <Icon size={13} />}
@@ -94,7 +94,7 @@ const Sparkline = ({ title, values, colorClass, suffix = '' }) => {
   const latest = safeValues.length ? safeValues[safeValues.length - 1] : 0;
 
   return (
-    <div className="rounded-xl p-3 bg-zinc-800 border border-zinc-700">
+    <div className="rounded-xl p-3 sa-card border">
       <div className="flex items-center justify-between mb-1">
         <div className="text-xs tn-muted">{title}</div>
         <div className="text-xs font-semibold">{latest.toFixed(1)}{suffix}</div>
@@ -398,7 +398,7 @@ const SystemMonitoring = () => {
       )}
 
       {/* Admin Alerts */}
-      <div className="rounded-xl p-4 border border-zinc-700 bg-zinc-800">
+      <div className="rounded-xl p-4 border sa-card">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
             <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -429,19 +429,19 @@ const SystemMonitoring = () => {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-          <div className="rounded-lg p-3 bg-zinc-900/60 border border-zinc-700">
+          <div className="rounded-lg p-3 sa-nested border">
             <div className="text-[11px] text-zinc-400">CPU</div>
             <div className="text-sm font-semibold">{Number(latestSample?.system_cpu_percent || 0).toFixed(1)}%</div>
           </div>
-          <div className="rounded-lg p-3 bg-zinc-900/60 border border-zinc-700">
+          <div className="rounded-lg p-3 sa-nested border">
             <div className="text-[11px] text-zinc-400">App CPU</div>
             <div className="text-sm font-semibold">{Number(latestSample?.app_cpu_percent || 0).toFixed(1)}%</div>
           </div>
-          <div className="rounded-lg p-3 bg-zinc-900/60 border border-zinc-700">
+          <div className="rounded-lg p-3 sa-nested border">
             <div className="text-[11px] text-zinc-400">Memory</div>
             <div className="text-sm font-semibold">{Number(latestSample?.memory_used_percent || 0).toFixed(1)}%</div>
           </div>
-          <div className="rounded-lg p-3 bg-zinc-900/60 border border-zinc-700">
+          <div className="rounded-lg p-3 sa-nested border">
             <div className="text-[11px] text-zinc-400">Load (1m)</div>
             <div className="text-sm font-semibold">{Number(latestSample?.load_1m || 0).toFixed(2)}</div>
           </div>
@@ -459,7 +459,7 @@ const SystemMonitoring = () => {
         </div>
       </div>
 
-      <div className="rounded-xl p-4 border border-zinc-700 bg-zinc-800">
+      <div className="rounded-xl p-4 border sa-card">
         <div className="flex items-center justify-between gap-2 mb-2">
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <AlertCircle size={14} />

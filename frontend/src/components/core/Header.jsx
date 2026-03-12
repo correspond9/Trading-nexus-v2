@@ -61,23 +61,16 @@ const Header = () => {
   if (!isAuthenticated) return null;
 
   return (
-    <header style={{
+    <header className="tn-header" style={{
       background:   'var(--surface)',
       borderBottom: '1px solid var(--border)',
       position:     'sticky',
       top:           0,
       zIndex:        100,
     }}>
-      <div style={{
-        display:        'flex',
-        alignItems:     'center',
-        padding:        '0 16px',
-        height:         '48px',
-        gap:            '4px',
-        overflowX:      'auto',
-      }}>
+      <div className="tn-header-inner">
         {/* Logo */}
-        <Link to="/trade" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '1.1rem', color: 'var(--header-text)', textDecoration: 'none', marginRight: '12px', whiteSpace: 'nowrap' }}>
+        <Link to="/trade" className="tn-header-logo" style={{ color: 'var(--header-text)' }}>
           {typeof logo === 'string' && logo.startsWith('data:image')
             ? <img src={logo} alt="Logo" style={{ height: '32px', maxWidth: '120px', objectFit: 'contain' }} />
             : logo
@@ -85,19 +78,15 @@ const Header = () => {
         </Link>
 
         {/* Nav links */}
-        <nav style={{ display: 'flex', gap: '2px', flex: 1, overflowX: 'auto' }}>
+        <nav className="tn-header-nav">
           {visibleItems.map(item => (
             <Link
               key={item.path}
               to={item.path}
+              className={`tn-header-link${location.pathname === item.path ? ' active' : ''}`}
               style={{
-                padding:       '4px 10px',
-                borderRadius:  '5px',
-                fontSize:      '0.8rem',
                 fontWeight:    location.pathname === item.path ? 600 : 400,
                 color:         location.pathname === item.path ? 'var(--header-active-text)' : 'var(--header-muted)',
-                textDecoration:'none',
-                whiteSpace:    'nowrap',
                 background:    location.pathname === item.path ? 'var(--header-active-bg, color-mix(in srgb, var(--accent) 12%, transparent))' : 'transparent',
                 transition:    'all 0.15s',
               }}
@@ -108,7 +97,7 @@ const Header = () => {
         </nav>
 
         {/* User + logout */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+        <div className="tn-header-actions">
           <div className="theme-switch" role="group" aria-label="Theme selector">
             {THEMES.map((mode) => (
               <button
@@ -117,11 +106,11 @@ const Header = () => {
                 className={`theme-btn${themeMode === mode ? ' active' : ''}`}
                 onClick={() => handleThemeChange(mode)}
               >
-                {mode === 'grey' ? 'Grey' : mode.charAt(0).toUpperCase() + mode.slice(1)}
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
               </button>
             ))}
           </div>
-          <span style={{ fontSize: '0.75rem', color: 'var(--header-muted)', whiteSpace: 'nowrap' }}>
+          <span className="tn-header-user-name" style={{ fontSize: '0.75rem', color: 'var(--header-muted)', whiteSpace: 'nowrap' }}>
             {displayFirstName}
           </span>
           <button

@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* ── Trading Nexus — Global Styles ──────────────────────────────────────── */
-/* Uniform palettes for Light, Dark, and Grey modes. */
+/* Uniform palettes for Light and Dark modes. */
 
 :root,
 [data-theme='light'] {
@@ -101,54 +101,6 @@
   --negative-text: #ef4444;
 }
 
-[data-theme='grey'] {
-  color-scheme: light;
-  --color-base-100: oklch(70% 0 0);
-  --color-base-200: oklch(55% 0.013 58.071);
-  --color-base-300: oklch(87% 0 0);
-  --color-base-content: oklch(21% 0.006 56.043);
-  --color-primary: oklch(62% 0.214 259.815);
-  --color-primary-content: oklch(98% 0.016 73.684);
-  --color-secondary: oklch(66% 0.295 322.15);
-  --color-secondary-content: oklch(97% 0.017 320.058);
-  --color-accent: oklch(69% 0.17 162.48);
-  --color-accent-content: oklch(97% 0.021 166.113);
-  --color-neutral: oklch(26% 0.007 34.298);
-  --color-neutral-content: oklch(98% 0.001 106.423);
-  --color-info: oklch(60% 0.126 221.723);
-  --color-info-content: oklch(98% 0.019 200.873);
-  --color-success: oklch(59% 0.145 163.225);
-  --color-success-content: oklch(97% 0.021 166.113);
-  --color-warning: oklch(66% 0.179 58.318);
-  --color-warning-content: oklch(98% 0.022 95.277);
-  --color-error: oklch(50% 0.213 27.518);
-  --color-error-content: oklch(98% 0.003 247.858);
-
-  --bg: var(--color-base-100);
-  --surface: var(--color-base-200);
-  --surface2: var(--color-base-300);
-  --border: color-mix(in oklch, var(--color-base-content) 14%, transparent);
-  --text: var(--color-base-content);
-  --muted: color-mix(in oklch, var(--color-base-content) 70%, transparent);
-  --accent: var(--color-primary);
-  --accent-contrast: var(--color-primary-content);
-  --row-highlight: color-mix(in oklch, var(--color-primary) 12%, var(--color-base-200));
-  --control-bg: var(--color-base-200);
-  --control-text: var(--color-base-content);
-  --tab-active-bg: var(--color-primary);
-  --tab-active-text: var(--color-primary-content);
-  --nm-shadow: color-mix(in oklch, #000 20%, var(--color-base-300));
-  --nm-highlight: color-mix(in oklch, #fff 60%, var(--color-base-100));
-  --nm-shadow-rgb: 90 90 90;
-  --nm-highlight-rgb: 255 255 255;
-  --header-text: oklch(28% 0.006 56.043);
-  --header-muted: oklch(32% 0.006 56.043);
-  --header-active-text: var(--color-base-content);
-  --header-active-bg: color-mix(in oklch, var(--color-primary) 20%, var(--surface2));
-  --positive-text: #15803d;
-  --negative-text: #b91c1c;
-}
-
 /* Theme-aware overrides for common Tailwind utility classes */
 .bg-zinc-800 { background-color: var(--surface) !important; }
 .bg-zinc-900 { background-color: var(--surface2) !important; }
@@ -207,6 +159,98 @@ body {
   border-color: var(--tab-active-bg);
 }
 
+/* Header layout */
+.tn-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 48px;
+  padding: 0 16px;
+}
+
+.tn-header-logo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 1.1rem;
+  text-decoration: none;
+  margin-right: 10px;
+  white-space: nowrap;
+}
+
+.tn-header-nav {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.tn-header-link {
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 0.8rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tn-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+@media (max-width: 960px) {
+  .tn-header-inner {
+    flex-wrap: wrap;
+    align-items: center;
+    height: auto;
+    min-height: 48px;
+    padding: 6px 10px 8px;
+    row-gap: 6px;
+  }
+
+  .tn-header-logo {
+    order: 1;
+    margin-right: 0;
+  }
+
+  .tn-header-actions {
+    order: 2;
+    margin-left: auto;
+    max-width: 100%;
+  }
+
+  .tn-header-nav {
+    order: 3;
+    flex: 1 0 100%;
+    padding-bottom: 2px;
+  }
+
+  .tn-header-link {
+    font-size: 0.76rem;
+    padding: 5px 9px;
+  }
+
+  .theme-btn {
+    padding: 2px 7px;
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 640px) {
+  .tn-header-user-name {
+    display: none;
+  }
+
+  .tn-header-actions {
+    gap: 6px;
+  }
+}
+
 /* Form controls stay legible in both modes */
 input[type="text"], input[type="password"], input[type="email"], input[type="number"], input[type="tel"], input[type="search"], input[type="url"], input[type="date"], input[type="datetime-local"], input[type="month"], input[type="time"], select, textarea {
   background: var(--control-bg);
@@ -226,11 +270,7 @@ input[type="time"] {
 [data-theme='light'] input[type="date"],
 [data-theme='light'] input[type="datetime-local"],
 [data-theme='light'] input[type="month"],
-[data-theme='light'] input[type="time"],
-[data-theme='grey'] input[type="date"],
-[data-theme='grey'] input[type="datetime-local"],
-[data-theme='grey'] input[type="month"],
-[data-theme='grey'] input[type="time"] {
+[data-theme='light'] input[type="time"] {
   color-scheme: light;
 }
 
@@ -652,12 +692,23 @@ tr:hover td { background: var(--row-highlight); color: var(--text); }
 .sa-scope .bg-zinc-900,
 .sa-scope .bg-gray-800,
 .sa-scope .bg-gray-900  { background: var(--surface) !important; }
+.sa-scope [class*='bg-zinc-900/'] { background: var(--surface2) !important; }
+.sa-scope [class*='bg-zinc-800/'] { background: var(--surface2) !important; }
+.sa-scope [class*='bg-gray-900/'] { background: var(--surface2) !important; }
+.sa-scope [class*='bg-gray-800/'] { background: var(--surface2) !important; }
 .sa-scope .bg-gray-700  { background: var(--surface2) !important; }
 .sa-scope .bg-gray-950,
 .sa-scope .bg-zinc-950  { background: var(--surface2) !important; }
+.sa-scope [class*='bg-red-900/'] { background: rgba(239, 68, 68, 0.08) !important; }
+.sa-scope [class*='bg-orange-900/'] { background: rgba(249, 115, 22, 0.08) !important; }
+.sa-scope [class*='bg-yellow-900/'] { background: rgba(234, 179, 8, 0.12) !important; }
 .sa-scope .border-zinc-700,
 .sa-scope .border-gray-700,
 .sa-scope .border-gray-600 { border-color: var(--border) !important; }
+.sa-scope [class*='border-red-700/'] { border-color: rgba(239, 68, 68, 0.4) !important; }
+.sa-scope [class*='border-orange-700/'] { border-color: rgba(249, 115, 22, 0.4) !important; }
+.sa-scope [class*='border-yellow-700/'] { border-color: rgba(234, 179, 8, 0.4) !important; }
+.sa-scope .text-white { color: var(--text) !important; }
 .sa-scope :not(button).text-zinc-100,
 .sa-scope :not(button).text-zinc-200 { color: var(--text) !important; }
 .sa-scope :not(button).text-zinc-300,

@@ -121,7 +121,6 @@ export function useAuthoritativeOptionChain(
     mountedRef.current = true;
     activeQueryRef.current = underlying && expiry ? `${underlying}::${expiry}` : null;
     requestSeqRef.current += 1;
-    setData(null);
     setError(null);
     setServedExpiry(expiry ?? null);
     if (underlying && expiry) {
@@ -220,7 +219,11 @@ export function useAuthoritativeOptionChain(
     fetchData();
   }, [fetchData, underlying]);
 
-  return { data, loading, error, refresh, recalibrate, getATMStrike, getLotSize: () => lotSize, servedExpiry };
+  const activeData = data && data.underlying === underlying && data.expiry === expiry
+    ? data
+    : null;
+
+  return { data: activeData, loading, error, refresh, recalibrate, getATMStrike, getLotSize: () => lotSize, servedExpiry };
 }
 
 export default useAuthoritativeOptionChain;

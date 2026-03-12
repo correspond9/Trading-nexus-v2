@@ -70,8 +70,9 @@ function renderProcessGraphic(graphic: ProcessGraphic) {
             <span className="funded-mini-training-icon">📜</span>
             <span className="funded-mini-training-label">Certificate</span>
           </div>
+
+          <div className="funded-mini-tag">2 Days</div>
         </div>
-        <div className="funded-mini-tag">2 Days</div>
       </div>
     );
   }
@@ -84,7 +85,11 @@ function renderProcessGraphic(graphic: ProcessGraphic) {
           <div className="funded-mini-check funded-mini-check-on" />
           <div className="funded-mini-check" />
         </div>
-        <div className="funded-mini-score">Score</div>
+
+        <div className="funded-mini-score-wrap">
+          <div className="funded-mini-score">82</div>
+          <div className="funded-mini-score-label">Score</div>
+        </div>
       </div>
     );
   }
@@ -92,10 +97,12 @@ function renderProcessGraphic(graphic: ProcessGraphic) {
   return (
     <div className="funded-mini-scene funded-mini-scene-funding" aria-hidden="true">
       <div className="funded-mini-wallet">
-        <div className="funded-mini-wallet-band" />
+        <div className="funded-mini-wallet-top">
+          <div className="funded-mini-wallet-band" />
+          <div className="funded-mini-badge">Selected</div>
+        </div>
         <div className="funded-mini-wallet-text">4X Capital</div>
       </div>
-      <div className="funded-mini-badge">Selected</div>
     </div>
   );
 }

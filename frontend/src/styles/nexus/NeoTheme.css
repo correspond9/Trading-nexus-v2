@@ -594,16 +594,16 @@
 }
 
 .funded-mini-scene-training {
-  gap: 10px;
+  gap: 0;
   justify-content: center;
 }
 
 .funded-mini-training-stack {
   width: 100%;
-  max-width: 184px;
-  padding-top: 8px;
+  max-width: 190px;
+  padding-top: 0;
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .funded-mini-training-card {
@@ -619,11 +619,11 @@
 }
 
 .funded-mini-training-card-cap {
-  margin-right: 10px;
+  margin-right: 8px;
 }
 
 .funded-mini-training-card-cert {
-  margin-left: 10px;
+  margin-left: 8px;
 }
 
 .funded-mini-training-icon {
@@ -668,23 +668,22 @@
 .funded-mini-bar-5 { height: 84%; }
 
 .funded-mini-tag {
-  position: absolute;
-  top: 8px;
-  right: 12px;
-  padding: 8px 12px;
+  position: static;
+  justify-self: end;
+  margin-top: 2px;
+  padding: 6px 10px;
   border-radius: 999px;
   background: rgba(255, 122, 24, 0.14);
   color: #d16712;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
-  z-index: 2;
 }
 
 .funded-mini-scene-evaluation {
   width: 100%;
-  max-width: 188px;
-  gap: 10px;
+  max-width: 194px;
+  gap: 12px;
   justify-content: space-between;
 }
 
@@ -731,34 +730,55 @@
 }
 
 .funded-mini-score {
-  width: 70px;
-  height: 70px;
+  width: 64px;
+  height: 64px;
   border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: conic-gradient(var(--accent2) 0 220deg, rgba(36, 52, 79, 0.08) 220deg 360deg);
   color: var(--text);
-  font-size: 11px;
+  font-size: 16px;
   font-weight: 800;
-  box-shadow: inset 0 0 0 10px rgba(255, 255, 255, 0.92), 0 12px 20px rgba(0, 111, 206, 0.1);
+  box-shadow: inset 0 0 0 10px rgba(255, 255, 255, 0.92), 0 10px 18px rgba(0, 111, 206, 0.1);
+}
+
+.funded-mini-score-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.funded-mini-score-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #5f6f8e;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .funded-mini-scene-funding {
   align-items: center;
   justify-content: center;
-  padding-top: 6px;
+  padding-top: 0;
 }
 
 .funded-mini-wallet {
   width: 100%;
   max-width: 196px;
-  min-height: 118px;
-  padding: 28px 18px 18px;
+  min-height: 112px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
+}
+
+.funded-mini-wallet-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .funded-mini-wallet-band {
@@ -775,9 +795,7 @@
 }
 
 .funded-mini-badge {
-  position: absolute;
-  top: 8px;
-  right: 12px;
+  position: static;
   padding: 6px 10px;
   border-radius: 999px;
   background: rgba(0, 168, 143, 0.15);

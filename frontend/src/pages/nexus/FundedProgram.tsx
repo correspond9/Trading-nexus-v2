@@ -24,7 +24,7 @@ const FundedProgram: React.FC = () => {
             TradingNexus is launching a unique opportunity for derivatives traders across India.
             Participate in our <span className="funded-gradient">Free 2-Day Derivatives Crash Course</span> where your trading
             knowledge and discipline will be evaluated. Top performers may receive the opportunity
-            to trade with <span className="funded-gradient">80% capital provided by TradingNexus.</span>
+            to trade with <span className="funded-gradient">400% capital provided by TradingNexus.</span>
           </p>
 
           <a className="funded-cta" href={REGISTER_URL}>

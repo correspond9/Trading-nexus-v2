@@ -49,6 +49,7 @@ const NexusPortal = () => {
       <Background />
       <Routes>
         <Route path="/" element={<LandingPage toggleTheme={toggleTheme} theme={theme} />} />
+        <Route path="/landingpage" element={<LandingPage toggleTheme={toggleTheme} theme={theme} />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/course" element={<CrashCourse />} />
         <Route path="/register" element={<SignupPage />} />
@@ -75,6 +76,7 @@ export default function App() {
             ) : (
               <Suspense fallback={<Loader />}>
                 <Routes>
+                  <Route path="/landingpage" element={<LandingPage />} />
                   <Route path="/about" element={<AboutPage />} />
                   <Route path="/course" element={<CrashCourse />} />
                   <Route path="/register" element={<SignupPage />} />

@@ -320,7 +320,7 @@ const Trade = () => {
               className={leftTab === 'watchlist' ? 'rounded-b-lg p-0 min-h-[600px]' : 'rounded-b-lg p-2 min-h-[400px]'}
               style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
             >
-              {leftTab === 'straddle' && <StraddleMatrix handleOpenOrderModal={handleOpenOrderModal} selectedIndex={selectedIndex} expiry={isoExpiry} />}
+              {leftTab === 'straddle' && <StraddleMatrix key={`${selectedIndex}-${isoExpiry || 'none'}`} handleOpenOrderModal={handleOpenOrderModal} selectedIndex={selectedIndex} expiry={isoExpiry} />}
               {leftTab === 'watchlist' && (
                 <WatchlistComponent onOpenOrderModal={handleOpenOrderModalFromWatchlist} compact />
               )}

@@ -59,11 +59,17 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
 
   // Compute center strike from straddle ATM (exclusive logic for this tab)
   useEffect(() => {
-    if (straddleAtmStrike) {
+    if (straddleAtmStrike && centerStrike == null) {
       setCenterStrike(straddleAtmStrike);
       console.log(`📍 [STRADDLE] Center strike (ATM): ${straddleAtmStrike}`);
     }
-  }, [straddleAtmStrike]);
+  }, [straddleAtmStrike, centerStrike]);
+
+  // Reset center when context changes so a new symbol/expiry gets correct initial anchoring.
+  useEffect(() => {
+    setCenterStrike(null);
+    didInitialScroll.current = false;
+  }, [symbol, expiry]);
 
   // Legacy snapshot endpoint is removed in v2 backend; keep fallback list empty.
   useEffect(() => {

@@ -3,7 +3,7 @@ import { apiService } from '../services/apiService';
 import { useAuth } from '../contexts/AuthContext';
 import { useMarketPulse } from '../hooks/useMarketPulse';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { RefreshCw, X, Plus, Search, ChevronDown } from "lucide-react";
+import { RefreshCw, X, Plus, Search, ChevronDown, Check } from "lucide-react";
 import { formatOptionLabel } from '../utils/formatInstrumentLabel';
 
 // ─── helpers ───────────────────────────────────────────────────────────────────
@@ -34,6 +34,13 @@ const extractWatchlistItems = (response) => {
   if (Array.isArray(direct?.data)) return direct.data;
   if (Array.isArray(response)) return response;
   return [];
+};
+
+const toTokenKey = (value) => {
+  const n = Number(value);
+  if (Number.isFinite(n) && n > 0) return `n:${n}`;
+  const raw = String(value ?? '').trim();
+  return raw ? `s:${raw}` : '';
 };
 
 // ─── WatchlistPage ──────────────────────────────────────────────────────────────
@@ -214,6 +221,12 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
   }, [tabs, user]);
 
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
+  const watchlistTokenKeys = new Set(
+    (tabs || [])
+      .flatMap((tab) => tab?.instruments || [])
+      .map((inst) => toTokenKey(inst?.token))
+      .filter(Boolean)
+  );
   const activeTabTokenList = (activeTab?.instruments || [])
     .map(i => Number(i.token))
     .filter(n => Number.isFinite(n) && n > 0);
@@ -720,7 +733,9 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
           </div>
           {dropdownOpen && searchResults.length > 0 && (
             <div style={{ marginTop: '8px', maxHeight: '240px', overflowY: 'auto' }}>
-              {searchResults.map(r => (
+              {searchResults.map(r => {
+                const isAdded = watchlistTokenKeys.has(toTokenKey(r.token));
+                return (
                 <div key={r.id} style={{ padding: '8px 10px', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -751,14 +766,26 @@ const WatchlistPage = ({ onOpenOrderModal, compact = false }) => {
 
                   <button
                     type="button"
-                    onClick={() => handleAddInstrument(r)}
-                    style={{ border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer', borderRadius: '8px', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    title="Add"
+                    onClick={() => { if (!isAdded) handleAddInstrument(r); }}
+                    disabled={isAdded}
+                    style={{
+                      border: `1px solid ${isAdded ? '#16a34a55' : 'var(--border)'}`,
+                      background: 'var(--surface)',
+                      color: isAdded ? '#16a34a' : 'var(--text)',
+                      cursor: isAdded ? 'default' : 'pointer',
+                      borderRadius: '8px',
+                      padding: '6px 10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      opacity: isAdded ? 0.95 : 1,
+                    }}
+                    title={isAdded ? "Added" : "Add"}
                   >
-                    <Plus size={14} />
+                    {isAdded ? <Check size={14} /> : <Plus size={14} />}
                   </button>
                 </div>
-              ))}
+              )})}
             </div>
           )}
           {searchQuery.length >= 2 && !isSearching && searchResults.length === 0 && (

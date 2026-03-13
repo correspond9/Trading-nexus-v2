@@ -9,6 +9,7 @@ import { formatOptionLabel } from '../utils/formatInstrumentLabel';
 const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) => {
   const { user } = useAuth();
   const [underlyingPrice, setUnderlyingPrice] = useState(null);
+  const [displayCenterStrike, setDisplayCenterStrike] = useState(null);
   const [openActionMenuKey, setOpenActionMenuKey] = useState(null);
   const [message, setMessage] = useState(null);
   const [bidAskModal, setBidAskModal] = useState(null);
@@ -34,6 +35,7 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
 
   useEffect(() => {
     setUnderlyingPrice(null);
+    setDisplayCenterStrike(null);
     didInitialScroll.current = false;
   }, [symbol, expiry]);
 
@@ -82,10 +84,50 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
 
   const atmStrike = effectiveAtmStrike;
 
+  useEffect(() => {
+    if (!strikes.length) return;
+
+    const strikeValues = strikes.map((s) => s.strike).sort((a, b) => a - b);
+    const interval = Number(chainData?.strike_interval || 0);
+    const liveAtm = (typeof atmStrike === 'number' && atmStrike > 0) ? atmStrike : null;
+
+    const nearestStrike = (target) => {
+      if (target == null) return strikeValues[Math.floor(strikeValues.length / 2)] || null;
+      let nearest = strikeValues[0];
+      let minDiff = Math.abs(nearest - target);
+      strikeValues.forEach((v) => {
+        const d = Math.abs(v - target);
+        if (d < minDiff) {
+          minDiff = d;
+          nearest = v;
+        }
+      });
+      return nearest;
+    };
+
+    if (displayCenterStrike == null) {
+      setDisplayCenterStrike(nearestStrike(liveAtm));
+      return;
+    }
+
+    if (liveAtm == null) return;
+
+    // Keep center stable and only shift when ATM has moved meaningfully.
+    // This prevents 1-tick ATM flip-flops (seen on SENSEX) from nudging the list.
+    const driftStrikes = interval > 0
+      ? Math.abs(liveAtm - displayCenterStrike) / interval
+      : Math.abs(liveAtm - displayCenterStrike);
+
+    if (driftStrikes >= 2) {
+      const nextCenter = nearestStrike(liveAtm);
+      if (nextCenter !== displayCenterStrike) setDisplayCenterStrike(nextCenter);
+    }
+  }, [strikes, chainData?.strike_interval, atmStrike, displayCenterStrike]);
+
   const displayedStrikes = React.useMemo(() => {
     if (!strikes.length) return [];
     const sorted = strikes.map(s => s.strike).sort((a, b) => a - b);
-    const atm = atmStrike ?? null;
+    const atm = displayCenterStrike ?? atmStrike ?? null;
     if (atm == null) return strikes;
     let centerIdx = sorted.findIndex(v => v === atm);
     if (centerIdx < 0) {

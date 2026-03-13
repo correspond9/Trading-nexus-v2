@@ -66,14 +66,6 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     return (typeof backendAtm === 'number' && backendAtm > 0) ? backendAtm : null;
   }, [activeChainData?.underlying_ltp, activeChainData?.strike_interval, activeChainData?.atm_strike, activeChainData?.atm]);
 
-  // Compute center strike from straddle ATM (exclusive logic for this tab)
-  useEffect(() => {
-    if (straddleAtmStrike && centerStrike == null) {
-      setCenterStrike(straddleAtmStrike);
-      console.log(`📍 [STRADDLE] Center strike (ATM): ${straddleAtmStrike}`);
-    }
-  }, [straddleAtmStrike, centerStrike]);
-
   // Reset center when context changes so a new symbol/expiry gets correct initial anchoring.
   useEffect(() => {
     setCenterStrike(null);
@@ -123,7 +115,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
       return [];
     }
 
-    const atmStrike = straddleAtmStrike;
+    const atmStrike = centerStrike ?? straddleAtmStrike;
     const configuredLot = getConfiguredLotSize(symbol);
     const lotSize = activeChainData?.lot_size && activeChainData.lot_size > 0 ? activeChainData.lot_size : configuredLot;
     const snapshotMap = Object.fromEntries(
@@ -175,7 +167,53 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
         };
       })
       .sort((a, b) => a.strike - b.strike);
-  }, [activeChainData, symbol, straddleAtmStrike, snapshotStrikes]);
+  }, [activeChainData, symbol, centerStrike, straddleAtmStrike, snapshotStrikes]);
+
+  // Keep center stable and only move it when ATM drift is meaningful.
+  // This avoids 1-tick ATM flip-flops causing visible list jitter.
+  useEffect(() => {
+    if (!straddles.length) return;
+
+    const strikesSorted = straddles.map((s) => s.strike).sort((a, b) => a - b);
+    const interval = Number(activeChainData?.strike_interval || 0);
+    const liveAtm = (typeof straddleAtmStrike === 'number' && straddleAtmStrike > 0) ? straddleAtmStrike : null;
+
+    const nearestStrike = (target) => {
+      if (target == null) return strikesSorted[Math.floor(strikesSorted.length / 2)] || null;
+      let nearest = strikesSorted[0];
+      let minDiff = Math.abs(nearest - target);
+      strikesSorted.forEach((v) => {
+        const d = Math.abs(v - target);
+        if (d < minDiff) {
+          minDiff = d;
+          nearest = v;
+        }
+      });
+      return nearest;
+    };
+
+    if (centerStrike == null) {
+      const initial = nearestStrike(liveAtm);
+      if (initial != null) {
+        setCenterStrike(initial);
+        console.log(`📍 [STRADDLE] Center strike (ATM): ${initial}`);
+      }
+      return;
+    }
+
+    if (liveAtm == null) return;
+
+    const driftStrikes = interval > 0
+      ? Math.abs(liveAtm - centerStrike) / interval
+      : Math.abs(liveAtm - centerStrike);
+
+    if (driftStrikes >= 2) {
+      const nextCenter = nearestStrike(liveAtm);
+      if (nextCenter != null && nextCenter !== centerStrike) {
+        setCenterStrike(nextCenter);
+      }
+    }
+  }, [straddles, activeChainData?.strike_interval, straddleAtmStrike, centerStrike]);
 
   const displayedStraddles = useMemo(() => {
     if (!straddles.length) return [];

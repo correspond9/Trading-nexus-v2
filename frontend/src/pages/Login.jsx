@@ -2,10 +2,13 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { apiService } from '../services/apiService';
+import '../styles/nexus/NeoTheme.css';
+import { usePortalLogo } from '../hooks/usePortalLogo';
 
 const Login = () => {
+  const logo = usePortalLogo();
   const { login } = useAuth();
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -97,18 +100,26 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Trading Terminal Login
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Sign in to access your trading account
-        </p>
-      </div>
+    <div className="rules-page signin-page">
+      <div className="rules-container">
+        <nav className="rules-nav">
+          <div className="rules-logo-wrap">
+            {logo ? <img src={logo} alt="TradingNexus" className="rules-logo-img" /> : null}
+            <div className="rules-logo">TradingNexus</div>
+          </div>
+          <div className="rules-nav-links">
+            <Link to="/">Home</Link>
+            <Link to="/rules">Trading Rules</Link>
+            <Link to="/sign-up">Sign Up</Link>
+          </div>
+        </nav>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+        <section className="rules-hero signin-hero">
+          <h1>Trading Terminal <span className="rules-gradient">Sign In</span></h1>
+          <p>Sign in to access your trading account.</p>
+        </section>
+
+        <div className="rules-card signin-card">
           <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
               <div style={{ backgroundColor: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '0.375rem', padding: '1rem' }}>
@@ -122,23 +133,13 @@ const Login = () => {
               </label>
               <div style={{ marginTop: '0.25rem' }}>
                 <input
-                  className="tn-login-input"
+                  className="tn-login-input signin-input"
                   id="mobile"
                   name="mobile"
                   type="tel"
                   required
                   value={formData.mobile}
                   onChange={handleChange}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem 0.75rem',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '0.375rem',
-                    fontSize: '0.875rem',
-                    color: '#000',
-                    backgroundColor: '#fff',
-                    boxSizing: 'border-box'
-                  }}
                   placeholder="Enter your mobile number"
                 />
               </div>
@@ -150,23 +151,13 @@ const Login = () => {
               </label>
               <div style={{ marginTop: '0.25rem' }}>
                 <input
-                  className="tn-login-input"
+                  className="tn-login-input signin-input"
                   id="password"
                   name="password"
                   type="password"
                   required
                   value={formData.password}
                   onChange={handleChange}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem 0.75rem',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '0.375rem',
-                    fontSize: '0.875rem',
-                    color: '#000',
-                    backgroundColor: '#fff',
-                    boxSizing: 'border-box'
-                  }}
                   placeholder="Enter your password"
                 />
               </div>
@@ -187,16 +178,16 @@ const Login = () => {
                   fontSize: '0.875rem',
                   fontWeight: 700,
                   color: '#fff',
-                  backgroundColor: loading ? '#1e40af' : '#2563eb',
+                  backgroundColor: loading ? '#0b7f6c' : '#00a88f',
                   cursor: loading ? 'not-allowed' : 'pointer',
                   opacity: loading ? 0.7 : 1,
                   transition: 'all 0.2s',
                 }}
                 onMouseEnter={(e) => {
-                  if (!loading) e.target.style.backgroundColor = '#1d4ed8';
+                  if (!loading) e.target.style.backgroundColor = '#0b7f6c';
                 }}
                 onMouseLeave={(e) => {
-                  if (!loading) e.target.style.backgroundColor = '#2563eb';
+                  if (!loading) e.target.style.backgroundColor = '#00a88f';
                 }}
               >
                 {loading ? (
@@ -233,40 +224,36 @@ const Login = () => {
                 </h3>
                 <div style={{ display: 'grid', gap: '0.5rem' }}>
                   <input
-                    className="tn-login-input"
+                    className="tn-login-input signin-input"
                     type="tel"
                     placeholder="Registered mobile"
                     value={forgotData.mobile}
                     onChange={(e) => setForgotData((prev) => ({ ...prev, mobile: e.target.value }))}
-                    style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: '0.375rem' }}
                   />
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.5rem' }}>
                     <input
-                      className="tn-login-input"
+                      className="tn-login-input signin-input"
                       placeholder="OTP"
                       value={forgotData.otp}
                       onChange={(e) => setForgotData((prev) => ({ ...prev, otp: e.target.value }))}
-                      style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: '0.375rem' }}
                     />
                     <button type="button" onClick={sendResetOtp} disabled={resetLoading} style={{ ...{ padding: '0.5rem 0.75rem', border: 'none', borderRadius: '0.375rem', color: '#fff', background: '#2563eb', fontWeight: 600 } }}>
                       {resetLoading ? 'Sending...' : 'Send OTP'}
                     </button>
                   </div>
                   <input
-                    className="tn-login-input"
+                    className="tn-login-input signin-input"
                     type="password"
                     placeholder="New password"
                     value={forgotData.newPassword}
                     onChange={(e) => setForgotData((prev) => ({ ...prev, newPassword: e.target.value }))}
-                    style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: '0.375rem' }}
                   />
                   <input
-                    className="tn-login-input"
+                    className="tn-login-input signin-input"
                     type="password"
                     placeholder="Confirm new password"
                     value={forgotData.confirmPassword}
                     onChange={(e) => setForgotData((prev) => ({ ...prev, confirmPassword: e.target.value }))}
-                    style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: '0.375rem' }}
                   />
                   <button
                     type="button"
@@ -282,6 +269,37 @@ const Login = () => {
             )}
           </form>
         </div>
+
+        <style>{`
+          .signin-page .rules-container {
+            max-width: 920px;
+          }
+          .signin-hero {
+            margin-top: 28px;
+            padding: 42px 30px;
+          }
+          .signin-card {
+            margin-top: 24px;
+            max-width: 560px;
+            margin-left: auto;
+            margin-right: auto;
+          }
+          .signin-input {
+            width: 100%;
+            padding: 0.65rem 0.8rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 0.5rem;
+            font-size: 0.9rem;
+            color: #0f172a;
+            background: #ffffff;
+            box-sizing: border-box;
+          }
+          .signin-input:focus {
+            outline: none;
+            border-color: #00a88f;
+            box-shadow: 0 0 0 3px rgba(0, 168, 143, 0.18);
+          }
+        `}</style>
       </div>
     </div>
   );

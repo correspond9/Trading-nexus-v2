@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import '../../styles/nexus/NeoTheme.css';
+import { usePortalLogo } from '../../hooks/usePortalLogo';
 
 const REQUIRED_KEYS = [
   'first_name',
@@ -60,6 +63,7 @@ const initialForm: FormState = {
 };
 
 const AccountSignupPage: React.FC = () => {
+  const logo = usePortalLogo();
   const [form, setForm] = useState<FormState>(initialForm);
   const [otpSending, setOtpSending] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
@@ -234,10 +238,26 @@ const AccountSignupPage: React.FC = () => {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 py-10 px-4">
-      <div className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-6 md:p-10 shadow-sm">
-        <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Account Signup</h1>
-        <p className="mt-2 text-sm text-slate-600">Fields marked with * are mandatory. Uploads must be image files up to 1 MB.</p>
+    <main className="rules-page signup-page">
+      <div className="rules-container">
+        <nav className="rules-nav">
+          <div className="rules-logo-wrap">
+            {logo ? <img src={logo} alt="TradingNexus" className="rules-logo-img" /> : null}
+            <div className="rules-logo">TradingNexus</div>
+          </div>
+          <div className="rules-nav-links">
+            <Link to="/">Home</Link>
+            <Link to="/rules">Trading Rules</Link>
+            <Link to="/login">Sign In</Link>
+          </div>
+        </nav>
+
+        <section className="rules-hero signup-hero">
+          <h1>Account <span className="rules-gradient">Signup</span></h1>
+          <p>Fields marked with * are mandatory. Uploads must be image files up to 1 MB.</p>
+        </section>
+
+        <div className="rules-card signup-card">
 
         <form className="mt-8 space-y-5" onSubmit={submit}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -327,9 +347,19 @@ const AccountSignupPage: React.FC = () => {
             {submitting ? 'Submitting...' : 'Submit'}
           </button>
         </form>
-      </div>
+        </div>
 
       <style>{`
+        .signup-page .rules-container {
+          max-width: 1080px;
+        }
+        .signup-hero {
+          margin-top: 28px;
+          padding: 42px 30px;
+        }
+        .signup-card {
+          margin-top: 24px;
+        }
         .input {
           width: 100%;
           border: 1px solid #cbd5e1;
@@ -367,6 +397,7 @@ const AccountSignupPage: React.FC = () => {
           opacity: 0.6;
         }
       `}</style>
+      </div>
     </main>
   );
 };

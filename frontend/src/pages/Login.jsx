@@ -115,8 +115,11 @@ const Login = () => {
         </nav>
 
         <section className="rules-hero signin-hero">
-          <h1>Trading Terminal <span className="rules-gradient">Sign In</span></h1>
-          <p>Sign in to access your trading account.</p>
+          <h1>
+            Welcome to the Nexus
+            <br />
+            <span className="rules-gradient">LOGIN</span>
+          </h1>
         </section>
 
         <div className="rules-card signin-card">
@@ -270,19 +273,46 @@ const Login = () => {
           </form>
         </div>
 
+        <div className="signin-register-note">
+          Become a part of nexus, <Link to="/sign-up">register here</Link>
+        </div>
+
         <style>{`
           .signin-page .rules-container {
             max-width: 920px;
           }
+          .signin-page .rules-logo-img {
+            width: 96px;
+            height: 96px;
+          }
           .signin-hero {
             margin-top: 28px;
             padding: 42px 30px;
+          }
+          .signin-hero h1 {
+            text-transform: none;
+            line-height: 1.25;
+            margin-bottom: 0;
           }
           .signin-card {
             margin-top: 24px;
             max-width: 560px;
             margin-left: auto;
             margin-right: auto;
+          }
+          .signin-register-note {
+            margin-top: 14px;
+            text-align: center;
+            color: #334155;
+            font-size: 0.95rem;
+          }
+          .signin-register-note a {
+            color: #2563eb;
+            font-weight: 600;
+            text-decoration: none;
+          }
+          .signin-register-note a:hover {
+            text-decoration: underline;
           }
           .signin-input {
             width: 100%;

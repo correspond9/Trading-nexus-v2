@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 
 const REQUIRED_KEYS = [
@@ -65,6 +65,20 @@ const AccountSignupPage: React.FC = () => {
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
   const [otpMessage, setOtpMessage] = useState('');
+  const [emailOtp, setEmailOtp] = useState('');
+  const [emailOtpSending, setEmailOtpSending] = useState(false);
+  const [emailOtpVerifying, setEmailOtpVerifying] = useState(false);
+  const [emailOtpVerified, setEmailOtpVerified] = useState(false);
+  const [emailOtpMessage, setEmailOtpMessage] = useState('');
+  const [otpMeta, setOtpMeta] = useState({
+    otp_expiry_seconds: 60,
+    otp_resend_cooldown_seconds: 120,
+    otp_max_attempts: 7,
+    sms_service_configured: true,
+    email_otp_enabled: false,
+    email_service_configured: false,
+  });
+  const [otpCooldownRemaining, setOtpCooldownRemaining] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -79,7 +93,30 @@ const AccountSignupPage: React.FC = () => {
     });
   }, [form]);
 
-  const canSubmit = mandatoryComplete && otpVerified && !submitting;
+  const canSubmit = mandatoryComplete && otpVerified && (!otpMeta.email_otp_enabled || emailOtpVerified) && !submitting;
+
+  useEffect(() => {
+    const loadOtpMeta = async () => {
+      try {
+        const res = await fetch(`${apiBase}/auth/otp/signup/meta`);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setOtpMeta((prev) => ({ ...prev, ...data }));
+        }
+      } catch {
+        // Keep fallback defaults.
+      }
+    };
+    loadOtpMeta();
+  }, [apiBase]);
+
+  useEffect(() => {
+    if (otpCooldownRemaining <= 0) return;
+    const id = window.setInterval(() => {
+      setOtpCooldownRemaining((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [otpCooldownRemaining]);
 
   const update = (key: keyof FormState, value: string) => {
     if (key === 'phone') {
@@ -89,6 +126,11 @@ const AccountSignupPage: React.FC = () => {
     if (key === 'otp') {
       setOtpVerified(false);
       setOtpMessage('');
+    }
+    if (key === 'email') {
+      setEmailOtpVerified(false);
+      setEmailOtp('');
+      setEmailOtpMessage('');
     }
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -129,6 +171,11 @@ const AccountSignupPage: React.FC = () => {
       return;
     }
 
+    if (otpCooldownRemaining > 0) {
+      setErrorMessage(`Please wait ${otpCooldownRemaining}s before requesting another OTP.`);
+      return;
+    }
+
     setOtpSending(true);
     try {
       const res = await fetch(`${apiBase}/auth/otp/send-phone`, {
@@ -140,7 +187,8 @@ const AccountSignupPage: React.FC = () => {
       if (!res.ok) {
         setErrorMessage(data?.detail || 'Could not send OTP. Please try again.');
       } else {
-        setOtpMessage('OTP sent successfully.');
+        setOtpCooldownRemaining(Number(otpMeta.otp_resend_cooldown_seconds) || 0);
+        setOtpMessage(`OTP sent successfully. It is valid for ${otpMeta.otp_expiry_seconds} seconds.`);
       }
     } catch {
       setErrorMessage('Network issue while sending OTP.');
@@ -181,13 +229,80 @@ const AccountSignupPage: React.FC = () => {
     }
   };
 
+  const sendEmailOtp = async () => {
+    setErrorMessage('');
+    setSuccessMessage('');
+    setEmailOtpMessage('');
+    setEmailOtpVerified(false);
+
+    if (!form.email.trim()) {
+      setErrorMessage('Please enter email first.');
+      return;
+    }
+    if (!otpMeta.email_service_configured) {
+      setErrorMessage('Email OTP service is not configured right now.');
+      return;
+    }
+
+    setEmailOtpSending(true);
+    try {
+      const res = await fetch(`${apiBase}/auth/otp/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, purpose: 'signup' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorMessage(data?.detail || 'Could not send email OTP.');
+      } else {
+        setEmailOtpMessage('Email OTP sent successfully.');
+      }
+    } catch {
+      setErrorMessage('Network issue while sending email OTP.');
+    } finally {
+      setEmailOtpSending(false);
+    }
+  };
+
+  const verifyEmailOtp = async () => {
+    setErrorMessage('');
+    setSuccessMessage('');
+    setEmailOtpMessage('');
+
+    if (!form.email.trim() || !emailOtp.trim()) {
+      setErrorMessage('Please enter email and email OTP first.');
+      return;
+    }
+
+    setEmailOtpVerifying(true);
+    try {
+      const res = await fetch(`${apiBase}/auth/otp/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, purpose: 'signup', otp: emailOtp }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEmailOtpVerified(false);
+        setErrorMessage(data?.detail || 'Invalid email OTP.');
+      } else {
+        setEmailOtpVerified(true);
+        setEmailOtpMessage('Email verified successfully.');
+      }
+    } catch {
+      setErrorMessage('Network issue while verifying email OTP.');
+    } finally {
+      setEmailOtpVerifying(false);
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
 
     if (!canSubmit) {
-      setErrorMessage('Fill all mandatory fields and verify OTP before submitting.');
+      setErrorMessage('Fill all mandatory fields and verify required OTPs before submitting.');
       return;
     }
 
@@ -225,6 +340,9 @@ const AccountSignupPage: React.FC = () => {
         setForm(initialForm);
         setOtpVerified(false);
         setOtpMessage('');
+        setEmailOtpVerified(false);
+        setEmailOtp('');
+        setEmailOtpMessage('');
       }
     } catch {
       setErrorMessage('Network issue while submitting form.');
@@ -238,6 +356,12 @@ const AccountSignupPage: React.FC = () => {
       <div className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-6 md:p-10 shadow-sm">
         <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Account Signup</h1>
         <p className="mt-2 text-sm text-slate-600">Fields marked with * are mandatory. Uploads must be image files up to 1 MB.</p>
+        {!otpMeta.sms_service_configured && (
+          <p className="mt-2 text-sm font-medium text-amber-700">SMS OTP service is not fully configured right now. Please try again later.</p>
+        )}
+        {otpMeta.email_otp_enabled && !otpMeta.email_service_configured && (
+          <p className="mt-2 text-sm font-medium text-amber-700">Email OTP service is enabled but not fully configured.</p>
+        )}
 
         <form className="mt-8 space-y-5" onSubmit={submit}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -254,8 +378,8 @@ const AccountSignupPage: React.FC = () => {
               </div>
             </Field>
             <div>
-              <button type="button" onClick={sendOtp} disabled={otpSending} className="btn-secondary w-full">
-                {otpSending ? 'Sending...' : 'Send OTP'}
+              <button type="button" onClick={sendOtp} disabled={otpSending || otpCooldownRemaining > 0 || !otpMeta.sms_service_configured} className="btn-secondary w-full">
+                {otpSending ? 'Sending...' : otpCooldownRemaining > 0 ? `Resend in ${otpCooldownRemaining}s` : 'Send OTP'}
               </button>
             </div>
             <div />
@@ -268,13 +392,39 @@ const AccountSignupPage: React.FC = () => {
                 {otpVerifying ? 'Verifying...' : 'Verify OTP'}
               </button>
             </div>
-            <div className="text-xs text-slate-600">{otpMessage}</div>
+            <div className="text-xs text-slate-600">{otpMessage || `OTP expiry: ${otpMeta.otp_expiry_seconds}s | Max attempts: ${otpMeta.otp_max_attempts}`}</div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Email Id*"><input className="input" type="email" value={form.email} onChange={(e) => update('email', e.target.value)} /></Field>
+            <Field label="Email Id*">
+              <div className="flex items-center gap-2">
+                <input className="input" type="email" value={form.email} onChange={(e) => update('email', e.target.value)} />
+                {otpMeta.email_otp_enabled && emailOtpVerified && <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-label="Email verified" />}
+              </div>
+            </Field>
             <Field label="Address"><input className="input" value={form.address} onChange={(e) => update('address', e.target.value)} /></Field>
           </div>
+
+          {otpMeta.email_otp_enabled && (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <Field label="Email OTP">
+                  <input className="input" value={emailOtp} onChange={(e) => { setEmailOtp(e.target.value); setEmailOtpVerified(false); }} />
+                </Field>
+                <div>
+                  <button type="button" onClick={sendEmailOtp} disabled={emailOtpSending || !otpMeta.email_service_configured} className="btn-secondary w-full">
+                    {emailOtpSending ? 'Sending...' : 'Send Email OTP'}
+                  </button>
+                </div>
+                <div>
+                  <button type="button" onClick={verifyEmailOtp} disabled={emailOtpVerifying} className="btn-secondary w-full">
+                    {emailOtpVerifying ? 'Verifying...' : 'Verify Email OTP'}
+                  </button>
+                </div>
+              </div>
+              <div className="text-xs text-slate-600">{emailOtpMessage || 'Verify your email before submitting sign-up.'}</div>
+            </>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Field label="City"><input className="input" value={form.city} onChange={(e) => update('city', e.target.value)} /></Field>

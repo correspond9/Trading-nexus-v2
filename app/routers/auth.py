@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.database      import get_pool
 from app.dependencies  import CurrentUser, get_current_user, get_admin_user
 from app.config import get_settings
+from app.services.sms_otp_settings import get_sms_otp_settings
 
 log    = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -67,6 +68,17 @@ class VerifyPhoneOtpRequest(BaseModel):
     otp: str
 
 
+class SendEmailOtpRequest(BaseModel):
+    email: str
+    purpose: str = "signup"
+
+
+class VerifyEmailOtpRequest(BaseModel):
+    email: str
+    purpose: str = "signup"
+    otp: str
+
+
 class AccountSignupRequest(BaseModel):
     first_name: str
     middle_name: Optional[str] = ""
@@ -101,13 +113,55 @@ class ForgotPasswordResetRequest(BaseModel):
     new_password: str
 
 
+class SmsApiTestSendRequest(BaseModel):
+    phone: str
+
+
+class SmsApiTestVerifyRequest(BaseModel):
+    phone: str
+    otp: str
+
+
+class SmsApiTestModeRequest(BaseModel):
+    live_enabled: bool
+
+
 _OTP_PURPOSE_SIGNUP = "signup"
+_OTP_PURPOSE_SIGNUP_EMAIL = "signup_email"
 _OTP_PURPOSE_PASSWORD_RESET = "password_reset"
-_OTP_PURPOSES = {_OTP_PURPOSE_SIGNUP, _OTP_PURPOSE_PASSWORD_RESET}
+_OTP_PURPOSE_SMS_TEST = "sms_test"
+_OTP_PURPOSES = {_OTP_PURPOSE_SIGNUP, _OTP_PURPOSE_SIGNUP_EMAIL, _OTP_PURPOSE_PASSWORD_RESET, _OTP_PURPOSE_SMS_TEST}
+_sms_test_live_mode_override: Optional[bool] = None
+
+_MESSAGE_CENTRAL_RESPONSE_CODES = {
+    "200": "SUCCESS",
+    "400": "BAD_REQUEST",
+    "409": "DUPLICATE_RESOURCE",
+    "500": "SERVER_ERROR",
+    "501": "INVALID_CUSTOMER_ID",
+    "505": "INVALID_VERIFICATION_ID",
+    "506": "REQUEST_ALREADY_EXISTS",
+    "511": "INVALID_COUNTRY_CODE",
+    "700": "VERIFICATION_FAILED",
+    "702": "WRONG_OTP_PROVIDED",
+    "703": "ALREADY_VERIFIED",
+    "705": "VERIFICATION_EXPIRED",
+    "800": "MAXIMUM_LIMIT_REACHED",
+}
+
+
+def _is_sms_test_live_enabled(sms_cfg: dict) -> bool:
+    if _sms_test_live_mode_override is not None:
+        return bool(_sms_test_live_mode_override)
+    return bool(sms_cfg.get("sms_test_live_enabled"))
 
 
 def _normalize_email(email: str) -> str:
     return (email or "").strip().lower()
+
+
+def _is_email_otp_enabled(sms_cfg: dict) -> bool:
+    return bool(sms_cfg.get("email_otp_enabled")) and bool((sms_cfg.get("email_otp_service_base_url") or "").strip())
 
 
 def _normalize_mobile(phone: str) -> str:
@@ -140,11 +194,12 @@ def _validate_image_payload(data_url: str, label: str) -> None:
         raise HTTPException(status_code=400, detail=f"{label} must be 1 MB or smaller")
 
 
-async def _mc_get_token() -> str:
+async def _mc_get_token(sms_cfg: Optional[dict] = None) -> str:
     """Fetch a fresh Message Central auth token."""
     cfg = get_settings()
-    customer_id = (cfg.message_central_customer_id or "").strip()
-    password = (cfg.message_central_password or "").strip()
+    runtime_cfg = sms_cfg or await get_sms_otp_settings()
+    customer_id = (runtime_cfg.get("message_central_customer_id") or "").strip()
+    password = (runtime_cfg.get("message_central_password") or "").strip()
     if not customer_id or not password:
         if cfg.debug:
             return "debug_token"
@@ -159,20 +214,25 @@ async def _mc_get_token() -> str:
     if resp.status_code >= 400:
         raise HTTPException(status_code=502, detail="SMS service authentication failed")
     try:
-        return resp.json()["data"]["authToken"]
+        payload = resp.json()
+        token = payload.get("token") or payload.get("data", {}).get("authToken")
+        if not token:
+            raise ValueError("Token missing in provider response")
+        return str(token)
     except Exception:
         raise HTTPException(status_code=502, detail="SMS service authentication failed")
 
 
-async def _mc_send_otp(phone: str) -> tuple[str, dict]:
+async def _mc_send_otp(phone: str, sms_cfg: Optional[dict] = None) -> tuple[str, dict]:
     """Send OTP via Message Central. Returns (verificationId, raw_response)."""
     cfg = get_settings()
-    customer_id = (cfg.message_central_customer_id or "").strip()
+    runtime_cfg = sms_cfg or await get_sms_otp_settings()
+    customer_id = (runtime_cfg.get("message_central_customer_id") or "").strip()
     if not customer_id:
         if cfg.debug:
             return "debug_verification_id", {"provider": "debug", "status": "skipped"}
         raise HTTPException(status_code=503, detail="SMS service is not configured")
-    token = await _mc_get_token()
+    token = await _mc_get_token(runtime_cfg)
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             "https://cpaas.messagecentral.com/verification/v3/send",
@@ -195,27 +255,30 @@ async def _mc_send_otp(phone: str) -> tuple[str, dict]:
         raise HTTPException(status_code=502, detail="Failed to send OTP right now")
 
 
-async def _mc_validate_otp(verification_id: str, code: str) -> bool:
+async def _mc_validate_otp(verification_id: str, code: str, sms_cfg: Optional[dict] = None) -> bool:
     """Validate OTP with Message Central. Returns True on success."""
     if verification_id == "debug_verification_id":
         return code == "123456"
-    cfg = get_settings()
-    customer_id = (cfg.message_central_customer_id or "").strip()
-    token = await _mc_get_token()
+    runtime_cfg = sms_cfg or await get_sms_otp_settings()
+    customer_id = (runtime_cfg.get("message_central_customer_id") or "").strip()
+    token = await _mc_get_token(runtime_cfg)
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
+        resp = await client.get(
             "https://cpaas.messagecentral.com/verification/v3/validateOtp",
             params={"verificationId": verification_id, "code": code, "flowType": "SMS", "customerId": customer_id},
             headers={"authToken": token},
         )
     try:
         data = resp.json()
-        rc = str(data.get("data", {}).get("responseCode", ""))
+        data_block = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(data_block, dict):
+            data_block = {}
+        rc = str(data_block.get("responseCode", data.get("responseCode", "") if isinstance(data, dict) else ""))
         if rc == "705":
             raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
         if rc == "703":
             raise HTTPException(status_code=400, detail="OTP already verified.")
-        status = data["data"].get("verificationStatus", "")
+        status = str(data_block.get("verificationStatus", ""))
         return status == "VERIFICATION_COMPLETED"
     except HTTPException:
         raise
@@ -225,14 +288,97 @@ async def _mc_validate_otp(verification_id: str, code: str) -> bool:
         return False
 
 
-async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) -> dict:
+async def _mc_validate_otp_with_response(
+    verification_id: str,
+    code: str,
+    phone: Optional[str] = None,
+    sms_cfg: Optional[dict] = None,
+) -> tuple[bool, dict]:
+    if verification_id == "debug_verification_id":
+        ok = code == "123456"
+        return ok, {
+            "responseCode": 200 if ok else 702,
+            "message": "SUCCESS" if ok else "WRONG_OTP_PROVIDED",
+            "data": {
+                "verificationId": verification_id,
+                "verificationStatus": "VERIFICATION_COMPLETED" if ok else "VERIFICATION_FAILED",
+                "responseCode": "200" if ok else "702",
+                "errorMessage": None if ok else "WRONG_OTP_PROVIDED",
+            },
+        }
+
+    runtime_cfg = sms_cfg or await get_sms_otp_settings()
+    customer_id = (runtime_cfg.get("message_central_customer_id") or "").strip()
+    token = await _mc_get_token(runtime_cfg)
+    params = {
+        "verificationId": verification_id,
+        "code": code,
+        "flowType": "SMS",
+        "customerId": customer_id,
+    }
+    if phone:
+        params["mobileNumber"] = phone
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            "https://cpaas.messagecentral.com/verification/v3/validateOtp",
+            params=params,
+            headers={"authToken": token},
+        )
+
+    try:
+        data = resp.json()
+    except Exception:
+        data = {"raw": resp.text, "responseCode": str(resp.status_code)}
+
+    data_block = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(data_block, dict):
+        data_block = {}
+    status = str(data_block.get("verificationStatus", ""))
+    code_value = str(data_block.get("responseCode", data.get("responseCode", "") if isinstance(data, dict) else ""))
+    return status == "VERIFICATION_COMPLETED" or code_value == "200", data
+
+
+async def _email_otp_generate(email: str, sms_cfg: dict) -> dict:
+    base_url = (sms_cfg.get("email_otp_service_base_url") or "").strip().rstrip("/")
+    if not base_url:
+        raise HTTPException(status_code=503, detail="Email OTP service is not configured")
+
+    payload = {
+        "email": email,
+        "type": (sms_cfg.get("email_otp_type") or "numeric"),
+        "organization": (sms_cfg.get("email_otp_organization") or "Trading Nexus"),
+        "subject": (sms_cfg.get("email_otp_subject") or "Email OTP Verification"),
+    }
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.post(f"{base_url}/otp/generate", json=payload)
+    data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {"raw": resp.text}
+    if resp.status_code >= 400:
+        detail = data.get("error") if isinstance(data, dict) else None
+        raise HTTPException(status_code=400, detail=detail or "Failed to send email OTP")
+    return data if isinstance(data, dict) else {"ok": True}
+
+
+async def _email_otp_verify(email: str, otp: str, sms_cfg: dict) -> dict:
+    base_url = (sms_cfg.get("email_otp_service_base_url") or "").strip().rstrip("/")
+    if not base_url:
+        raise HTTPException(status_code=503, detail="Email OTP service is not configured")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.post(f"{base_url}/otp/verify", json={"email": email, "otp": otp})
+    data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {"raw": resp.text}
+    if resp.status_code >= 400:
+        detail = data.get("error") if isinstance(data, dict) else None
+        raise HTTPException(status_code=400, detail=detail or "Invalid email OTP")
+    return data if isinstance(data, dict) else {"ok": True}
+
+
+async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request, include_provider_response: bool = False) -> dict:
     purpose = (purpose_raw or "").strip().lower()
     if purpose not in _OTP_PURPOSES:
         raise HTTPException(status_code=400, detail="Invalid OTP purpose")
 
     phone = _normalize_mobile(phone_raw)
     pool = get_pool()
-    cfg = get_settings()
+    sms_cfg = await get_sms_otp_settings()
 
     if purpose == _OTP_PURPOSE_SIGNUP:
         exists_user = await pool.fetchval(
@@ -248,7 +394,7 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
         )
         if exists_signup:
             raise HTTPException(status_code=409, detail="number/email already registered")
-    else:
+    elif purpose == _OTP_PURPOSE_PASSWORD_RESET:
         reset_user = await pool.fetchrow(
             "SELECT id, role, is_active FROM users WHERE mobile=$1",
             phone,
@@ -267,38 +413,267 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
         WHERE contact_type='PHONE'
           AND contact_value=$1
           AND purpose=$2
-          AND created_at > NOW() - (($3::text || ' seconds')::interval)
+                    AND created_at > NOW() - make_interval(secs => $3::int)
         LIMIT 1
         """,
         phone,
         purpose,
-        int(cfg.otp_resend_cooldown_seconds),
+        int(sms_cfg["otp_resend_cooldown_seconds"]),
     )
     if recent:
         raise HTTPException(status_code=429, detail="Please wait before requesting another OTP")
 
-    # Message Central generates and delivers the OTP; we store the verificationId
-    verification_id, provider_response = await _mc_send_otp(phone)
+    # Prevent accidental paid sends from the SMS test page unless explicitly enabled.
+    sms_test_live_enabled = _is_sms_test_live_enabled(sms_cfg)
+    if purpose == _OTP_PURPOSE_SMS_TEST and not sms_test_live_enabled:
+        verification_id = "debug_verification_id"
+        provider_response = {
+            "responseCode": 200,
+            "message": "SAFE_MODE_MOCK_OTP",
+            "data": {
+                "verificationId": verification_id,
+                "responseCode": "200",
+                "flowType": "SMS",
+                "mobileNumber": phone,
+            },
+            "note": "No SMS sent. Use OTP 123456 for verification in safe mode.",
+        }
+    else:
+        # Message Central generates and delivers the OTP; we store the verificationId
+        verification_id, provider_response = await _mc_send_otp(phone, sms_cfg)
 
     await pool.execute(
         """
         INSERT INTO otp_verifications
             (contact_type, contact_value, purpose, otp_hash, otp_salt, expires_at, request_ip, provider_response)
         VALUES
-            ('PHONE', $1, $2, 'MESSAGECENTRAL', $3, NOW() + (($4::text || ' seconds')::interval), $5, $6::jsonb)
+            ('PHONE', $1, $2, 'MESSAGECENTRAL', $3, NOW() + make_interval(secs => $4::int), $5, $6::jsonb)
         """,
         phone,
         purpose,
         verification_id,
-        int(cfg.otp_expiry_seconds),
+        int(sms_cfg["otp_expiry_seconds"]),
+        request.client.host if request.client else None,
+        json.dumps(provider_response),
+    )
+
+    out = {
+        "success": True,
+        "message": "OTP sent successfully",
+        "expires_in_seconds": int(sms_cfg["otp_expiry_seconds"]),
+        "phone": phone,
+    }
+    if purpose == _OTP_PURPOSE_SMS_TEST and not sms_test_live_enabled:
+        out["message"] = "Safe mode active. No SMS sent. Use OTP 123456 for verification."
+        out["safe_mode"] = True
+    if include_provider_response:
+        out["provider_response"] = provider_response
+        out["response_codes"] = _MESSAGE_CENTRAL_RESPONSE_CODES
+    return out
+
+
+async def _verify_phone_otp_internal(
+    phone_raw: str,
+    purpose_raw: str,
+    otp_raw: str,
+    include_provider_response: bool = False,
+) -> dict:
+    purpose = (purpose_raw or "").strip().lower()
+    if purpose not in _OTP_PURPOSES:
+        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+
+    phone = _normalize_mobile(phone_raw)
+    otp = (otp_raw or "").strip()
+    if not re.fullmatch(r"\d{4,8}", otp):
+        raise HTTPException(status_code=400, detail="Enter a valid OTP")
+
+    pool = get_pool()
+    sms_cfg = await get_sms_otp_settings()
+    row = await pool.fetchrow(
+        """
+        SELECT id, otp_hash, otp_salt, attempt_count
+        FROM otp_verifications
+        WHERE contact_type='PHONE'
+          AND contact_value=$1
+          AND purpose=$2
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        phone,
+        purpose,
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="OTP expired or not found")
+
+    if int(row["attempt_count"] or 0) >= int(sms_cfg["otp_max_attempts"]):
+        raise HTTPException(status_code=429, detail="Too many invalid attempts")
+
+    verification_id = row["otp_salt"]
+    valid, provider_response = await _mc_validate_otp_with_response(verification_id, otp, phone, sms_cfg)
+
+    if not valid:
+        await pool.execute(
+            "UPDATE otp_verifications SET attempt_count = attempt_count + 1 WHERE id=$1",
+            row["id"],
+        )
+        data_block = provider_response.get("data") if isinstance(provider_response, dict) else None
+        if not isinstance(data_block, dict):
+            data_block = {}
+        rc = str(data_block.get("responseCode", provider_response.get("responseCode", "") if isinstance(provider_response, dict) else ""))
+        rc_message = _MESSAGE_CENTRAL_RESPONSE_CODES.get(rc, "UNKNOWN_ERROR")
+        provider_error = str(
+            data_block.get("errorMessage")
+            or (provider_response.get("message") if isinstance(provider_response, dict) else "")
+            or ""
+        ).strip()
+        if rc == "705":
+            raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
+        if rc == "703":
+            raise HTTPException(status_code=400, detail="OTP already verified.")
+        if rc == "702":
+            raise HTTPException(status_code=400, detail="Invalid OTP")
+        detail = f"OTP verification failed ({rc}: {rc_message})"
+        if provider_error:
+            detail = f"{detail} - {provider_error}"
+        raise HTTPException(status_code=400, detail=detail)
+
+    if purpose == _OTP_PURPOSE_SIGNUP:
+        await pool.execute(
+            "UPDATE otp_verifications SET verified_at = NOW() WHERE id=$1",
+            row["id"],
+        )
+    else:
+        await pool.execute(
+            "UPDATE otp_verifications SET verified_at = NOW(), consumed_at = NOW() WHERE id=$1",
+            row["id"],
+        )
+    out = {"success": True, "verified": True, "phone": phone}
+    if include_provider_response:
+        out["provider_response"] = provider_response
+        out["response_codes"] = _MESSAGE_CENTRAL_RESPONSE_CODES
+    return out
+
+
+async def _send_email_otp(email_raw: str, purpose_raw: str, request: Request) -> dict:
+    purpose = (purpose_raw or "").strip().lower()
+    if purpose not in {_OTP_PURPOSE_SIGNUP, _OTP_PURPOSE_SIGNUP_EMAIL}:
+        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+
+    email = _normalize_email(email_raw)
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    pool = get_pool()
+    sms_cfg = await get_sms_otp_settings()
+    if not _is_email_otp_enabled(sms_cfg):
+        raise HTTPException(status_code=503, detail="Email OTP service is not configured")
+
+    exists_user = await pool.fetchval("SELECT 1 FROM users WHERE lower(email)=lower($1)", email)
+    if exists_user:
+        raise HTTPException(status_code=409, detail="number/email already registered")
+    exists_signup = await pool.fetchval("SELECT 1 FROM user_signups WHERE lower(email)=lower($1)", email)
+    if exists_signup:
+        raise HTTPException(status_code=409, detail="number/email already registered")
+
+    recent = await pool.fetchval(
+        """
+        SELECT 1
+        FROM otp_verifications
+        WHERE contact_type='EMAIL'
+          AND contact_value=$1
+          AND purpose=$2
+          AND created_at > NOW() - make_interval(secs => $3::int)
+        LIMIT 1
+        """,
+        email,
+        _OTP_PURPOSE_SIGNUP_EMAIL,
+        int(sms_cfg["otp_resend_cooldown_seconds"]),
+    )
+    if recent:
+        raise HTTPException(status_code=429, detail="Please wait before requesting another OTP")
+
+    provider_response = await _email_otp_generate(email, sms_cfg)
+    verification_ref = secrets.token_hex(16)
+
+    await pool.execute(
+        """
+        INSERT INTO otp_verifications
+            (contact_type, contact_value, purpose, otp_hash, otp_salt, expires_at, request_ip, provider_response)
+        VALUES
+            ('EMAIL', $1, $2, 'EXTERNAL_EMAIL_OTP', $3, NOW() + make_interval(secs => $4::int), $5, $6::jsonb)
+        """,
+        email,
+        _OTP_PURPOSE_SIGNUP_EMAIL,
+        verification_ref,
+        int(sms_cfg["otp_expiry_seconds"]),
         request.client.host if request.client else None,
         json.dumps(provider_response),
     )
 
     return {
         "success": True,
-        "message": "OTP sent successfully",
-        "expires_in_seconds": int(cfg.otp_expiry_seconds),
+        "message": "Email OTP sent successfully",
+        "expires_in_seconds": int(sms_cfg["otp_expiry_seconds"]),
+        "email": email,
+    }
+
+
+async def _verify_email_otp_internal(email_raw: str, purpose_raw: str, otp_raw: str) -> dict:
+    purpose = (purpose_raw or "").strip().lower()
+    if purpose not in {_OTP_PURPOSE_SIGNUP, _OTP_PURPOSE_SIGNUP_EMAIL}:
+        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+
+    email = _normalize_email(email_raw)
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    otp = (otp_raw or "").strip()
+    if not re.fullmatch(r"\d{4,8}", otp):
+        raise HTTPException(status_code=400, detail="Enter a valid OTP")
+
+    pool = get_pool()
+    sms_cfg = await get_sms_otp_settings()
+    if not _is_email_otp_enabled(sms_cfg):
+        raise HTTPException(status_code=503, detail="Email OTP service is not configured")
+
+    row = await pool.fetchrow(
+        """
+        SELECT id, attempt_count
+        FROM otp_verifications
+        WHERE contact_type='EMAIL'
+          AND contact_value=$1
+          AND purpose=$2
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        email,
+        _OTP_PURPOSE_SIGNUP_EMAIL,
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="OTP expired or not found")
+
+    if int(row["attempt_count"] or 0) >= int(sms_cfg["otp_max_attempts"]):
+        raise HTTPException(status_code=429, detail="Too many invalid attempts")
+
+    try:
+        provider_response = await _email_otp_verify(email, otp, sms_cfg)
+    except HTTPException as exc:
+        await pool.execute("UPDATE otp_verifications SET attempt_count = attempt_count + 1 WHERE id=$1", row["id"])
+        raise exc
+
+    await pool.execute(
+        "UPDATE otp_verifications SET verified_at = NOW() WHERE id=$1",
+        row["id"],
+    )
+    return {
+        "success": True,
+        "verified": True,
+        "email": email,
+        "provider_response": provider_response,
     }
 
 
@@ -447,56 +822,75 @@ async def send_phone_otp(body: SendPhoneOtpRequest, request: Request):
     return await _send_phone_otp(body.phone, body.purpose, request)
 
 
+@router.post("/otp/send-email")
+async def send_email_otp(body: SendEmailOtpRequest, request: Request):
+    return await _send_email_otp(body.email, body.purpose, request)
+
+
+@router.post("/otp/test/send")
+async def send_sms_test_otp(body: SmsApiTestSendRequest, request: Request):
+    return await _send_phone_otp(body.phone, _OTP_PURPOSE_SMS_TEST, request, include_provider_response=True)
+
+
 @router.post("/otp/verify-phone")
 async def verify_phone_otp(body: VerifyPhoneOtpRequest):
-    purpose = (body.purpose or "").strip().lower()
-    if purpose not in _OTP_PURPOSES:
-        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+    return await _verify_phone_otp_internal(body.phone, body.purpose, body.otp)
 
-    phone = _normalize_mobile(body.phone)
-    otp = (body.otp or "").strip()
-    if not re.fullmatch(r"\d{6}", otp):
-        raise HTTPException(status_code=400, detail="Enter a valid 6-digit OTP")
 
-    pool = get_pool()
-    cfg = get_settings()
-    row = await pool.fetchrow(
-        """
-        SELECT id, otp_hash, otp_salt, attempt_count
-        FROM otp_verifications
-        WHERE contact_type='PHONE'
-          AND contact_value=$1
-          AND purpose=$2
-          AND consumed_at IS NULL
-          AND expires_at > NOW()
-        ORDER BY created_at DESC
-        LIMIT 1
-        """,
-        phone,
-        purpose,
-    )
-    if not row:
-        raise HTTPException(status_code=400, detail="OTP expired or not found")
+@router.post("/otp/verify-email")
+async def verify_email_otp(body: VerifyEmailOtpRequest):
+    return await _verify_email_otp_internal(body.email, body.purpose, body.otp)
 
-    if int(row["attempt_count"] or 0) >= int(cfg.otp_max_attempts):
-        raise HTTPException(status_code=429, detail="Too many invalid attempts")
 
-    # Validate OTP via Message Central using the stored verificationId
-    verification_id = row["otp_salt"]
-    valid = await _mc_validate_otp(verification_id, otp)
+@router.post("/otp/test/verify")
+async def verify_sms_test_otp(body: SmsApiTestVerifyRequest):
+    return await _verify_phone_otp_internal(body.phone, _OTP_PURPOSE_SMS_TEST, body.otp, include_provider_response=True)
 
-    if not valid:
-        await pool.execute(
-            "UPDATE otp_verifications SET attempt_count = attempt_count + 1 WHERE id=$1",
-            row["id"],
-        )
-        raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    await pool.execute(
-        "UPDATE otp_verifications SET verified_at = NOW() WHERE id=$1",
-        row["id"],
-    )
-    return {"success": True, "verified": True}
+@router.post("/otp/test/mode")
+async def set_sms_test_mode(body: SmsApiTestModeRequest):
+    global _sms_test_live_mode_override
+    _sms_test_live_mode_override = bool(body.live_enabled)
+    sms_cfg = await get_sms_otp_settings()
+    return {
+        "success": True,
+        "sms_test_live_enabled": _is_sms_test_live_enabled(sms_cfg),
+        "source": "runtime_override",
+    }
+
+
+@router.get("/otp/test/meta")
+async def get_sms_test_meta():
+    sms_cfg = await get_sms_otp_settings()
+    return {
+        "brand_name": "Message Central",
+        "message_preview": "**** is your one time password (OTP) for user authentication from Message Central - Powered by U2OPIA",
+        "sms_test_live_enabled": _is_sms_test_live_enabled(sms_cfg),
+        "sms_test_live_mode_source": "runtime_override" if _sms_test_live_mode_override is not None else "env",
+        "defaults": {
+            "customer_id": sms_cfg["message_central_customer_id"],
+            "otp_expiry_seconds": int(sms_cfg["otp_expiry_seconds"]),
+            "otp_resend_cooldown_seconds": int(sms_cfg["otp_resend_cooldown_seconds"]),
+            "otp_max_attempts": int(sms_cfg["otp_max_attempts"]),
+        },
+        "response_codes": _MESSAGE_CENTRAL_RESPONSE_CODES,
+    }
+
+
+@router.get("/otp/signup/meta")
+async def get_signup_otp_meta():
+    sms_cfg = await get_sms_otp_settings()
+    return {
+        "otp_expiry_seconds": int(sms_cfg["otp_expiry_seconds"]),
+        "otp_resend_cooldown_seconds": int(sms_cfg["otp_resend_cooldown_seconds"]),
+        "otp_max_attempts": int(sms_cfg["otp_max_attempts"]),
+        "sms_service_configured": bool(
+            (sms_cfg.get("message_central_customer_id") or "").strip()
+            and (sms_cfg.get("message_central_password") or "").strip()
+        ),
+        "email_otp_enabled": bool(sms_cfg.get("email_otp_enabled")),
+        "email_service_configured": _is_email_otp_enabled(sms_cfg),
+    }
 
 
 @router.post("/portal/account-signup")
@@ -565,6 +959,27 @@ async def account_signup(body: AccountSignupRequest, request: Request):
     if not otp_row:
         raise HTTPException(status_code=400, detail="Phone OTP verification is required")
 
+    sms_cfg = await get_sms_otp_settings()
+    if _is_email_otp_enabled(sms_cfg):
+        email_otp_row = await pool.fetchrow(
+            """
+            SELECT id
+            FROM otp_verifications
+            WHERE contact_type='EMAIL'
+              AND contact_value=$1
+              AND purpose=$2
+              AND verified_at IS NOT NULL
+              AND consumed_at IS NULL
+              AND verified_at > NOW() - INTERVAL '30 minutes'
+            ORDER BY verified_at DESC
+            LIMIT 1
+            """,
+            email,
+            _OTP_PURPOSE_SIGNUP_EMAIL,
+        )
+        if not email_otp_row:
+            raise HTTPException(status_code=400, detail="Email OTP verification is required")
+
     signup = await pool.fetchrow(
         """
         INSERT INTO user_signups
@@ -605,6 +1020,20 @@ async def account_signup(body: AccountSignupRequest, request: Request):
         "UPDATE otp_verifications SET consumed_at=NOW() WHERE id=$1",
         otp_row["id"],
     )
+    if _is_email_otp_enabled(sms_cfg):
+        await pool.execute(
+            """
+            UPDATE otp_verifications
+            SET consumed_at=NOW()
+            WHERE contact_type='EMAIL'
+              AND contact_value=$1
+              AND purpose=$2
+              AND consumed_at IS NULL
+              AND verified_at IS NOT NULL
+            """,
+            email,
+            _OTP_PURPOSE_SIGNUP_EMAIL,
+        )
 
     return {
         "success": True,
@@ -931,7 +1360,7 @@ async def reset_password_with_otp(body: ForgotPasswordResetRequest):
         raise HTTPException(status_code=400, detail="Enter a valid 6-digit OTP")
 
     pool = get_pool()
-    cfg = get_settings()
+    sms_cfg = await get_sms_otp_settings()
     user = await pool.fetchrow(
         "SELECT id, role, is_active FROM users WHERE mobile=$1",
         mobile,
@@ -961,7 +1390,7 @@ async def reset_password_with_otp(body: ForgotPasswordResetRequest):
     if not row:
         raise HTTPException(status_code=400, detail="OTP expired or not found")
 
-    if int(row["attempt_count"] or 0) >= int(cfg.otp_max_attempts):
+    if int(row["attempt_count"] or 0) >= int(sms_cfg["otp_max_attempts"]):
         raise HTTPException(status_code=429, detail="Too many invalid attempts")
 
     if _otp_hash(otp, row["otp_salt"]) != row["otp_hash"]:

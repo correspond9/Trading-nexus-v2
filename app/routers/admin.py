@@ -44,6 +44,7 @@ from app.market_data.static_auth_monitor      import static_auth_monitor
 from app.execution_simulator.execution_engine import set_mock_mode, is_mock_mode
 from app.runtime.vps_monitor                  import vps_monitor
 import app.instruments.subscription_manager   as _sub_mgr
+from app.services.sms_otp_settings import get_sms_otp_settings, save_sms_otp_settings
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 log = logging.getLogger(__name__)
@@ -137,6 +138,20 @@ class AddFundsRequest(BaseModel):
 
 class VPSMonitorStartRequest(BaseModel):
     interval_seconds: int = 5
+
+
+class SmsOtpSettingsSaveRequest(BaseModel):
+    message_central_customer_id: str = ""
+    message_central_password: Optional[str] = None
+    otp_expiry_seconds: int = 60
+    otp_resend_cooldown_seconds: int = 120
+    otp_max_attempts: int = 7
+    sms_test_live_enabled: bool = False
+    email_otp_enabled: bool = False
+    email_otp_service_base_url: str = ""
+    email_otp_type: str = "numeric"
+    email_otp_organization: str = "Trading Nexus"
+    email_otp_subject: str = "Email OTP Verification"
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
@@ -1536,6 +1551,35 @@ async def save_market_config(request: Request):
             _json.dumps(cfg_val),
         )
     return {"success": True}
+
+
+@router.get("/sms-otp-settings")
+async def get_sms_otp_settings_admin(current_user: CurrentUser = Depends(get_super_admin_user)):
+    _ = current_user
+    data = await get_sms_otp_settings()
+    return {
+        **data,
+        "message_central_password": data.get("message_central_password") or "",
+        "message_central_password_masked": "" if not data.get("message_central_password") else "********",
+    }
+
+
+@router.post("/sms-otp-settings/save")
+async def save_sms_otp_settings_admin(
+    req: SmsOtpSettingsSaveRequest,
+    current_user: CurrentUser = Depends(get_super_admin_user),
+):
+    _ = current_user
+    saved = await save_sms_otp_settings(req.dict(exclude_none=True))
+    return {
+        "success": True,
+        "message": "SMS OTP settings saved successfully.",
+        "settings": {
+            **saved,
+            "message_central_password": "",
+            "message_central_password_masked": "" if not saved.get("message_central_password") else "********",
+        },
+    }
 
 
 @router.post("/reload-scrip-master")

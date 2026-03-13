@@ -35,11 +35,17 @@ class Settings(BaseSettings):
     cors_origins_raw:  str  = "*"  # Allow all origins (secured by Coolify + authenticated endpoints)
 
     # ── SMS / OTP ────────────────────────────────────────────────────────────
-    message_central_customer_id: str = ""
-    message_central_password: str = ""
-    otp_expiry_seconds: int = 300
-    otp_resend_cooldown_seconds: int = 60
-    otp_max_attempts: int = 5
+    message_central_customer_id: str = "C-44071166CC38423"
+    message_central_password: str = "Allalone@01"
+    sms_test_live_enabled: bool = False
+    otp_expiry_seconds: int = 60
+    otp_resend_cooldown_seconds: int = 120
+    otp_max_attempts: int = 7
+    email_otp_enabled: bool = False
+    email_otp_service_base_url: str = ""
+    email_otp_type: str = "numeric"
+    email_otp_organization: str = "Trading Nexus"
+    email_otp_subject: str = "Email OTP Verification"
 
     @property
     def cors_origins(self) -> list[str]:

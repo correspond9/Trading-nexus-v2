@@ -23,6 +23,7 @@ const SuperAdmin = lazy(() => import('./pages/SuperAdmin'));
 const LandingPage = lazy(() => import('./pages/nexus/LandingPage'));
 const CourseEnrollPage = lazy(() => import('./pages/nexus/course-enroll'));
 const AccountSignupPage = lazy(() => import('./pages/nexus/AccountSignupPage'));
+const SmsApiTestPage = lazy(() => import('./pages/nexus/SmsApiTestPage'));
 const CrashCourse = lazy(() => import('./pages/nexus/CrashCourse'));
 const AboutPage = lazy(() => import('./pages/nexus/AboutPage'));
 const FundedProgram = lazy(() => import('./pages/nexus/FundedProgram'));
@@ -55,6 +56,7 @@ const NexusPortal = () => {
         <Route path="/course" element={<CrashCourse />} />
         <Route path="/enroll" element={<CourseEnrollPage />} />
         <Route path="/sign-up" element={<AccountSignupPage />} />
+        <Route path="/sms-api-test" element={<SmsApiTestPage />} />
         <Route path="/crash-course" element={<CrashCourse />} />
         <Route path="/funded" element={<FundedProgram />} />
         <Route path="/rules" element={<Rules />} />
@@ -82,6 +84,7 @@ export default function App() {
                   <Route path="/course" element={<CrashCourse />} />
                   <Route path="/enroll" element={<CourseEnrollPage />} />
                   <Route path="/sign-up" element={<AccountSignupPage />} />
+                  <Route path="/sms-api-test" element={<SmsApiTestPage />} />
                   <Route path="/crash-course" element={<CrashCourse />} />
                   <Route path="/funded" element={<FundedProgram />} />
                   <Route path="/rules" element={<Rules />} />

@@ -26,6 +26,7 @@ const defaultMarketConfig = () => ({
 
 const TABS = [
   { id: 'settings',  label: 'Settings & Monitoring' },
+  { id: 'smsOtp', label: 'SMS OTP Settings' },
   { id: 'authCheck', label: 'User Auth Check' },
   { id: 'historic',  label: 'Historic Position' },
   { id: 'courseEnrollments', label: 'Course Enrollments' },
@@ -163,6 +164,26 @@ const SuperAdminDashboard = () => {
   // ── Save error ──
   const [saveError, setSaveError] = useState('');
 
+  // ── SMS OTP settings ──
+  const [smsOtpSettings, setSmsOtpSettings] = useState({
+    message_central_customer_id: '',
+    message_central_password: '',
+    message_central_password_masked: '',
+    otp_expiry_seconds: 60,
+    otp_resend_cooldown_seconds: 120,
+    otp_max_attempts: 7,
+    sms_test_live_enabled: false,
+    email_otp_enabled: false,
+    email_otp_service_base_url: '',
+    email_otp_type: 'numeric',
+    email_otp_organization: 'Trading Nexus',
+    email_otp_subject: 'Email OTP Verification',
+  });
+  const [smsOtpLoading, setSmsOtpLoading] = useState(false);
+  const [smsOtpSaving, setSmsOtpSaving] = useState(false);
+  const [smsOtpMsg, setSmsOtpMsg] = useState('');
+  const [smsOtpError, setSmsOtpError] = useState('');
+
   // ── Fetch Dhan connection status ──
   const fetchDhanStatus = useCallback(async () => {
     try {
@@ -186,6 +207,34 @@ const SuperAdminDashboard = () => {
   }, []);
 
   useEffect(() => { fetchMarketConfig(); }, [fetchMarketConfig]);
+
+  const fetchSmsOtpSettings = useCallback(async () => {
+    setSmsOtpLoading(true);
+    setSmsOtpError('');
+    try {
+      const res = await req('/admin/sms-otp-settings');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSmsOtpError(data?.detail || 'Failed to load SMS OTP settings');
+        return;
+      }
+      setSmsOtpSettings((prev) => ({
+        ...prev,
+        ...data,
+        message_central_password: '',
+      }));
+    } catch (e) {
+      setSmsOtpError(e?.message || 'Failed to load SMS OTP settings');
+    } finally {
+      setSmsOtpLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'smsOtp') {
+      fetchSmsOtpSettings();
+    }
+  }, [activeTab, fetchSmsOtpSettings]);
 
   const handleOcRecalibrateAtm = async () => {
     setOcAtmLoading(true);
@@ -511,6 +560,51 @@ const SuperAdminDashboard = () => {
   const handleSave = async () => {
     setSaveError('');
     try { await saveSettings(); } catch (e) { setSaveError(e?.message || 'Save failed'); }
+  };
+
+  const handleSmsOtpSave = async () => {
+    setSmsOtpSaving(true);
+    setSmsOtpMsg('');
+    setSmsOtpError('');
+    try {
+      const payload = {
+        message_central_customer_id: (smsOtpSettings.message_central_customer_id || '').trim(),
+        message_central_password: (smsOtpSettings.message_central_password || '').trim()
+          || (smsOtpSettings.message_central_password_masked ? undefined : ''),
+        otp_expiry_seconds: Number(smsOtpSettings.otp_expiry_seconds) || 60,
+        otp_resend_cooldown_seconds: Number(smsOtpSettings.otp_resend_cooldown_seconds) || 120,
+        otp_max_attempts: Number(smsOtpSettings.otp_max_attempts) || 7,
+        sms_test_live_enabled: !!smsOtpSettings.sms_test_live_enabled,
+        email_otp_enabled: !!smsOtpSettings.email_otp_enabled,
+        email_otp_service_base_url: (smsOtpSettings.email_otp_service_base_url || '').trim(),
+        email_otp_type: (smsOtpSettings.email_otp_type || 'numeric').trim().toLowerCase(),
+        email_otp_organization: (smsOtpSettings.email_otp_organization || 'Trading Nexus').trim(),
+        email_otp_subject: (smsOtpSettings.email_otp_subject || 'Email OTP Verification').trim(),
+      };
+      if (payload.message_central_password === undefined) {
+        delete payload.message_central_password;
+      }
+
+      const res = await req('/admin/sms-otp-settings/save', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSmsOtpError(data?.detail || 'Failed to save SMS OTP settings');
+        return;
+      }
+      setSmsOtpMsg(data?.message || 'SMS OTP settings saved');
+      setSmsOtpSettings((prev) => ({
+        ...prev,
+        ...(data?.settings || {}),
+        message_central_password: '',
+      }));
+    } catch (e) {
+      setSmsOtpError(e?.message || 'Failed to save SMS OTP settings');
+    } finally {
+      setSmsOtpSaving(false);
+    }
   };
 
   const handleConnect = async () => {
@@ -1172,6 +1266,155 @@ const SuperAdminDashboard = () => {
           <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700">
             <h2 className="text-base font-semibold mb-4">System Monitoring</h2>
             <SystemMonitoring />
+          </div>
+        </div>
+      )}
+
+      {/* ── SMS OTP Settings ── */}
+      {activeTab === 'smsOtp' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+            <h2 className="text-base font-semibold">SMS OTP Configuration</h2>
+            <p className="text-xs text-zinc-400">
+              Configure Message Central credentials and OTP limits. Values are saved in DB and remain active until updated here.
+            </p>
+
+            <FormField label="MESSAGE_CENTRAL_CUSTOMER_ID">
+              <input
+                className={inputCls}
+                placeholder="e.g. C-xxxxxxxx"
+                value={smsOtpSettings.message_central_customer_id || ''}
+                onChange={(e) => setSmsOtpSettings((s) => ({ ...s, message_central_customer_id: e.target.value }))}
+              />
+            </FormField>
+
+            <FormField label="MESSAGE_CENTRAL_PASSWORD">
+              <input
+                className={inputCls}
+                type="password"
+                placeholder={smsOtpSettings.message_central_password_masked ? 'Saved (leave blank to keep existing)' : 'Enter Message Central password'}
+                value={smsOtpSettings.message_central_password || ''}
+                onChange={(e) => setSmsOtpSettings((s) => ({ ...s, message_central_password: e.target.value }))}
+              />
+            </FormField>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <FormField label="OTP_EXPIRY_SECONDS">
+                <input
+                  className={inputCls}
+                  type="number"
+                  min="30"
+                  max="600"
+                  value={smsOtpSettings.otp_expiry_seconds}
+                  onChange={(e) => setSmsOtpSettings((s) => ({ ...s, otp_expiry_seconds: e.target.value }))}
+                />
+              </FormField>
+              <FormField label="OTP_RESEND_COOLDOWN_SECONDS">
+                <input
+                  className={inputCls}
+                  type="number"
+                  min="0"
+                  max="600"
+                  value={smsOtpSettings.otp_resend_cooldown_seconds}
+                  onChange={(e) => setSmsOtpSettings((s) => ({ ...s, otp_resend_cooldown_seconds: e.target.value }))}
+                />
+              </FormField>
+              <FormField label="OTP_MAX_ATTEMPTS">
+                <input
+                  className={inputCls}
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={smsOtpSettings.otp_max_attempts}
+                  onChange={(e) => setSmsOtpSettings((s) => ({ ...s, otp_max_attempts: e.target.value }))}
+                />
+              </FormField>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={!!smsOtpSettings.sms_test_live_enabled}
+                onChange={(e) => setSmsOtpSettings((s) => ({ ...s, sms_test_live_enabled: e.target.checked }))}
+              />
+              SMS Test Live Mode Enabled (paid SMS on test page)
+            </label>
+
+            <label className="flex items-center gap-2 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={!!smsOtpSettings.email_otp_enabled}
+                onChange={(e) => setSmsOtpSettings((s) => ({ ...s, email_otp_enabled: e.target.checked }))}
+              />
+              Enable Email OTP verification on sign-up
+            </label>
+
+            <FormField label="EMAIL_OTP_SERVICE_BASE_URL">
+              <input
+                className={inputCls}
+                placeholder="e.g. http://127.0.0.1:5001/api"
+                value={smsOtpSettings.email_otp_service_base_url || ''}
+                onChange={(e) => setSmsOtpSettings((s) => ({ ...s, email_otp_service_base_url: e.target.value }))}
+              />
+            </FormField>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <FormField label="EMAIL_OTP_TYPE">
+                <select
+                  className={inputCls}
+                  value={smsOtpSettings.email_otp_type || 'numeric'}
+                  onChange={(e) => setSmsOtpSettings((s) => ({ ...s, email_otp_type: e.target.value }))}
+                >
+                  <option value="numeric">numeric</option>
+                  <option value="alphanumeric">alphanumeric</option>
+                  <option value="alphabet">alphabet</option>
+                </select>
+              </FormField>
+              <FormField label="EMAIL_OTP_ORGANIZATION">
+                <input
+                  className={inputCls}
+                  value={smsOtpSettings.email_otp_organization || ''}
+                  onChange={(e) => setSmsOtpSettings((s) => ({ ...s, email_otp_organization: e.target.value }))}
+                />
+              </FormField>
+              <FormField label="EMAIL_OTP_SUBJECT">
+                <input
+                  className={inputCls}
+                  value={smsOtpSettings.email_otp_subject || ''}
+                  onChange={(e) => setSmsOtpSettings((s) => ({ ...s, email_otp_subject: e.target.value }))}
+                />
+              </FormField>
+            </div>
+
+            {smsOtpError && <p className="text-xs text-red-400">{smsOtpError}</p>}
+            {smsOtpMsg && <p className="text-xs text-green-400">{smsOtpMsg}</p>}
+
+            <div className="flex gap-2">
+              <button onClick={fetchSmsOtpSettings} disabled={smsOtpLoading || smsOtpSaving} className={btnCls('indigo')}>
+                {smsOtpLoading ? 'Loading…' : 'Reload'}
+              </button>
+              <button onClick={handleSmsOtpSave} disabled={smsOtpSaving || smsOtpLoading} className={btnCls('green')}>
+                {smsOtpSaving ? 'Saving…' : 'Save SMS OTP Settings'}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700">
+            <h2 className="text-base font-semibold mb-3">Environment Placeholders</h2>
+            <p className="text-xs text-zinc-400 mb-3">These are the environment-style keys managed by this tab:</p>
+            <div className="space-y-2 text-xs text-zinc-300 font-mono">
+              <div>MESSAGE_CENTRAL_CUSTOMER_ID</div>
+              <div>MESSAGE_CENTRAL_PASSWORD</div>
+              <div>OTP_EXPIRY_SECONDS</div>
+              <div>OTP_RESEND_COOLDOWN_SECONDS</div>
+              <div>OTP_MAX_ATTEMPTS</div>
+              <div>SMS_TEST_LIVE_ENABLED</div>
+              <div>EMAIL_OTP_ENABLED</div>
+              <div>EMAIL_OTP_SERVICE_BASE_URL</div>
+              <div>EMAIL_OTP_TYPE</div>
+              <div>EMAIL_OTP_ORGANIZATION</div>
+              <div>EMAIL_OTP_SUBJECT</div>
+            </div>
           </div>
         </div>
       )}

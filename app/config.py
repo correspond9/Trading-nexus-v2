@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     cors_origins_raw:  str  = "*"  # Allow all origins (secured by Coolify + authenticated endpoints)
 
     # ── SMS / OTP ────────────────────────────────────────────────────────────
-    fast2sms_api_key: str = ""
-    fast2sms_route: str = "q"
+    message_central_customer_id: str = ""
+    message_central_password: str = ""
     otp_expiry_seconds: int = 300
     otp_resend_cooldown_seconds: int = 60
     otp_max_attempts: int = 5

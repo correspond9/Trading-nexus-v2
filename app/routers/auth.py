@@ -5,7 +5,6 @@ import re
 import base64
 import hashlib
 import json
-import random
 import secrets
 
 import bcrypt
@@ -141,37 +140,89 @@ def _validate_image_payload(data_url: str, label: str) -> None:
         raise HTTPException(status_code=400, detail=f"{label} must be 1 MB or smaller")
 
 
-async def _send_fast2sms_sms(phone: str, message: str) -> dict:
+async def _mc_get_token() -> str:
+    """Fetch a fresh Message Central auth token."""
     cfg = get_settings()
-    api_key = (cfg.fast2sms_api_key or "").strip()
-    if not api_key:
+    customer_id = (cfg.message_central_customer_id or "").strip()
+    password = (cfg.message_central_password or "").strip()
+    if not customer_id or not password:
         if cfg.debug:
-            return {"provider": "debug", "status": "skipped"}
+            return "debug_token"
         raise HTTPException(status_code=503, detail="SMS service is not configured")
-
-    payload = {
-        "route": cfg.fast2sms_route,
-        "message": message,
-        "qnumbers": phone,
-        "flash": "0",
-        "sms_details": "1",
-    }
-    headers = {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "authorization": api_key,
-    }
+    encoded_password = base64.b64encode(password.encode()).decode()
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post("https://www.fast2sms.com/dev/bulkV2", json=payload, headers=headers)
+        resp = await client.get(
+            "https://cpaas.messagecentral.com/auth/v1/authentication/token",
+            params={"customerId": customer_id, "key": encoded_password, "scope": "NEW", "country": "91"},
+            headers={"accept": "*/*"},
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=502, detail="SMS service authentication failed")
+    try:
+        return resp.json()["data"]["authToken"]
+    except Exception:
+        raise HTTPException(status_code=502, detail="SMS service authentication failed")
 
+
+async def _mc_send_otp(phone: str) -> tuple[str, dict]:
+    """Send OTP via Message Central. Returns (verificationId, raw_response)."""
+    cfg = get_settings()
+    customer_id = (cfg.message_central_customer_id or "").strip()
+    if not customer_id:
+        if cfg.debug:
+            return "debug_verification_id", {"provider": "debug", "status": "skipped"}
+        raise HTTPException(status_code=503, detail="SMS service is not configured")
+    token = await _mc_get_token()
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            "https://cpaas.messagecentral.com/verification/v3/send",
+            params={
+                "countryCode": "91",
+                "customerId": customer_id,
+                "flowType": "SMS",
+                "mobileNumber": phone,
+                "otpLength": "6",
+            },
+            headers={"authToken": token},
+        )
     if resp.status_code >= 400:
         raise HTTPException(status_code=502, detail="Failed to send OTP right now")
-
     try:
         data = resp.json()
+        verification_id = str(data["data"]["verificationId"])
+        return verification_id, data
     except Exception:
-        data = {"raw": resp.text}
-    return data
+        raise HTTPException(status_code=502, detail="Failed to send OTP right now")
+
+
+async def _mc_validate_otp(verification_id: str, code: str) -> bool:
+    """Validate OTP with Message Central. Returns True on success."""
+    if verification_id == "debug_verification_id":
+        return code == "123456"
+    cfg = get_settings()
+    customer_id = (cfg.message_central_customer_id or "").strip()
+    token = await _mc_get_token()
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            "https://cpaas.messagecentral.com/verification/v3/validateOtp",
+            params={"verificationId": verification_id, "code": code, "flowType": "SMS", "customerId": customer_id},
+            headers={"authToken": token},
+        )
+    try:
+        data = resp.json()
+        rc = str(data.get("data", {}).get("responseCode", ""))
+        if rc == "705":
+            raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
+        if rc == "703":
+            raise HTTPException(status_code=400, detail="OTP already verified.")
+        status = data["data"].get("verificationStatus", "")
+        return status == "VERIFICATION_COMPLETED"
+    except HTTPException:
+        raise
+    except Exception:
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail="Failed to validate OTP")
+        return False
 
 
 async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) -> dict:
@@ -226,36 +277,29 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
     if recent:
         raise HTTPException(status_code=429, detail="Please wait before requesting another OTP")
 
-    otp = f"{random.randint(0, 999999):06d}"
-    salt = secrets.token_hex(8)
-    otp_hash = _otp_hash(otp, salt)
-    sms_message = f"Your verification code is {otp}. Valid for {max(1, int(cfg.otp_expiry_seconds) // 60)} minutes."
-    provider_response = await _send_fast2sms_sms(phone, sms_message)
+    # Message Central generates and delivers the OTP; we store the verificationId
+    verification_id, provider_response = await _mc_send_otp(phone)
 
     await pool.execute(
         """
         INSERT INTO otp_verifications
             (contact_type, contact_value, purpose, otp_hash, otp_salt, expires_at, request_ip, provider_response)
         VALUES
-            ('PHONE', $1, $2, $3, $4, NOW() + (($5::text || ' seconds')::interval), $6, $7::jsonb)
+            ('PHONE', $1, $2, 'MESSAGECENTRAL', $3, NOW() + (($4::text || ' seconds')::interval), $5, $6::jsonb)
         """,
         phone,
         purpose,
-        otp_hash,
-        salt,
+        verification_id,
         int(cfg.otp_expiry_seconds),
         request.client.host if request.client else None,
         json.dumps(provider_response),
     )
 
-    out = {
+    return {
         "success": True,
         "message": "OTP sent successfully",
         "expires_in_seconds": int(cfg.otp_expiry_seconds),
     }
-    if cfg.debug:
-        out["debug_otp"] = otp
-    return out
 
 
 @router.post("/login")
@@ -428,7 +472,11 @@ async def verify_phone_otp(body: VerifyPhoneOtpRequest):
     if int(row["attempt_count"] or 0) >= int(cfg.otp_max_attempts):
         raise HTTPException(status_code=429, detail="Too many invalid attempts")
 
-    if _otp_hash(otp, row["otp_salt"]) != row["otp_hash"]:
+    # Validate OTP via Message Central using the stored verificationId
+    verification_id = row["otp_salt"]
+    valid = await _mc_validate_otp(verification_id, otp)
+
+    if not valid:
         await pool.execute(
             "UPDATE otp_verifications SET attempt_count = attempt_count + 1 WHERE id=$1",
             row["id"],

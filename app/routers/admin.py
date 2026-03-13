@@ -139,6 +139,52 @@ class VPSMonitorStartRequest(BaseModel):
     interval_seconds: int = 5
 
 
+class SmsOtpSettingsRequest(BaseModel):
+    message_central_customer_id: str
+    message_central_password: str
+    otp_expiry_seconds: int
+    otp_resend_cooldown_seconds: int
+    otp_max_attempts: int
+
+
+_SMS_OTP_DEFAULTS = {
+    "message_central_customer_id": "C-44071166CC38423",
+    "message_central_password": "Allalone@01",
+    "otp_expiry_seconds": 60,
+    "otp_resend_cooldown_seconds": 120,
+    "otp_max_attempts": 7,
+}
+
+
+def _to_positive_int(value, fallback: int) -> int:
+    try:
+        parsed = int(str(value).strip())
+        return parsed if parsed > 0 else fallback
+    except Exception:
+        return fallback
+
+
+def _sanitize_sms_otp_payload(payload: SmsOtpSettingsRequest) -> dict:
+    customer_id = (payload.message_central_customer_id or "").strip()
+    password = (payload.message_central_password or "").strip()
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="Customer ID is required")
+    if not password:
+        raise HTTPException(status_code=400, detail="Password is required")
+
+    expiry = _to_positive_int(payload.otp_expiry_seconds, int(_SMS_OTP_DEFAULTS["otp_expiry_seconds"]))
+    cooldown = _to_positive_int(payload.otp_resend_cooldown_seconds, int(_SMS_OTP_DEFAULTS["otp_resend_cooldown_seconds"]))
+    attempts = _to_positive_int(payload.otp_max_attempts, int(_SMS_OTP_DEFAULTS["otp_max_attempts"]))
+
+    return {
+        "message_central_customer_id": customer_id,
+        "message_central_password": password,
+        "otp_expiry_seconds": expiry,
+        "otp_resend_cooldown_seconds": cooldown,
+        "otp_max_attempts": attempts,
+    }
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────
 
 @router.post("/credentials/rotate")
@@ -1536,6 +1582,55 @@ async def save_market_config(request: Request):
             _json.dumps(cfg_val),
         )
     return {"success": True}
+
+
+@router.get("/sms-otp-settings")
+async def get_sms_otp_settings(admin: CurrentUser = Depends(get_super_admin_user)):
+    """Return SMS OTP settings from system_config with defaults."""
+    from app.database import get_pool as _get_pool
+
+    pool = _get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT key, value
+        FROM system_config
+        WHERE key = ANY($1::text[])
+        """,
+        list(_SMS_OTP_DEFAULTS.keys()),
+    )
+    values = {row["key"]: row["value"] for row in rows}
+
+    return {
+        "message_central_customer_id": (values.get("message_central_customer_id") or _SMS_OTP_DEFAULTS["message_central_customer_id"]).strip(),
+        "message_central_password": (values.get("message_central_password") or _SMS_OTP_DEFAULTS["message_central_password"]).strip(),
+        "otp_expiry_seconds": _to_positive_int(values.get("otp_expiry_seconds"), int(_SMS_OTP_DEFAULTS["otp_expiry_seconds"])),
+        "otp_resend_cooldown_seconds": _to_positive_int(values.get("otp_resend_cooldown_seconds"), int(_SMS_OTP_DEFAULTS["otp_resend_cooldown_seconds"])),
+        "otp_max_attempts": _to_positive_int(values.get("otp_max_attempts"), int(_SMS_OTP_DEFAULTS["otp_max_attempts"])),
+    }
+
+
+@router.post("/sms-otp-settings")
+async def save_sms_otp_settings(payload: SmsOtpSettingsRequest, admin: CurrentUser = Depends(get_super_admin_user)):
+    """Persist SMS OTP settings to system_config."""
+    from app.database import get_pool as _get_pool
+
+    values = _sanitize_sms_otp_payload(payload)
+    pool = _get_pool()
+
+    for key, value in values.items():
+        await pool.execute(
+            """
+            INSERT INTO system_config (key, value, updated_at)
+            VALUES ($1, $2, now())
+            ON CONFLICT (key) DO UPDATE
+            SET value = EXCLUDED.value,
+                updated_at = now()
+            """,
+            key,
+            str(value),
+        )
+
+    return {"success": True, "message": "SMS OTP settings saved"}
 
 
 @router.post("/reload-scrip-master")

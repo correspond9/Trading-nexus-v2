@@ -24,8 +24,17 @@ const defaultMarketConfig = () => ({
   MCX: { open: '09:00', close: '23:55', days: [0, 1, 2, 3, 4] },
 });
 
+const defaultSmsOtpSettings = () => ({
+  message_central_customer_id: 'C-44071166CC38423',
+  message_central_password: 'Allalone@01',
+  otp_expiry_seconds: 60,
+  otp_resend_cooldown_seconds: 120,
+  otp_max_attempts: 7,
+});
+
 const TABS = [
   { id: 'settings',  label: 'Settings & Monitoring' },
+  { id: 'smsOtp', label: 'SMS OTP Settings' },
   { id: 'authCheck', label: 'User Auth Check' },
   { id: 'historic',  label: 'Historic Position' },
   { id: 'courseEnrollments', label: 'Course Enrollments' },
@@ -71,6 +80,13 @@ const SuperAdminDashboard = () => {
   // ── Market config ──
   const [marketConfig, setMarketConfig] = useState(defaultMarketConfig());
   const [mcError, setMcError]           = useState('');
+
+  // ── SMS OTP settings ──
+  const [smsOtpSettings, setSmsOtpSettings] = useState(defaultSmsOtpSettings());
+  const [smsOtpLoading, setSmsOtpLoading] = useState(false);
+  const [smsOtpSaving, setSmsOtpSaving] = useState(false);
+  const [smsOtpMessage, setSmsOtpMessage] = useState('');
+  const [smsOtpError, setSmsOtpError] = useState('');
 
   // ── User auth check ──
   const [authCheckIdentifier, setAuthCheckIdentifier] = useState('');
@@ -186,6 +202,36 @@ const SuperAdminDashboard = () => {
   }, []);
 
   useEffect(() => { fetchMarketConfig(); }, [fetchMarketConfig]);
+
+  const fetchSmsOtpSettings = useCallback(async () => {
+    setSmsOtpLoading(true);
+    setSmsOtpError('');
+    try {
+      const res = await req('/admin/sms-otp-settings');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSmsOtpError(data.detail || 'Failed to load SMS OTP settings');
+        return;
+      }
+      const data = await res.json();
+      setSmsOtpSettings({
+        message_central_customer_id: data.message_central_customer_id || 'C-44071166CC38423',
+        message_central_password: data.message_central_password || 'Allalone@01',
+        otp_expiry_seconds: Number(data.otp_expiry_seconds || 60),
+        otp_resend_cooldown_seconds: Number(data.otp_resend_cooldown_seconds || 120),
+        otp_max_attempts: Number(data.otp_max_attempts || 7),
+      });
+    } catch (e) {
+      setSmsOtpError(e?.message || 'Failed to load SMS OTP settings');
+    } finally {
+      setSmsOtpLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'smsOtp') return;
+    fetchSmsOtpSettings();
+  }, [activeTab, fetchSmsOtpSettings]);
 
   const handleOcRecalibrateAtm = async () => {
     setOcAtmLoading(true);
@@ -580,6 +626,46 @@ const SuperAdminDashboard = () => {
       const res = await req('/admin/market-config', { method: 'POST', body: JSON.stringify(marketConfig) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); setMcError(d.detail || 'Save failed'); }
     } catch (e) { setMcError(e?.message || 'Error'); }
+  };
+
+  const handleSaveSmsOtpSettings = async () => {
+    setSmsOtpSaving(true);
+    setSmsOtpError('');
+    setSmsOtpMessage('');
+    try {
+      const payload = {
+        message_central_customer_id: (smsOtpSettings.message_central_customer_id || '').trim(),
+        message_central_password: (smsOtpSettings.message_central_password || '').trim(),
+        otp_expiry_seconds: Number(smsOtpSettings.otp_expiry_seconds || 60),
+        otp_resend_cooldown_seconds: Number(smsOtpSettings.otp_resend_cooldown_seconds || 120),
+        otp_max_attempts: Number(smsOtpSettings.otp_max_attempts || 7),
+      };
+
+      if (!payload.message_central_customer_id) {
+        setSmsOtpError('Customer ID is required');
+        return;
+      }
+      if (!payload.message_central_password) {
+        setSmsOtpError('Password is required');
+        return;
+      }
+
+      const res = await req('/admin/sms-otp-settings', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSmsOtpError(data.detail || 'Failed to save SMS OTP settings');
+        return;
+      }
+      setSmsOtpMessage(data.message || 'SMS OTP settings saved');
+      await fetchSmsOtpSettings();
+    } catch (e) {
+      setSmsOtpError(e?.message || 'Failed to save SMS OTP settings');
+    } finally {
+      setSmsOtpSaving(false);
+    }
   };
 
   const handleUserAuthCheck = async () => {
@@ -1172,6 +1258,93 @@ const SuperAdminDashboard = () => {
           <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700">
             <h2 className="text-base font-semibold mb-4">System Monitoring</h2>
             <SystemMonitoring />
+          </div>
+        </div>
+      )}
+
+      {/* ── SMS OTP Settings ── */}
+      {activeTab === 'smsOtp' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+            <h2 className="text-base font-semibold">SMS OTP Provider Settings</h2>
+            <p className="text-xs text-gray-400">
+              Configure Message Central credentials and OTP controls used in phone OTP flows.
+            </p>
+
+            <FormField label="Customer ID">
+              <input
+                className={inputCls}
+                value={smsOtpSettings.message_central_customer_id}
+                onChange={e => setSmsOtpSettings(s => ({ ...s, message_central_customer_id: e.target.value }))}
+                placeholder="C-44071166CC38423"
+              />
+            </FormField>
+
+            <FormField label="Password">
+              <input
+                className={inputCls}
+                type="password"
+                value={smsOtpSettings.message_central_password}
+                onChange={e => setSmsOtpSettings(s => ({ ...s, message_central_password: e.target.value }))}
+                placeholder="Allalone@01"
+              />
+            </FormField>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <FormField label="OTP Expiry (seconds)">
+                <input
+                  className={inputCls}
+                  type="number"
+                  min={1}
+                  value={smsOtpSettings.otp_expiry_seconds}
+                  onChange={e => setSmsOtpSettings(s => ({ ...s, otp_expiry_seconds: Number(e.target.value || 0) }))}
+                />
+              </FormField>
+
+              <FormField label="Resend Cooldown (seconds)">
+                <input
+                  className={inputCls}
+                  type="number"
+                  min={1}
+                  value={smsOtpSettings.otp_resend_cooldown_seconds}
+                  onChange={e => setSmsOtpSettings(s => ({ ...s, otp_resend_cooldown_seconds: Number(e.target.value || 0) }))}
+                />
+              </FormField>
+
+              <FormField label="Max Attempts">
+                <input
+                  className={inputCls}
+                  type="number"
+                  min={1}
+                  value={smsOtpSettings.otp_max_attempts}
+                  onChange={e => setSmsOtpSettings(s => ({ ...s, otp_max_attempts: Number(e.target.value || 0) }))}
+                />
+              </FormField>
+            </div>
+
+            {smsOtpLoading && <p className="text-xs text-zinc-400">Loading settings...</p>}
+            {smsOtpError && <p className="text-xs text-red-400">{smsOtpError}</p>}
+            {smsOtpMessage && <p className="text-xs text-green-400">{smsOtpMessage}</p>}
+
+            <div className="flex gap-2">
+              <button onClick={handleSaveSmsOtpSettings} disabled={smsOtpSaving || smsOtpLoading} className={btnCls('blue')}>
+                {smsOtpSaving ? 'Saving...' : 'Save SMS OTP Settings'}
+              </button>
+              <button onClick={fetchSmsOtpSettings} disabled={smsOtpLoading || smsOtpSaving} className={btnCls('gray')}>
+                {smsOtpLoading ? 'Refreshing...' : 'Reload'}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700 space-y-3">
+            <h3 className="text-sm font-semibold">Configured Defaults</h3>
+            <ul className="text-xs text-zinc-300 space-y-2">
+              <li>Customer ID: C-44071166CC38423</li>
+              <li>Password: Allalone@01</li>
+              <li>OTP expiry: 60 seconds (1 minute)</li>
+              <li>Resend cooldown: 120 seconds (2 minutes)</li>
+              <li>Maximum attempts: 7</li>
+            </ul>
           </div>
         </div>
       )}

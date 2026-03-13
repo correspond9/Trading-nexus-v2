@@ -105,6 +105,43 @@ _OTP_PURPOSE_SIGNUP = "signup"
 _OTP_PURPOSE_PASSWORD_RESET = "password_reset"
 _OTP_PURPOSES = {_OTP_PURPOSE_SIGNUP, _OTP_PURPOSE_PASSWORD_RESET}
 
+_SMS_OTP_DEFAULTS = {
+    "message_central_customer_id": "C-44071166CC38423",
+    "message_central_password": "Allalone@01",
+    "otp_expiry_seconds": 60,
+    "otp_resend_cooldown_seconds": 120,
+    "otp_max_attempts": 7,
+}
+
+
+def _to_positive_int(value, fallback: int) -> int:
+    try:
+        parsed = int(str(value).strip())
+        return parsed if parsed > 0 else fallback
+    except Exception:
+        return fallback
+
+
+async def _get_sms_otp_runtime_settings() -> dict:
+    """Load SMS OTP settings from system_config with safe defaults."""
+    pool = get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT key, value
+        FROM system_config
+        WHERE key = ANY($1::text[])
+        """,
+        list(_SMS_OTP_DEFAULTS.keys()),
+    )
+    values = {row["key"]: row["value"] for row in rows}
+    return {
+        "message_central_customer_id": (values.get("message_central_customer_id") or _SMS_OTP_DEFAULTS["message_central_customer_id"]).strip(),
+        "message_central_password": (values.get("message_central_password") or _SMS_OTP_DEFAULTS["message_central_password"]).strip(),
+        "otp_expiry_seconds": _to_positive_int(values.get("otp_expiry_seconds"), int(_SMS_OTP_DEFAULTS["otp_expiry_seconds"])),
+        "otp_resend_cooldown_seconds": _to_positive_int(values.get("otp_resend_cooldown_seconds"), int(_SMS_OTP_DEFAULTS["otp_resend_cooldown_seconds"])),
+        "otp_max_attempts": _to_positive_int(values.get("otp_max_attempts"), int(_SMS_OTP_DEFAULTS["otp_max_attempts"])),
+    }
+
 
 def _normalize_email(email: str) -> str:
     return (email or "").strip().lower()
@@ -143,8 +180,9 @@ def _validate_image_payload(data_url: str, label: str) -> None:
 async def _mc_get_token() -> str:
     """Fetch a fresh Message Central auth token."""
     cfg = get_settings()
-    customer_id = (cfg.message_central_customer_id or "").strip()
-    password = (cfg.message_central_password or "").strip()
+    runtime = await _get_sms_otp_runtime_settings()
+    customer_id = runtime["message_central_customer_id"]
+    password = runtime["message_central_password"]
     if not customer_id or not password:
         if cfg.debug:
             return "debug_token"
@@ -167,7 +205,8 @@ async def _mc_get_token() -> str:
 async def _mc_send_otp(phone: str) -> tuple[str, dict]:
     """Send OTP via Message Central. Returns (verificationId, raw_response)."""
     cfg = get_settings()
-    customer_id = (cfg.message_central_customer_id or "").strip()
+    runtime = await _get_sms_otp_runtime_settings()
+    customer_id = runtime["message_central_customer_id"]
     if not customer_id:
         if cfg.debug:
             return "debug_verification_id", {"provider": "debug", "status": "skipped"}
@@ -199,8 +238,8 @@ async def _mc_validate_otp(verification_id: str, code: str) -> bool:
     """Validate OTP with Message Central. Returns True on success."""
     if verification_id == "debug_verification_id":
         return code == "123456"
-    cfg = get_settings()
-    customer_id = (cfg.message_central_customer_id or "").strip()
+    runtime = await _get_sms_otp_runtime_settings()
+    customer_id = runtime["message_central_customer_id"]
     token = await _mc_get_token()
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
@@ -232,7 +271,7 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
 
     phone = _normalize_mobile(phone_raw)
     pool = get_pool()
-    cfg = get_settings()
+    runtime = await _get_sms_otp_runtime_settings()
 
     if purpose == _OTP_PURPOSE_SIGNUP:
         exists_user = await pool.fetchval(
@@ -272,7 +311,7 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
         """,
         phone,
         purpose,
-        int(cfg.otp_resend_cooldown_seconds),
+        int(runtime["otp_resend_cooldown_seconds"]),
     )
     if recent:
         raise HTTPException(status_code=429, detail="Please wait before requesting another OTP")
@@ -290,7 +329,7 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
         phone,
         purpose,
         verification_id,
-        int(cfg.otp_expiry_seconds),
+        int(runtime["otp_expiry_seconds"]),
         request.client.host if request.client else None,
         json.dumps(provider_response),
     )
@@ -298,7 +337,7 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
     return {
         "success": True,
         "message": "OTP sent successfully",
-        "expires_in_seconds": int(cfg.otp_expiry_seconds),
+        "expires_in_seconds": int(runtime["otp_expiry_seconds"]),
     }
 
 
@@ -459,7 +498,7 @@ async def verify_phone_otp(body: VerifyPhoneOtpRequest):
         raise HTTPException(status_code=400, detail="Enter a valid 6-digit OTP")
 
     pool = get_pool()
-    cfg = get_settings()
+    runtime = await _get_sms_otp_runtime_settings()
     row = await pool.fetchrow(
         """
         SELECT id, otp_hash, otp_salt, attempt_count
@@ -478,7 +517,7 @@ async def verify_phone_otp(body: VerifyPhoneOtpRequest):
     if not row:
         raise HTTPException(status_code=400, detail="OTP expired or not found")
 
-    if int(row["attempt_count"] or 0) >= int(cfg.otp_max_attempts):
+    if int(row["attempt_count"] or 0) >= int(runtime["otp_max_attempts"]):
         raise HTTPException(status_code=429, detail="Too many invalid attempts")
 
     # Validate OTP via Message Central using the stored verificationId
@@ -931,7 +970,7 @@ async def reset_password_with_otp(body: ForgotPasswordResetRequest):
         raise HTTPException(status_code=400, detail="Enter a valid 6-digit OTP")
 
     pool = get_pool()
-    cfg = get_settings()
+    runtime = await _get_sms_otp_runtime_settings()
     user = await pool.fetchrow(
         "SELECT id, role, is_active FROM users WHERE mobile=$1",
         mobile,
@@ -961,7 +1000,7 @@ async def reset_password_with_otp(body: ForgotPasswordResetRequest):
     if not row:
         raise HTTPException(status_code=400, detail="OTP expired or not found")
 
-    if int(row["attempt_count"] or 0) >= int(cfg.otp_max_attempts):
+    if int(row["attempt_count"] or 0) >= int(runtime["otp_max_attempts"]):
         raise HTTPException(status_code=429, detail="Too many invalid attempts")
 
     if _otp_hash(otp, row["otp_salt"]) != row["otp_hash"]:

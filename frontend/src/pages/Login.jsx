@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { apiService } from '../services/apiService';
 
 const Login = () => {
   const { login } = useAuth();
@@ -13,6 +14,15 @@ const Login = () => {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showForgot, setShowForgot] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMsg, setResetMsg] = useState('');
+  const [forgotData, setForgotData] = useState({
+    mobile: '',
+    otp: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
 
   const handleChange = (e) => {
     setFormData({
@@ -36,6 +46,54 @@ const Login = () => {
     }
 
     setLoading(false);
+  };
+
+  const sendResetOtp = async () => {
+    setError('');
+    setResetMsg('');
+    if (!forgotData.mobile.trim()) {
+      setResetMsg('Enter your registered mobile number first.');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await apiService.post('/auth/password/forgot/send-otp', { mobile: forgotData.mobile.trim() });
+      setResetMsg('OTP sent to your registered mobile number.');
+    } catch (err) {
+      setResetMsg(err?.message || 'Could not send OTP.');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const resetPassword = async () => {
+    setError('');
+    setResetMsg('');
+    if (!forgotData.mobile.trim() || !forgotData.otp.trim() || !forgotData.newPassword.trim()) {
+      setResetMsg('Fill mobile, OTP, and new password.');
+      return;
+    }
+    if (forgotData.newPassword !== forgotData.confirmPassword) {
+      setResetMsg('Password and confirm password do not match.');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await apiService.post('/auth/password/forgot/reset', {
+        mobile: forgotData.mobile.trim(),
+        otp: forgotData.otp.trim(),
+        new_password: forgotData.newPassword,
+      });
+      setResetMsg('Password reset successful. You can now sign in with the new password.');
+      setShowForgot(false);
+      setForgotData({ mobile: '', otp: '', newPassword: '', confirmPassword: '' });
+    } catch (err) {
+      setResetMsg(err?.message || 'Password reset failed.');
+    } finally {
+      setResetLoading(false);
+    }
   };
 
   return (
@@ -154,6 +212,74 @@ const Login = () => {
                 )}
               </button>
             </div>
+
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForgot((prev) => !prev);
+                  setResetMsg('');
+                }}
+                style={{ color: '#2563eb', background: 'none', border: 'none', fontSize: '0.875rem', cursor: 'pointer' }}
+              >
+                {showForgot ? 'Close Forgot Password' : 'Forgot Password?'}
+              </button>
+            </div>
+
+            {showForgot && (
+              <div style={{ border: '1px solid #d1d5db', borderRadius: '0.5rem', padding: '1rem', background: '#f8fafc' }}>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#111827', marginBottom: '0.75rem' }}>
+                  Reset Password (User Accounts Only)
+                </h3>
+                <div style={{ display: 'grid', gap: '0.5rem' }}>
+                  <input
+                    className="tn-login-input"
+                    type="tel"
+                    placeholder="Registered mobile"
+                    value={forgotData.mobile}
+                    onChange={(e) => setForgotData((prev) => ({ ...prev, mobile: e.target.value }))}
+                    style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: '0.375rem' }}
+                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.5rem' }}>
+                    <input
+                      className="tn-login-input"
+                      placeholder="OTP"
+                      value={forgotData.otp}
+                      onChange={(e) => setForgotData((prev) => ({ ...prev, otp: e.target.value }))}
+                      style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: '0.375rem' }}
+                    />
+                    <button type="button" onClick={sendResetOtp} disabled={resetLoading} style={{ ...{ padding: '0.5rem 0.75rem', border: 'none', borderRadius: '0.375rem', color: '#fff', background: '#2563eb', fontWeight: 600 } }}>
+                      {resetLoading ? 'Sending...' : 'Send OTP'}
+                    </button>
+                  </div>
+                  <input
+                    className="tn-login-input"
+                    type="password"
+                    placeholder="New password"
+                    value={forgotData.newPassword}
+                    onChange={(e) => setForgotData((prev) => ({ ...prev, newPassword: e.target.value }))}
+                    style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: '0.375rem' }}
+                  />
+                  <input
+                    className="tn-login-input"
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={forgotData.confirmPassword}
+                    onChange={(e) => setForgotData((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+                    style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: '0.375rem' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={resetPassword}
+                    disabled={resetLoading}
+                    style={{ padding: '0.6rem 0.75rem', border: 'none', borderRadius: '0.375rem', color: '#fff', background: '#0f766e', fontWeight: 700 }}
+                  >
+                    {resetLoading ? 'Resetting...' : 'Reset Password'}
+                  </button>
+                  {resetMsg && <p style={{ fontSize: '0.8rem', color: '#334155' }}>{resetMsg}</p>}
+                </div>
+              </div>
+            )}
           </form>
         </div>
       </div>

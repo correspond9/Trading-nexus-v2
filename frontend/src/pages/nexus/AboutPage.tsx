@@ -135,7 +135,7 @@ const AboutPage: React.FC = () => {
             <p className="text-sm font-medium italic text-[var(--neo-text-muted)]">
               *Referral partners receive dedicated trading setup help &amp; lifetime community access.
             </p>
-            <Link to="/register" className="neo-btn-solid-purple mt-4 inline-flex w-full justify-center px-8 py-5 text-lg">
+            <Link to="/enroll" className="neo-btn-solid-purple mt-4 inline-flex w-full justify-center px-8 py-5 text-lg">
               Pre-Register for Next Batch
             </Link>
           </div>

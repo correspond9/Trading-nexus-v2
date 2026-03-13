@@ -157,7 +157,7 @@ const CrashCourse: React.FC = () => {
           </div>
 
           <div className="relative flex flex-wrap justify-center gap-6 pt-4">
-            <Link to="/register" className="neo-btn-solid-green scale-105 px-12 py-6 text-lg">
+            <Link to="/enroll" className="neo-btn-solid-green scale-105 px-12 py-6 text-lg">
               Apply for Next Batch
               <ChevronRight className="ml-2 h-6 w-6" />
             </Link>

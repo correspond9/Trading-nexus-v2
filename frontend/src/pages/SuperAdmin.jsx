@@ -28,7 +28,7 @@ const TABS = [
   { id: 'settings',  label: 'Settings & Monitoring' },
   { id: 'authCheck', label: 'User Auth Check' },
   { id: 'historic',  label: 'Historic Position' },
-  { id: 'portalUsers', label: 'Portal Signups' },
+  { id: 'portalUsers', label: 'Prop-Signups' },
   { id: 'schedulers', label: 'Schedulers' },
 ];
 
@@ -100,6 +100,8 @@ const SuperAdminDashboard = () => {
   const [selectedPortalUserIds, setSelectedPortalUserIds] = useState(new Set());
   const [portalUsersDeleteLoading, setPortalUsersDeleteLoading] = useState(false);
   const [portalUsersDeleteMsg, setPortalUsersDeleteMsg] = useState('');
+  const [portalUsersStatus, setPortalUsersStatus] = useState('PENDING');
+  const [portalActionBusyId, setPortalActionBusyId] = useState(null);
 
   // ── Backdate position ──
   const [backdateForm, setBackdateForm]     = useState({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', trade_time: '09:15', instrument_type: 'EQ', exchange: 'NSE', product_type: 'MIS' });
@@ -259,7 +261,7 @@ const SuperAdminDashboard = () => {
     setPortalUsersError('');
     setPortalUsersDeleteMsg('');
     try {
-      const res = await req('/auth/portal/users');
+      const res = await req(`/auth/portal/users?status=${encodeURIComponent(portalUsersStatus)}`);
       if (res.ok) {
         const data = await res.json();
         setPortalUsers(data.users || []);
@@ -273,7 +275,37 @@ const SuperAdminDashboard = () => {
     } finally {
       setPortalUsersLoading(false);
     }
-  }, []);
+  }, [portalUsersStatus]);
+
+  const handlePortalSignupReview = async (signupId, action) => {
+    if (!signupId) return;
+
+    let reason = '';
+    if (action === 'REJECT') {
+      reason = window.prompt('Optional rejection reason:', '') || '';
+    }
+
+    setPortalActionBusyId(signupId);
+    setPortalUsersError('');
+    setPortalUsersDeleteMsg('');
+    try {
+      const res = await req(`/auth/portal/users/${signupId}/review`, {
+        method: 'POST',
+        body: JSON.stringify({ action, reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPortalUsersError(data.detail || `Failed to ${action.toLowerCase()} signup`);
+      } else {
+        setPortalUsersDeleteMsg(data.message || `Signup ${action.toLowerCase()}d successfully`);
+        await fetchPortalUsers();
+      }
+    } catch (e) {
+      setPortalUsersError(e?.message || `Failed to ${action.toLowerCase()} signup`);
+    } finally {
+      setPortalActionBusyId(null);
+    }
+  };
 
   useEffect(() => {
     setSelectedPortalUserIds((prev) => {
@@ -343,20 +375,28 @@ const SuperAdminDashboard = () => {
       'name',
       'email',
       'mobile',
+      'pan_number',
+      'aadhar_number',
+      'bank_account_number',
+      'ifsc',
+      'upi_id',
       'city',
-      'experience_level',
-      'interest',
-      'learning_goal',
+      'status',
+      'rejection_reason',
       'created_at',
     ];
     const rows = portalUsers.map((u) => [
       u.name,
       u.email,
       u.mobile,
+      u.pan_number,
+      u.aadhar_number,
+      u.bank_account_number,
+      u.ifsc,
+      u.upi_id,
       u.city,
-      u.experience_level,
-      u.interest,
-      u.learning_goal,
+      u.status,
+      u.rejection_reason,
       u.created_at,
     ]);
     const csv = [headers, ...rows]
@@ -1417,21 +1457,25 @@ const SuperAdminDashboard = () => {
           <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
-                <h2 className="text-base font-semibold">Educational Portal Signups</h2>
+                <h2 className="text-base font-semibold">Prop-Signups</h2>
                 <p className="text-xs text-zinc-400 mt-1">
-                  Total registrations: <span className="font-semibold text-zinc-100">{portalUsersTotal}</span>
+                  Total {portalUsersStatus.toLowerCase()} items: <span className="font-semibold text-zinc-100">{portalUsersTotal}</span>
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <select
+                  className={inputCls}
+                  value={portalUsersStatus}
+                  onChange={(e) => setPortalUsersStatus(e.target.value)}
+                  style={{ minWidth: 140 }}
+                >
+                  <option value="PENDING">Pending</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="REJECTED">Rejected</option>
+                  <option value="ALL">All</option>
+                </select>
                 <button onClick={handleExportPortalUsersCsv} disabled={!portalUsers.length || portalUsersLoading} className={btnCls('green')}>
                   Export CSV
-                </button>
-                <button
-                  onClick={handleDeleteSelectedPortalUsers}
-                  disabled={!selectedPortalUserIds.size || portalUsersDeleteLoading || portalUsersLoading}
-                  className={btnCls('red')}
-                >
-                  {portalUsersDeleteLoading ? 'Deleting…' : `Delete Selected${selectedPortalUserIds.size ? ` (${selectedPortalUserIds.size})` : ''}`}
                 </button>
                 <button onClick={fetchPortalUsers} disabled={portalUsersLoading} className={btnCls('blue')}>
                   {portalUsersLoading ? 'Loading…' : 'Refresh'}
@@ -1459,7 +1503,7 @@ const SuperAdminDashboard = () => {
 
             {!portalUsersLoading && portalUsers.length === 0 && (
               <div className="text-center py-8 text-zinc-400">
-                No portal signups yet
+                No records found
               </div>
             )}
 
@@ -1468,48 +1512,55 @@ const SuperAdminDashboard = () => {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="text-xs text-zinc-400 border-b border-zinc-700">
-                      <th className="text-left py-3 px-4">
-                        <input
-                          type="checkbox"
-                          checked={portalUsers.length > 0 && selectedPortalUserIds.size === portalUsers.length}
-                          onChange={toggleSelectAllPortalUsers}
-                          title="Select all"
-                        />
-                      </th>
                       <th className="text-left py-3 px-4">Name</th>
                       <th className="text-left py-3 px-4">Email</th>
                       <th className="text-left py-3 px-4">Mobile</th>
+                      <th className="text-left py-3 px-4">PAN</th>
+                      <th className="text-left py-3 px-4">Aadhar</th>
+                      <th className="text-left py-3 px-4">Bank A/C</th>
+                      <th className="text-left py-3 px-4">IFSC</th>
                       <th className="text-left py-3 px-4">City</th>
-                      <th className="text-left py-3 px-4">Experience</th>
-                      <th className="text-left py-3 px-4">Interest</th>
-                      <th className="text-left py-3 px-4">Goal</th>
+                      <th className="text-left py-3 px-4">Status</th>
                       <th className="text-left py-3 px-4">Signup Date</th>
+                      <th className="text-left py-3 px-4">Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {portalUsers.map((user, idx) => (
                       <tr key={user.id} className={`border-b border-zinc-700 hover:bg-zinc-700/30 ${idx % 2 === 0 ? 'bg-zinc-800/50' : ''}`}>
-                        <td className="py-3 px-4">
-                          <input
-                            type="checkbox"
-                            checked={selectedPortalUserIds.has(user.id)}
-                            onChange={() => togglePortalUserSelection(user.id)}
-                            title={`Select ${user.name}`}
-                          />
-                        </td>
                         <td className="py-3 px-4 font-medium text-zinc-100">{user.name}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.email}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.mobile || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.pan_number || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.aadhar_number || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.bank_account_number || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.ifsc || '—'}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.city || '—'}</td>
-                        <td className="py-3 px-4">
-                          <span className="text-xs px-2 py-1 rounded-full bg-blue-900/40 text-blue-300 border border-blue-700/40">
-                            {user.experience_level}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-xs text-zinc-300">{user.interest || '—'}</td>
-                        <td className="py-3 px-4 text-xs text-zinc-400 max-w-xs truncate" title={user.learning_goal}>{user.learning_goal || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.status || 'PENDING'}</td>
                         <td className="py-3 px-4 text-xs text-zinc-400">
                           {user.created_at ? new Date(user.created_at).toLocaleString() : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">
+                          {(user.status || 'PENDING') === 'PENDING' ? (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handlePortalSignupReview(user.id, 'APPROVE')}
+                                disabled={portalActionBusyId === user.id}
+                                className={btnCls('blue')}
+                              >
+                                {portalActionBusyId === user.id ? 'Working...' : 'Approve'}
+                              </button>
+                              <button
+                                onClick={() => handlePortalSignupReview(user.id, 'REJECT')}
+                                disabled={portalActionBusyId === user.id}
+                                className={btnCls('red')}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-zinc-400">Addressed</span>
+                          )}
                         </td>
                       </tr>
                     ))}

@@ -42,7 +42,7 @@ const LandingPage: React.FC<LandingPageProps> = () => {
                     <Link to="/course" className="transition-colors hover:text-[var(--neo-color-green)]">Curriculum</Link>
                 </div>
                 <div className="hidden sm:block">
-                    <Link to="/register" className="neo-btn neo-btn-purple px-8 py-4 text-sm uppercase">
+                    <Link to="/enroll" className="neo-btn neo-btn-purple px-8 py-4 text-sm uppercase">
                         Reserve Spot
                     </Link>
                 </div>
@@ -78,7 +78,7 @@ const LandingPage: React.FC<LandingPageProps> = () => {
 
                     <div className="space-y-8 pt-4">
                         <div className="flex flex-wrap items-center gap-6">
-                            <Link to="/register" className="neo-btn-solid-purple px-10 py-5 text-lg">
+                            <Link to="/enroll" className="neo-btn-solid-purple px-10 py-5 text-lg">
                                 <PlayCircle className="mr-1 h-6 w-6" />
                                 Join Free Crash Course
                             </Link>
@@ -198,7 +198,7 @@ const LandingPage: React.FC<LandingPageProps> = () => {
                     </div>
                 </Link>
 
-                <Link to="/register" className="neo-card group flex items-start justify-between border-4 border-[var(--neo-bg)] p-12 shadow-[0_20px_40px_var(--neo-shadow-dark),_0_0_0_inset_white] transition-colors hover:border-white">
+                <Link to="/enroll" className="neo-card group flex items-start justify-between border-4 border-[var(--neo-bg)] p-12 shadow-[0_20px_40px_var(--neo-shadow-dark),_0_0_0_inset_white] transition-colors hover:border-white">
                     <div className="space-y-4">
                         <p className="text-sm font-black uppercase tracking-[0.2em] text-[var(--neo-color-red)]">Next Batch</p>
                         <h3 className="text-3xl font-black text-[var(--neo-text-main)]">Pre-Register Spot</h3>
@@ -224,7 +224,7 @@ const LandingPage: React.FC<LandingPageProps> = () => {
                         <Link to="/course" className="transition-colors hover:text-[var(--neo-color-green)]">Curriculum</Link>
                         <Link to="/funded" className="transition-colors hover:text-[var(--neo-color-blue)]">Funded Program</Link>
                         <Link to="/rules" className="transition-colors hover:text-[var(--neo-color-green)]">Trading Rules</Link>
-                        <Link to="/register" className="transition-colors hover:text-[var(--neo-color-red)]">Register</Link>
+                        <Link to="/enroll" className="transition-colors hover:text-[var(--neo-color-red)]">Register</Link>
                     </div>
                 </div>
                 <div className="pb-8 pt-8 text-center text-sm font-bold text-[var(--neo-text-muted)]">

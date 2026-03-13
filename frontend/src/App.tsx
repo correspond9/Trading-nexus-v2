@@ -21,7 +21,8 @@ const Profile = lazy(() => import('./pages/Profile'));
 const SuperAdmin = lazy(() => import('./pages/SuperAdmin'));
 
 const LandingPage = lazy(() => import('./pages/nexus/LandingPage'));
-const SignupPage = lazy(() => import('./pages/nexus/SignupPage'));
+const CourseEnrollPage = lazy(() => import('./pages/nexus/course-enroll'));
+const AccountSignupPage = lazy(() => import('./pages/nexus/AccountSignupPage'));
 const CrashCourse = lazy(() => import('./pages/nexus/CrashCourse'));
 const AboutPage = lazy(() => import('./pages/nexus/AboutPage'));
 const FundedProgram = lazy(() => import('./pages/nexus/FundedProgram'));
@@ -52,11 +53,11 @@ const NexusPortal = () => {
         <Route path="/landingpage" element={<LandingPage toggleTheme={toggleTheme} theme={theme} />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/course" element={<CrashCourse />} />
-        <Route path="/register" element={<SignupPage />} />
+        <Route path="/enroll" element={<CourseEnrollPage />} />
+        <Route path="/sign-up" element={<AccountSignupPage />} />
         <Route path="/crash-course" element={<CrashCourse />} />
         <Route path="/funded" element={<FundedProgram />} />
         <Route path="/rules" element={<Rules />} />
-        <Route path="/signup" element={<SignupPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
@@ -79,9 +80,9 @@ export default function App() {
                   <Route path="/landingpage" element={<LandingPage />} />
                   <Route path="/about" element={<AboutPage />} />
                   <Route path="/course" element={<CrashCourse />} />
-                  <Route path="/register" element={<SignupPage />} />
+                  <Route path="/enroll" element={<CourseEnrollPage />} />
+                  <Route path="/sign-up" element={<AccountSignupPage />} />
                   <Route path="/crash-course" element={<CrashCourse />} />
-                  <Route path="/signup" element={<SignupPage />} />
                   <Route path="/funded" element={<FundedProgram />} />
                   <Route path="/rules" element={<Rules />} />
                   <Route path="/login" element={<Login />} />
@@ -115,7 +116,7 @@ export default function App() {
                     <Route path="/profile" element={<Profile />} />
                     <Route path="/portfolio" element={<Portfolio />} />
                     <Route path="/dashboard" element={
-                      <ProtectedRoute requiredRoles={['SUPER_ADMIN']}><SuperAdmin /></ProtectedRoute>
+                      <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><SuperAdmin /></ProtectedRoute>
                     } />
                   </Route>
                   <Route path="*" element={<Navigate to="/trade" replace />} />

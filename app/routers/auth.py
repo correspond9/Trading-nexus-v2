@@ -1,22 +1,21 @@
-"""
-app/routers/auth.py
-POST /auth/login                    {mobile, password}                    → {access_token, token_type, user}
-POST /auth/logout                   {token}                              → {success}
-GET  /auth/me                                                            → user from X-AUTH header
-POST /auth/portal/signup            {name, email, experience_level}      → {success, message, user_id}
-GET  /auth/portal/users             (admin only)                         → {users: [...], total: int}
-POST /auth/portal/users/delete      (admin only)                         → bulk delete by user_ids
-"""
+"""Authentication, portal signup, OTP, and password reset endpoints."""
 import logging
 from typing import Optional, List
 import re
+import base64
+import hashlib
+import json
+import random
+import secrets
 
 import bcrypt
+import httpx
 from fastapi  import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.database      import get_pool
-from app.dependencies  import CurrentUser, get_current_user
+from app.dependencies  import CurrentUser, get_current_user, get_admin_user
+from app.config import get_settings
 
 log    = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -56,6 +55,207 @@ class PortalSignupRequest(BaseModel):
 
 class PortalUsersBulkDeleteRequest(BaseModel):
     user_ids: List[str]
+
+
+class SendPhoneOtpRequest(BaseModel):
+    phone: str
+    purpose: str = "signup"
+
+
+class VerifyPhoneOtpRequest(BaseModel):
+    phone: str
+    purpose: str = "signup"
+    otp: str
+
+
+class AccountSignupRequest(BaseModel):
+    first_name: str
+    middle_name: Optional[str] = ""
+    last_name: str
+    phone: str
+    email: str
+    address: Optional[str] = ""
+    city: Optional[str] = ""
+    state: Optional[str] = ""
+    country: Optional[str] = "India"
+    pan_number: str
+    aadhar_number: str
+    pan_upload: str
+    aadhar_upload: str
+    bank_account_number: str
+    ifsc: str
+    upi_id: Optional[str] = ""
+
+
+class PortalSignupReviewRequest(BaseModel):
+    action: str
+    reason: Optional[str] = ""
+
+
+class ForgotPasswordSendOtpRequest(BaseModel):
+    mobile: str
+
+
+class ForgotPasswordResetRequest(BaseModel):
+    mobile: str
+    otp: str
+    new_password: str
+
+
+_OTP_PURPOSE_SIGNUP = "signup"
+_OTP_PURPOSE_PASSWORD_RESET = "password_reset"
+_OTP_PURPOSES = {_OTP_PURPOSE_SIGNUP, _OTP_PURPOSE_PASSWORD_RESET}
+
+
+def _normalize_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
+def _normalize_mobile(phone: str) -> str:
+    digits = re.sub(r"\D", "", phone or "")
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    if len(digits) != 10:
+        raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number")
+    return digits
+
+
+def _otp_hash(otp: str, salt: str) -> str:
+    return hashlib.sha256(f"{salt}:{otp}".encode("utf-8")).hexdigest()
+
+
+def _validate_image_payload(data_url: str, label: str) -> None:
+    value = (data_url or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail=f"{label} is required")
+    if not value.startswith("data:image/"):
+        raise HTTPException(status_code=400, detail=f"{label} must be an image")
+    if "," not in value:
+        raise HTTPException(status_code=400, detail=f"{label} is invalid")
+    try:
+        payload = value.split(",", 1)[1]
+        size = len(base64.b64decode(payload, validate=True))
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"{label} is invalid")
+    if size > 1_048_576:
+        raise HTTPException(status_code=400, detail=f"{label} must be 1 MB or smaller")
+
+
+async def _send_fast2sms_sms(phone: str, message: str) -> dict:
+    cfg = get_settings()
+    api_key = (cfg.fast2sms_api_key or "").strip()
+    if not api_key:
+        if cfg.debug:
+            return {"provider": "debug", "status": "skipped"}
+        raise HTTPException(status_code=503, detail="SMS service is not configured")
+
+    payload = {
+        "route": cfg.fast2sms_route,
+        "message": message,
+        "qnumbers": phone,
+        "flash": "0",
+        "sms_details": "1",
+    }
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "authorization": api_key,
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post("https://www.fast2sms.com/dev/bulkV2", json=payload, headers=headers)
+
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=502, detail="Failed to send OTP right now")
+
+    try:
+        data = resp.json()
+    except Exception:
+        data = {"raw": resp.text}
+    return data
+
+
+async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) -> dict:
+    purpose = (purpose_raw or "").strip().lower()
+    if purpose not in _OTP_PURPOSES:
+        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+
+    phone = _normalize_mobile(phone_raw)
+    pool = get_pool()
+    cfg = get_settings()
+
+    if purpose == _OTP_PURPOSE_SIGNUP:
+        exists_user = await pool.fetchval(
+            "SELECT 1 FROM users WHERE mobile=$1",
+            phone,
+        )
+        if exists_user:
+            raise HTTPException(status_code=409, detail="number/email already registered")
+
+        exists_signup = await pool.fetchval(
+            "SELECT 1 FROM portal_users WHERE mobile=$1",
+            phone,
+        )
+        if exists_signup:
+            raise HTTPException(status_code=409, detail="number/email already registered")
+    else:
+        reset_user = await pool.fetchrow(
+            "SELECT id, role, is_active FROM users WHERE mobile=$1",
+            phone,
+        )
+        if not reset_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if reset_user["role"] != "USER":
+            raise HTTPException(status_code=403, detail="Password reset OTP is allowed only for users")
+        if not reset_user["is_active"]:
+            raise HTTPException(status_code=403, detail="Account is inactive")
+
+    recent = await pool.fetchval(
+        """
+        SELECT 1
+        FROM otp_verifications
+        WHERE contact_type='PHONE'
+          AND contact_value=$1
+          AND purpose=$2
+          AND created_at > NOW() - (($3::text || ' seconds')::interval)
+        LIMIT 1
+        """,
+        phone,
+        purpose,
+        int(cfg.otp_resend_cooldown_seconds),
+    )
+    if recent:
+        raise HTTPException(status_code=429, detail="Please wait before requesting another OTP")
+
+    otp = f"{random.randint(0, 999999):06d}"
+    salt = secrets.token_hex(8)
+    otp_hash = _otp_hash(otp, salt)
+    sms_message = f"Your verification code is {otp}. Valid for {max(1, int(cfg.otp_expiry_seconds) // 60)} minutes."
+    provider_response = await _send_fast2sms_sms(phone, sms_message)
+
+    await pool.execute(
+        """
+        INSERT INTO otp_verifications
+            (contact_type, contact_value, purpose, otp_hash, otp_salt, expires_at, request_ip, provider_response)
+        VALUES
+            ('PHONE', $1, $2, $3, $4, NOW() + (($5::text || ' seconds')::interval), $6, $7::jsonb)
+        """,
+        phone,
+        purpose,
+        otp_hash,
+        salt,
+        int(cfg.otp_expiry_seconds),
+        request.client.host if request.client else None,
+        json.dumps(provider_response),
+    )
+
+    out = {
+        "success": True,
+        "message": "OTP sent successfully",
+        "expires_in_seconds": int(cfg.otp_expiry_seconds),
+    }
+    if cfg.debug:
+        out["debug_otp"] = otp
+    return out
 
 
 @router.post("/login")
@@ -189,8 +389,179 @@ async def portal_signup(body: PortalSignupRequest):
         raise HTTPException(status_code=500, detail="Failed to create account. Please try again later.")
 
 
+@router.post("/otp/send-phone")
+async def send_phone_otp(body: SendPhoneOtpRequest, request: Request):
+    return await _send_phone_otp(body.phone, body.purpose, request)
+
+
+@router.post("/otp/verify-phone")
+async def verify_phone_otp(body: VerifyPhoneOtpRequest):
+    purpose = (body.purpose or "").strip().lower()
+    if purpose not in _OTP_PURPOSES:
+        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+
+    phone = _normalize_mobile(body.phone)
+    otp = (body.otp or "").strip()
+    if not re.fullmatch(r"\d{6}", otp):
+        raise HTTPException(status_code=400, detail="Enter a valid 6-digit OTP")
+
+    pool = get_pool()
+    cfg = get_settings()
+    row = await pool.fetchrow(
+        """
+        SELECT id, otp_hash, otp_salt, attempt_count
+        FROM otp_verifications
+        WHERE contact_type='PHONE'
+          AND contact_value=$1
+          AND purpose=$2
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        phone,
+        purpose,
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="OTP expired or not found")
+
+    if int(row["attempt_count"] or 0) >= int(cfg.otp_max_attempts):
+        raise HTTPException(status_code=429, detail="Too many invalid attempts")
+
+    if _otp_hash(otp, row["otp_salt"]) != row["otp_hash"]:
+        await pool.execute(
+            "UPDATE otp_verifications SET attempt_count = attempt_count + 1 WHERE id=$1",
+            row["id"],
+        )
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    await pool.execute(
+        "UPDATE otp_verifications SET verified_at = NOW() WHERE id=$1",
+        row["id"],
+    )
+    return {"success": True, "verified": True}
+
+
+@router.post("/portal/account-signup")
+async def account_signup(body: AccountSignupRequest):
+    pool = get_pool()
+    email = _normalize_email(body.email)
+    phone = _normalize_mobile(body.phone)
+
+    if not body.first_name.strip():
+        raise HTTPException(status_code=400, detail="First Name is required")
+    if not body.last_name.strip():
+        raise HTTPException(status_code=400, detail="Last Name is required")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
+        raise HTTPException(status_code=400, detail="Invalid email format")
+
+    for label, value in [
+        ("PAN Number", body.pan_number),
+        ("Aadhar Number", body.aadhar_number),
+        ("Bank A/c Number", body.bank_account_number),
+        ("IFSC", body.ifsc),
+    ]:
+        if not (value or "").strip():
+            raise HTTPException(status_code=400, detail=f"{label} is required")
+
+    _validate_image_payload(body.pan_upload, "PAN Upload")
+    _validate_image_payload(body.aadhar_upload, "Aadhar Upload")
+
+    exists_user = await pool.fetchval(
+        "SELECT 1 FROM users WHERE mobile=$1 OR lower(email)=lower($2)",
+        phone,
+        email,
+    )
+    if exists_user:
+        raise HTTPException(status_code=409, detail="number/email already registered")
+
+    exists_signup = await pool.fetchval(
+        """
+        SELECT 1
+        FROM portal_users
+                WHERE (mobile=$1 OR lower(email)=lower($2))
+        """,
+        phone,
+        email,
+    )
+    if exists_signup:
+        raise HTTPException(status_code=409, detail="number/email already registered")
+
+    otp_row = await pool.fetchrow(
+        """
+        SELECT id
+        FROM otp_verifications
+        WHERE contact_type='PHONE'
+          AND contact_value=$1
+          AND purpose=$2
+          AND verified_at IS NOT NULL
+          AND consumed_at IS NULL
+          AND verified_at > NOW() - INTERVAL '30 minutes'
+        ORDER BY verified_at DESC
+        LIMIT 1
+        """,
+        phone,
+        _OTP_PURPOSE_SIGNUP,
+    )
+    if not otp_row:
+        raise HTTPException(status_code=400, detail="Phone OTP verification is required")
+
+    signup = await pool.fetchrow(
+        """
+        INSERT INTO portal_users
+            (name, first_name, middle_name, last_name, email, mobile,
+             address, city, state, country,
+               experience_level, interest, learning_goal,
+             pan_number, aadhar_number, pan_upload, aadhar_upload,
+             bank_account_number, ifsc, upi_id,
+             status, otp_verified)
+        VALUES
+            ($1, $2, $3, $4, $5, $6,
+             $7, $8, $9, $10,
+               $11, $12, $13,
+               $14, $15, $16, $17,
+               $18, $19, $20,
+             'PENDING', TRUE)
+        RETURNING id
+        """,
+        " ".join([x for x in [body.first_name.strip(), (body.middle_name or "").strip(), body.last_name.strip()] if x]),
+        body.first_name.strip(),
+        (body.middle_name or "").strip(),
+        body.last_name.strip(),
+        email,
+        phone,
+        (body.address or "").strip(),
+        (body.city or "").strip(),
+        (body.state or "").strip(),
+        (body.country or "India").strip() or "India",
+        "N/A",
+        "",
+        "",
+        body.pan_number.strip().upper(),
+        body.aadhar_number.strip(),
+        body.pan_upload,
+        body.aadhar_upload,
+        body.bank_account_number.strip(),
+        body.ifsc.strip().upper(),
+        (body.upi_id or "").strip(),
+    )
+
+    await pool.execute(
+        "UPDATE otp_verifications SET consumed_at=NOW() WHERE id=$1",
+        otp_row["id"],
+    )
+
+    return {
+        "success": True,
+        "message": "Signup submitted. It is pending admin approval.",
+        "signup_id": str(signup["id"]),
+    }
+
+
 @router.get("/portal/users")
-async def get_portal_users(user: CurrentUser = Depends(get_current_user)):
+async def get_portal_users(status: str = "PENDING", user: CurrentUser = Depends(get_admin_user)):
     """
     Retrieve all portal signup registrations.
     
@@ -200,48 +571,67 @@ async def get_portal_users(user: CurrentUser = Depends(get_current_user)):
     - users: List of portal users with id, name, email, experience_level, created_at
     - total: Total count of registrations
     """
-    # Verify super admin role
-    if user.role != "SUPER_ADMIN":
-        raise HTTPException(status_code=403, detail="Only super admins can view portal users")
-    
     pool = get_pool()
+    status_filter = (status or "PENDING").strip().upper()
+    if status_filter not in ("PENDING", "APPROVED", "REJECTED", "ALL"):
+        raise HTTPException(status_code=400, detail="Invalid status filter")
     
     try:
         # Fetch all portal users ordered by creation date (newest first)
-        users = await pool.fetch(
-            """
-            SELECT 
-                id, 
-                name, 
-                email,
-                mobile,
-                city, 
-                experience_level,
-                interest,
-                learning_goal, 
-                created_at,
-                updated_at
-            FROM portal_users
-            ORDER BY created_at DESC
-            """
-        )
-        
-        # Get total count
-        count_result = await pool.fetchval(
-            "SELECT COUNT(*) FROM portal_users"
-        )
+        if status_filter == "ALL":
+            users = await pool.fetch(
+                """
+                SELECT id, name, first_name, middle_name, last_name, email, mobile,
+                       address, city, state, country,
+                       pan_number, aadhar_number,
+                       bank_account_number, ifsc, upi_id,
+                       status, rejection_reason, reviewed_at, created_at, updated_at
+                FROM portal_users
+                ORDER BY created_at DESC
+                """
+            )
+            count_result = await pool.fetchval("SELECT COUNT(*) FROM portal_users")
+        else:
+            users = await pool.fetch(
+                """
+                SELECT id, name, first_name, middle_name, last_name, email, mobile,
+                       address, city, state, country,
+                       pan_number, aadhar_number,
+                       bank_account_number, ifsc, upi_id,
+                       status, rejection_reason, reviewed_at, created_at, updated_at
+                FROM portal_users
+                WHERE status=$1
+                ORDER BY created_at DESC
+                """,
+                status_filter,
+            )
+            count_result = await pool.fetchval(
+                "SELECT COUNT(*) FROM portal_users WHERE status=$1",
+                status_filter,
+            )
         
         # Convert to dict format for JSON response
         users_list = [
             {
                 "id": str(u["id"]),
                 "name": u["name"],
+                "first_name": u.get("first_name") or "",
+                "middle_name": u.get("middle_name") or "",
+                "last_name": u.get("last_name") or "",
                 "email": u["email"],
                 "mobile": u["mobile"],
+                "address": u.get("address") or "",
                 "city": u["city"],
-                "experience_level": u["experience_level"],
-                "interest": u["interest"],
-                "learning_goal": u["learning_goal"],
+                "state": u.get("state") or "",
+                "country": u.get("country") or "",
+                "pan_number": u.get("pan_number") or "",
+                "aadhar_number": u.get("aadhar_number") or "",
+                "bank_account_number": u.get("bank_account_number") or "",
+                "ifsc": u.get("ifsc") or "",
+                "upi_id": u.get("upi_id") or "",
+                "status": u.get("status") or "PENDING",
+                "rejection_reason": u.get("rejection_reason") or "",
+                "reviewed_at": u["reviewed_at"].isoformat() if u.get("reviewed_at") else None,
                 "created_at": u["created_at"].isoformat() if u["created_at"] else None,
                 "updated_at": u["updated_at"].isoformat() if u["updated_at"] else None,
             }
@@ -253,6 +643,7 @@ async def get_portal_users(user: CurrentUser = Depends(get_current_user)):
         return {
             "users": users_list,
             "total": count_result,
+            "status": status_filter,
         }
     
     except Exception as e:
@@ -260,19 +651,141 @@ async def get_portal_users(user: CurrentUser = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Failed to fetch portal users")
 
 
+@router.post("/portal/users/{signup_id}/review")
+async def review_portal_user(
+    signup_id: str,
+    body: PortalSignupReviewRequest,
+    user: CurrentUser = Depends(get_admin_user),
+):
+    action = (body.action or "").strip().upper()
+    if action not in ("APPROVE", "REJECT"):
+        raise HTTPException(status_code=400, detail="Action must be APPROVE or REJECT")
+
+    pool = get_pool()
+    signup = await pool.fetchrow(
+        "SELECT * FROM portal_users WHERE id=$1::uuid",
+        signup_id,
+    )
+    if not signup:
+        raise HTTPException(status_code=404, detail="Signup not found")
+    if (signup.get("status") or "PENDING") != "PENDING":
+        raise HTTPException(status_code=400, detail="Only pending signups can be reviewed")
+
+    if action == "REJECT":
+        await pool.execute(
+            """
+            UPDATE portal_users
+            SET status='REJECTED', reviewed_by=$2::uuid, reviewed_at=NOW(), rejection_reason=$3
+            WHERE id=$1::uuid
+            """,
+            signup_id,
+            user.id,
+            (body.reason or "").strip(),
+        )
+        return {
+            "success": True,
+            "message": "Signup rejected and removed from pending queue",
+        }
+
+    email = _normalize_email(signup.get("email") or "")
+    mobile = _normalize_mobile(signup.get("mobile") or "")
+
+    dup_user = await pool.fetchval(
+        "SELECT 1 FROM users WHERE mobile=$1 OR lower(email)=lower($2)",
+        mobile,
+        email,
+    )
+    if dup_user:
+        raise HTTPException(status_code=409, detail="number/email already registered")
+
+    full_name = " ".join(
+        [
+            x
+            for x in [
+                (signup.get("first_name") or "").strip(),
+                (signup.get("middle_name") or "").strip(),
+                (signup.get("last_name") or "").strip(),
+            ]
+            if x
+        ]
+    ).strip() or (signup.get("name") or "").strip() or "User"
+
+    temporary_password = secrets.token_urlsafe(12)
+    password_hash = _hash(temporary_password)
+
+    created_user = await pool.fetchrow(
+        """
+        INSERT INTO users
+            (name, first_name, last_name, email, mobile, password_hash,
+             role, status, is_active,
+             address, country, state, city,
+             aadhar_number, pan_number, upi, bank_account, ifsc_code,
+             aadhar_doc, pan_card_doc)
+        VALUES
+            ($1,$2,$3,$4,$5,$6,
+             'USER','ACTIVE',TRUE,
+             $7,$8,$9,$10,
+             $11,$12,$13,$14,$15,
+             $16,$17)
+        RETURNING id, user_no
+        """,
+        full_name,
+        (signup.get("first_name") or "").strip() or full_name,
+        (signup.get("last_name") or "").strip(),
+        email,
+        mobile,
+        password_hash,
+        (signup.get("address") or "").strip(),
+        (signup.get("country") or "India").strip() or "India",
+        (signup.get("state") or "").strip(),
+        (signup.get("city") or "").strip(),
+        (signup.get("aadhar_number") or "").strip(),
+        (signup.get("pan_number") or "").strip().upper(),
+        (signup.get("upi_id") or "").strip(),
+        (signup.get("bank_account_number") or "").strip(),
+        (signup.get("ifsc") or "").strip().upper(),
+        signup.get("aadhar_upload"),
+        signup.get("pan_upload"),
+    )
+
+    await pool.execute(
+        """
+        INSERT INTO paper_accounts (user_id, display_name, balance, margin_allotted)
+        VALUES ($1, $2, 0, 0)
+        ON CONFLICT (user_id) DO NOTHING
+        """,
+        created_user["id"],
+        full_name,
+    )
+
+    await pool.execute(
+        """
+        UPDATE portal_users
+        SET status='APPROVED', reviewed_by=$2::uuid, reviewed_at=NOW(), rejection_reason=''
+        WHERE id=$1::uuid
+        """,
+        signup_id,
+        user.id,
+    )
+
+    return {
+        "success": True,
+        "message": "Signup approved and user created as ACTIVE USER",
+        "user_id": str(created_user["id"]),
+        "user_no": int(created_user["user_no"]),
+    }
+
+
 @router.post("/portal/users/delete")
 async def delete_portal_users(
     body: PortalUsersBulkDeleteRequest,
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_admin_user),
 ):
     """
     Bulk delete portal signup registrations.
 
     Super admin only.
     """
-    if user.role != "SUPER_ADMIN":
-        raise HTTPException(status_code=403, detail="Only super admins can delete portal users")
-
     user_ids = [str(uid).strip() for uid in (body.user_ids or []) if str(uid).strip()]
     if not user_ids:
         raise HTTPException(status_code=400, detail="No portal user IDs provided")
@@ -309,3 +822,75 @@ async def delete_portal_users(
 
         log.error(f"Error deleting portal users: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to delete portal users")
+
+
+@router.post("/password/forgot/send-otp")
+async def send_forgot_password_otp(body: ForgotPasswordSendOtpRequest, request: Request):
+    return await _send_phone_otp(body.mobile, _OTP_PURPOSE_PASSWORD_RESET, request)
+
+
+@router.post("/password/forgot/reset")
+async def reset_password_with_otp(body: ForgotPasswordResetRequest):
+    mobile = _normalize_mobile(body.mobile)
+    otp = (body.otp or "").strip()
+    new_password = (body.new_password or "").strip()
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    if not re.fullmatch(r"\d{6}", otp):
+        raise HTTPException(status_code=400, detail="Enter a valid 6-digit OTP")
+
+    pool = get_pool()
+    cfg = get_settings()
+    user = await pool.fetchrow(
+        "SELECT id, role, is_active FROM users WHERE mobile=$1",
+        mobile,
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user["role"] != "USER":
+        raise HTTPException(status_code=403, detail="Password reset OTP is allowed only for users")
+    if not user["is_active"]:
+        raise HTTPException(status_code=403, detail="Account is inactive")
+
+    row = await pool.fetchrow(
+        """
+        SELECT id, otp_hash, otp_salt, attempt_count
+        FROM otp_verifications
+        WHERE contact_type='PHONE'
+          AND contact_value=$1
+          AND purpose=$2
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        mobile,
+        _OTP_PURPOSE_PASSWORD_RESET,
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="OTP expired or not found")
+
+    if int(row["attempt_count"] or 0) >= int(cfg.otp_max_attempts):
+        raise HTTPException(status_code=429, detail="Too many invalid attempts")
+
+    if _otp_hash(otp, row["otp_salt"]) != row["otp_hash"]:
+        await pool.execute(
+            "UPDATE otp_verifications SET attempt_count = attempt_count + 1 WHERE id=$1",
+            row["id"],
+        )
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    await pool.execute(
+        "UPDATE users SET password_hash=$2 WHERE id=$1::uuid",
+        str(user["id"]),
+        _hash(new_password),
+    )
+    await pool.execute(
+        "UPDATE otp_verifications SET verified_at=NOW(), consumed_at=NOW() WHERE id=$1",
+        row["id"],
+    )
+    await pool.execute(
+        "DELETE FROM user_sessions WHERE user_id=$1::uuid",
+        str(user["id"]),
+    )
+    return {"success": True, "message": "Password reset successfully"}

@@ -93,6 +93,7 @@ class CreateUserRequest(BaseModel):
     pan_number:               str           = ""
     upi:                      str           = ""
     bank_account:             str           = ""
+    ifsc_code:                str           = ""
     brokerage_plan:           str           = ""
     brokerage_plan_equity_id: Optional[int] = None  # Brokerage plan for equity/options
     brokerage_plan_futures_id:Optional[int] = None  # Brokerage plan for futures
@@ -119,6 +120,7 @@ class UpdateUserRequest(BaseModel):
     pan_number:               Optional[str]   = None
     upi:                      Optional[str]   = None
     bank_account:             Optional[str]   = None
+    ifsc_code:                Optional[str]   = None
     brokerage_plan:           Optional[str]   = None
     brokerage_plan_equity_id: Optional[int]   = None  # Brokerage plan for equity/options
     brokerage_plan_futures_id:Optional[int]   = None  # Brokerage plan for futures
@@ -391,7 +393,7 @@ async def list_users(
                u.mobile, u.role, u.status, u.is_active, u.created_at,
                u.brokerage_plan,
                u.address, u.country, u.state, u.city,
-               u.aadhar_number, u.pan_number, u.upi, u.bank_account,
+             u.aadhar_number, u.pan_number, u.upi, u.bank_account, u.ifsc_code,
                (u.aadhar_doc IS NOT NULL)           AS has_aadhar_doc,
                (u.cancelled_cheque_doc IS NOT NULL) AS has_cheque_doc,
                (u.pan_card_doc IS NOT NULL)         AS has_pan_doc,
@@ -511,6 +513,14 @@ async def create_user(
     if exists:
         raise HTTPException(status_code=409, detail="Mobile number already registered.")
 
+    if (req.email or "").strip():
+        email_exists = await pool.fetchval(
+            "SELECT 1 FROM users WHERE lower(email)=lower($1)",
+            req.email.strip(),
+        )
+        if email_exists:
+            raise HTTPException(status_code=409, detail="Email already registered.")
+
     pw_hash   = _bcrypt.hashpw(req.password.encode(), _bcrypt.gensalt()).decode()
     full_name = f"{req.first_name} {req.last_name}".strip()
     is_active = req.status == "ACTIVE"
@@ -625,11 +635,11 @@ async def create_user(
              role, status, is_active,
              brokerage_plan,
              address, country, state, city,
-             aadhar_number, pan_number, upi, bank_account,
+             aadhar_number, pan_number, upi, bank_account, ifsc_code,
              brokerage_plan_equity_id, brokerage_plan_futures_id,
              aadhar_doc, cancelled_cheque_doc, pan_card_doc)
         VALUES
-            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
         RETURNING id, user_no
         """,
         full_name, req.first_name, req.last_name, req.email, req.mobile, pw_hash,
@@ -637,6 +647,7 @@ async def create_user(
         (req.brokerage_plan or "").strip(),
         req.address, req.country, req.state, req.city,
         req.aadhar_number, req.pan_number, req.upi, req.bank_account,
+        req.ifsc_code,
         equity_plan_id, futures_plan_id,
         req.aadhar_doc, req.cancelled_cheque_doc, req.pan_card_doc,
     )
@@ -715,6 +726,14 @@ async def update_user(
     if req.first_name           is not None: fields["first_name"]           = req.first_name
     if req.last_name            is not None: fields["last_name"]            = req.last_name
     if req.email                is not None: fields["email"]                = req.email
+    if req.email is not None and (req.email or "").strip():
+        email_exists = await pool.fetchval(
+            "SELECT 1 FROM users WHERE lower(email)=lower($1) AND id<>$2::uuid",
+            req.email.strip(),
+            user_id,
+        )
+        if email_exists:
+            raise HTTPException(status_code=409, detail="Email already registered.")
     if req.mobile               is not None:
         existing_mobile = str(existing["mobile"] or "")
         next_mobile = (req.mobile or "").strip()
@@ -741,6 +760,7 @@ async def update_user(
     if req.pan_number           is not None: fields["pan_number"]           = req.pan_number
     if req.upi                  is not None: fields["upi"]                  = req.upi
     if req.bank_account         is not None: fields["bank_account"]         = req.bank_account
+    if req.ifsc_code            is not None: fields["ifsc_code"]            = req.ifsc_code
     if req.brokerage_plan       is not None: fields["brokerage_plan"]       = (req.brokerage_plan or "").strip()
     if req.brokerage_plan_equity_id  is not None: fields["brokerage_plan_equity_id"]  = req.brokerage_plan_equity_id
     if req.brokerage_plan_futures_id is not None: fields["brokerage_plan_futures_id"] = req.brokerage_plan_futures_id

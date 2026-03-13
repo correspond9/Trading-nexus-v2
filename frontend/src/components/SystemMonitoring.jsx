@@ -365,7 +365,7 @@ const SystemMonitoring = () => {
         <button
           onClick={handleRollover}
           disabled={rollingOver}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border border-zinc-600 bg-zinc-700 hover:bg-zinc-600 transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors disabled:opacity-50 sa-input hover:opacity-80"
           title="Unsubscribe expired contracts from Dhan WS and clean up the active subscription map"
         >
           <RefreshCw size={11} className={rollingOver ? 'animate-spin' : ''} />

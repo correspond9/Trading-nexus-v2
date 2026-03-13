@@ -43,8 +43,11 @@ const FormField = ({ label, children }) => (
 
 const inputCls = 'sa-input w-full px-3 py-2 text-sm border rounded-lg outline-none focus:border-blue-500';
 const btnCls   = (color = 'blue') => `px-4 py-2 rounded-lg font-medium transition-colors text-zinc-100 text-sm ${
-  color === 'blue' ? 'bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900' :
-  color === 'red' ? 'bg-red-600 hover:bg-red-500 disabled:bg-red-900' :
+  color === 'blue'   ? 'bg-blue-600   hover:bg-blue-500   disabled:bg-blue-900'   :
+  color === 'red'    ? 'bg-red-600    hover:bg-red-500    disabled:bg-red-900'    :
+  color === 'green'  ? 'bg-green-600  hover:bg-green-500  disabled:bg-green-900'  :
+  color === 'indigo' ? 'bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900' :
+  color === 'purple' ? 'bg-purple-600 hover:bg-purple-500 disabled:bg-purple-900' :
   'bg-gray-600 hover:bg-gray-500 disabled:bg-gray-900'
 }`;
 

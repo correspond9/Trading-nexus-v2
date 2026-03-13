@@ -54,6 +54,8 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
     return (typeof backendAtm === 'number' && backendAtm > 0) ? backendAtm : null;
   }, [getATMStrike, chainData?.atm_strike, chainData?.atm]);
 
+  const visualAtmStrike = displayCenterStrike ?? effectiveAtmStrike;
+
   const strikes = React.useMemo(() => {
     if (!chainData || !chainData.strikes) return [];
     return Object.entries(chainData.strikes)
@@ -61,7 +63,7 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
         const strike = parseFloat(strikeStr);
         return {
           strike,
-          isATM: effectiveAtmStrike && strike === effectiveAtmStrike,
+          isATM: visualAtmStrike && strike === visualAtmStrike,
           ltpCE: strikeData.CE?.ltp || 0,
           ltpPE: strikeData.PE?.ltp || 0,
           bidCE: strikeData.CE?.bid || 0,
@@ -80,7 +82,7 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
         };
       })
       .sort((a, b) => a.strike - b.strike);
-  }, [chainData, effectiveAtmStrike, lotSize]);
+  }, [chainData, visualAtmStrike, lotSize]);
 
   const atmStrike = effectiveAtmStrike;
 
@@ -141,7 +143,7 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
     if (end > sorted.length - 1) { end = sorted.length - 1; start = Math.max(0, end - total + 1); }
     const allowed = new Set(sorted.slice(start, end + 1));
     return strikes.filter(s => allowed.has(s.strike));
-  }, [strikes, atmStrike]);
+  }, [strikes, atmStrike, displayCenterStrike]);
 
   useEffect(() => {
     if (didInitialScroll.current) return;

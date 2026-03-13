@@ -67,16 +67,30 @@ export function useAuthoritativeOptionChain(
       if (!mountedRef.current) return;
       // Backend returns an object: { underlying, expiry, underlying_ltp, lot_size, strike_interval, atm, strikes }
       if (result && typeof result === 'object' && !Array.isArray(result)) {
-        // Only update if strikes data has actually changed
-        if (hasStrikesChanged(result.strikes)) {
-          lastStrikesRef.current = result.strikes;
-          const normalized = {
-            ...result,
-            // keep older UI fields working
-            atm_strike: result.atm_strike ?? result.atm ?? null,
-          };
-          setData(normalized);
+        const normalized = {
+          ...result,
+          // keep older UI fields working
+          atm_strike: result.atm_strike ?? result.atm ?? null,
+        };
+
+        const strikesChanged = hasStrikesChanged(normalized.strikes);
+        if (normalized.strikes) {
+          lastStrikesRef.current = normalized.strikes;
         }
+
+        setData((prev) => {
+          if (!prev) return normalized;
+
+          const metaChanged =
+            prev.underlying_ltp !== normalized.underlying_ltp ||
+            prev.atm_strike !== normalized.atm_strike ||
+            prev.strike_interval !== normalized.strike_interval ||
+            prev.lot_size !== normalized.lot_size ||
+            prev.underlying !== normalized.underlying ||
+            prev.expiry !== normalized.expiry;
+
+          return (strikesChanged || metaChanged) ? normalized : prev;
+        });
       } else {
         // Legacy fallback (shouldn't happen): treat as empty.
         setData(null);
@@ -165,6 +179,7 @@ export function useAuthoritativeOptionChain(
   useEffect(() => {
     baseAtmRef.current     = null;
     driftFetchingRef.current = false;
+    lastStrikesRef.current = null;
   }, [underlying, expiry]);
 
   // After every data update (REST or WS), check whether the premium-derived ATM has
@@ -234,6 +249,7 @@ export function useAuthoritativeOptionChain(
   const recalibrate = useCallback(() => {
     baseAtmRef.current      = null;
     driftFetchingRef.current = false;
+    lastStrikesRef.current = null;
     console.log(`[OptionChain] Manual recalibration triggered for ${underlying}`);
     fetchData();
   }, [fetchData, underlying]);

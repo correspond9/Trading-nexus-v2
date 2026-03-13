@@ -175,7 +175,6 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     if (!straddles.length) return;
 
     const strikesSorted = straddles.map((s) => s.strike).sort((a, b) => a - b);
-    const interval = Number(activeChainData?.strike_interval || 0);
     const liveAtm = (typeof straddleAtmStrike === 'number' && straddleAtmStrike > 0) ? straddleAtmStrike : null;
 
     const nearestStrike = (target) => {
@@ -200,19 +199,8 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
       }
       return;
     }
-
-    if (liveAtm == null) return;
-
-    const driftStrikes = interval > 0
-      ? Math.abs(liveAtm - centerStrike) / interval
-      : Math.abs(liveAtm - centerStrike);
-
-    if (driftStrikes >= 2) {
-      const nextCenter = nearestStrike(liveAtm);
-      if (nextCenter != null && nextCenter !== centerStrike) {
-        setCenterStrike(nextCenter);
-      }
-    }
+    // Do not auto-shift center after initial lock.
+    // Re-centering is manual via the Re-centre button.
   }, [straddles, activeChainData?.strike_interval, straddleAtmStrike, centerStrike]);
 
   const displayedStraddles = useMemo(() => {

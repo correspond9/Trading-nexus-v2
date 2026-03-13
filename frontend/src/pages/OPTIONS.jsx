@@ -90,7 +90,6 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
     if (!strikes.length) return;
 
     const strikeValues = strikes.map((s) => s.strike).sort((a, b) => a - b);
-    const interval = Number(chainData?.strike_interval || 0);
     const liveAtm = (typeof atmStrike === 'number' && atmStrike > 0) ? atmStrike : null;
 
     const nearestStrike = (target) => {
@@ -111,19 +110,8 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
       setDisplayCenterStrike(nearestStrike(liveAtm));
       return;
     }
-
-    if (liveAtm == null) return;
-
-    // Keep center stable and only shift when ATM has moved meaningfully.
-    // This prevents 1-tick ATM flip-flops (seen on SENSEX) from nudging the list.
-    const driftStrikes = interval > 0
-      ? Math.abs(liveAtm - displayCenterStrike) / interval
-      : Math.abs(liveAtm - displayCenterStrike);
-
-    if (driftStrikes >= 2) {
-      const nextCenter = nearestStrike(liveAtm);
-      if (nextCenter !== displayCenterStrike) setDisplayCenterStrike(nextCenter);
-    }
+    // Do not auto-shift center after initial lock.
+    // Re-centering is manual via the Re-centre button.
   }, [strikes, chainData?.strike_interval, atmStrike, displayCenterStrike]);
 
   const displayedStrikes = React.useMemo(() => {

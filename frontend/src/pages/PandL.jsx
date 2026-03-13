@@ -82,11 +82,13 @@ const PandLPage = ({ hideUserSelect = false }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || user?.role === "SUPER_USER";
   const canSaveCsv = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const showAdminCostTotals = isAdmin && !hideUserSelect;
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
 
   const [fromDate,  setFromDate]  = useState(daysAgo(90)); // default: last 90 days
   const [toDate,    setToDate]    = useState(today());
-  const [targetUid, setTargetUid] = useState("");  // "" = self
+  const [selectedUserIds, setSelectedUserIds] = useState([]);
+  const [userSelectOpen, setUserSelectOpen] = useState(false);
   const [userList,  setUserList]  = useState([]);
   const [data,      setData]      = useState(null);
   const [loading,   setLoading]   = useState(false);
@@ -106,20 +108,71 @@ const PandLPage = ({ hideUserSelect = false }) => {
     }).catch(() => {});
   }, [isAdmin, hideUserSelect]);
 
+  const userOptions = userList
+    .map((u) => {
+      const id = String(u?.id ?? u?.user_id ?? "").trim();
+      if (!id) return null;
+      const fullName = `${u?.first_name || u?.name || u?.mobile || id} ${u?.last_name || ""}`.trim();
+      return { id, label: `${fullName}${u?.mobile ? ` (${u.mobile})` : ""}` };
+    })
+    .filter(Boolean);
+
+  const allUsersSelected = userOptions.length > 0 && selectedUserIds.length === userOptions.length;
+
+  const toggleUserSelection = (uid) => {
+    setSelectedUserIds((prev) => (prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]));
+  };
+
+  const selectAllUsers = () => {
+    setSelectedUserIds(userOptions.map((u) => u.id));
+  };
+
+  const clearAllUsers = () => {
+    setSelectedUserIds([]);
+  };
+
   // Auto-fetch on mount with today's range
   const fetchPnl = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const params = { from_date: fromDate, to_date: toDate };
-      if (isAdmin && targetUid) params.user_id = targetUid;
-      const res = await apiService.get("/portfolio/positions/pnl/historic", params);
-      setData(res?.data?.data || res?.data || null);
+      const baseParams = { from_date: fromDate, to_date: toDate };
+
+      if (isAdmin && !hideUserSelect && selectedUserIds.length > 0) {
+        const allResponses = await Promise.all(
+          selectedUserIds.map((uid) => apiService.get("/portfolio/positions/pnl/historic", { ...baseParams, user_id: uid }))
+        );
+
+        const merged = allResponses.map((res) => res?.data?.data || res?.data || {}).reduce(
+          (acc, item) => {
+            const closedRows = Array.isArray(item?.closed) ? item.closed : [];
+            const realized = Number(item?.realized_pnl || 0);
+            const net = Number(item?.net_realized_pnl ?? item?.net_pnl ?? 0);
+            return {
+              realized_pnl: acc.realized_pnl + realized,
+              net_realized_pnl: acc.net_realized_pnl + net,
+              net_pnl: acc.net_pnl + net,
+              closed_count: acc.closed_count + closedRows.length,
+              closed: acc.closed.concat(closedRows),
+            };
+          },
+          { realized_pnl: 0, net_realized_pnl: 0, net_pnl: 0, closed_count: 0, closed: [] }
+        );
+
+        setData({
+          ...merged,
+          from_date: fromDate,
+          to_date: toDate,
+        });
+      } else {
+        const res = await apiService.get("/portfolio/positions/pnl/historic", baseParams);
+        setData(res?.data?.data || res?.data || null);
+      }
     } catch (err) {
       setError(err?.response?.data?.detail || err?.data?.detail || err?.message || "Failed to load P&L data.");
       setData(null);
     } finally { setLoading(false); }
-  }, [fromDate, toDate, targetUid, isAdmin]);
+  }, [fromDate, toDate, isAdmin, hideUserSelect, selectedUserIds]);
 
   const handleSaveAsCsv = () => {
     const closed = Array.isArray(data?.closed) ? data.closed : [];
@@ -152,6 +205,23 @@ const PandLPage = ({ hideUserSelect = false }) => {
     );
   };
 
+  const closedRows = Array.isArray(data?.closed) ? data.closed : [];
+  const tableTotals = closedRows.reduce(
+    (sum, p) => {
+      const tradeCharges = p.trade_expense != null
+        ? Number(p.trade_expense)
+        : (Number(p.total_charges || 0) - Number(p.platform_cost || 0));
+      const platformCost = Number(p.platform_cost || 0);
+      const netPnl = p.net_pnl != null ? Number(p.net_pnl) : (Number(p.realized_pnl || 0) - tradeCharges - platformCost);
+      return {
+        platformCost: sum.platformCost + platformCost,
+        tradeExpense: sum.tradeExpense + tradeCharges,
+        netPnl: sum.netPnl + netPnl,
+      };
+    },
+    { platformCost: 0, tradeExpense: 0, netPnl: 0 }
+  );
+
   useEffect(() => { fetchPnl(); }, []); // eslint-disable-line
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -165,18 +235,44 @@ const PandLPage = ({ hideUserSelect = false }) => {
         {/* Filter bar */}
         <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
           {isAdmin && !hideUserSelect && (
-            <select
-              value={targetUid}
-              onChange={e => setTargetUid(e.target.value)}
-              style={{ ...S.select, minWidth: isMobile ? "100%" : "180px" }}
-            >
-              <option value="">— My Account —</option>
-              {userList.map(u => (
-                <option key={u.id} value={u.id}>
-                  {u.first_name || u.name || u.mobile} {u.last_name || ""} ({u.mobile})
-                </option>
-              ))}
-            </select>
+            <div style={{ position: "relative", minWidth: isMobile ? "100%" : "260px" }}>
+              <button
+                type="button"
+                onClick={() => setUserSelectOpen((prev) => !prev)}
+                style={{ ...S.select, width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              >
+                <span>
+                  {selectedUserIds.length === 0
+                    ? "My Account"
+                    : `${selectedUserIds.length} user${selectedUserIds.length === 1 ? "" : "s"} selected`}
+                </span>
+                <span style={{ fontSize: "11px", color: "var(--muted)" }}>{userSelectOpen ? "▲" : "▼"}</span>
+              </button>
+
+              {userSelectOpen && (
+                <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 20, width: "100%", maxHeight: "280px", overflowY: "auto", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", boxShadow: "0 10px 25px rgba(0,0,0,0.2)", padding: "8px" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", padding: "6px" }}>
+                    <input type="checkbox" checked={allUsersSelected} onChange={(e) => (e.target.checked ? selectAllUsers() : clearAllUsers())} />
+                    Select All
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", padding: "6px", borderBottom: "1px solid var(--border)", marginBottom: "6px" }}>
+                    <input type="checkbox" checked={selectedUserIds.length === 0} onChange={clearAllUsers} />
+                    Select None (My Account)
+                  </label>
+
+                  {userOptions.map((u) => (
+                    <label key={u.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", padding: "6px" }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.includes(u.id)}
+                        onChange={() => toggleUserSelection(u.id)}
+                      />
+                      <span>{u.label}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <span style={{ fontSize: "12px", color: "var(--muted)" }}>From</span>
@@ -234,7 +330,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
 
           {/* Closed positions table */}
           <Section title={`Closed Positions (${data.closed_count})`} defaultOpen={true}>
-            {data.closed.length === 0 ? (
+            {closedRows.length === 0 ? (
               <Empty msg="No closed positions in this date range." />
             ) : (
               <div style={{ overflowX: "auto" }}>
@@ -247,7 +343,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.closed.map((p, i) => {
+                    {closedRows.map((p, i) => {
                       const tradeCharges = p.trade_expense != null 
                         ? Number(p.trade_expense) 
                         : (Number(p.total_charges || 0) - Number(p.platform_cost || 0));
@@ -275,7 +371,7 @@ const PandLPage = ({ hideUserSelect = false }) => {
                         </tr>
                       );
                     })}
-                    {data.closed.length > 0 && (
+                    {closedRows.length > 0 && (
                       <tr style={{ background: "var(--surface2)", fontWeight: 700 }}>
                         <td style={{ ...S.td, fontWeight: 700 }}>Total</td>
                         <td style={{ ...S.td }}></td>
@@ -285,20 +381,14 @@ const PandLPage = ({ hideUserSelect = false }) => {
                         <td style={{ ...S.td }}></td>
                         <td style={{ ...S.td }}></td>
                         <td style={{ ...S.td }}></td>
-                        <td style={{ ...S.td }}></td>
-                        <td style={{ ...S.td }}></td>
-                        <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: numColor(data.closed.reduce((sum, p) => {
-                          const tradeCharges = p.trade_expense != null ? Number(p.trade_expense) : (Number(p.total_charges || 0) - Number(p.platform_cost || 0));
-                          const platformCost = Number(p.platform_cost || 0);
-                          const netPnl = p.net_pnl != null ? Number(p.net_pnl) : (Number(p.realized_pnl || 0) - tradeCharges - platformCost);
-                          return sum + netPnl;
-                        }, 0)) }}>
-                          {INR(data.closed.reduce((sum, p) => {
-                            const tradeCharges = p.trade_expense != null ? Number(p.trade_expense) : (Number(p.total_charges || 0) - Number(p.platform_cost || 0));
-                            const platformCost = Number(p.platform_cost || 0);
-                            const netPnl = p.net_pnl != null ? Number(p.net_pnl) : (Number(p.realized_pnl || 0) - tradeCharges - platformCost);
-                            return sum + netPnl;
-                          }, 0))}
+                        <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
+                          {showAdminCostTotals ? INR(tableTotals.platformCost) : ""}
+                        </td>
+                        <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
+                          {showAdminCostTotals ? INR(tableTotals.tradeExpense) : ""}
+                        </td>
+                        <td style={{ ...S.td, fontVariantNumeric: "tabular-nums", color: numColor(tableTotals.netPnl) }}>
+                          {INR(tableTotals.netPnl)}
                         </td>
                       </tr>
                     )}

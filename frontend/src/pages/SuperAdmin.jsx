@@ -28,7 +28,8 @@ const TABS = [
   { id: 'settings',  label: 'Settings & Monitoring' },
   { id: 'authCheck', label: 'User Auth Check' },
   { id: 'historic',  label: 'Historic Position' },
-  { id: 'portalUsers', label: 'Prop-Signups' },
+  { id: 'courseEnrollments', label: 'Course Enrollments' },
+  { id: 'userSignups', label: 'User Signups' },
   { id: 'schedulers', label: 'Schedulers' },
 ];
 
@@ -92,7 +93,13 @@ const SuperAdminDashboard = () => {
   const [selectedPositionIds, setSelectedPositionIds] = useState(new Set());
   const [loadingUserPositions, setLoadingUserPositions] = useState(false);
 
-  // ── Portal users ──
+  // ── Course enrollments ──
+  const [courseEnrollments, setCourseEnrollments] = useState([]);
+  const [courseEnrollmentsLoading, setCourseEnrollmentsLoading] = useState(false);
+  const [courseEnrollmentsError, setCourseEnrollmentsError] = useState('');
+  const [courseEnrollmentsTotal, setCourseEnrollmentsTotal] = useState(0);
+
+  // ── User signups ──
   const [portalUsers, setPortalUsers]             = useState([]);
   const [portalUsersLoading, setPortalUsersLoading] = useState(false);
   const [portalUsersError, setPortalUsersError]   = useState('');
@@ -255,23 +262,42 @@ const SuperAdminDashboard = () => {
     }
   };
 
-  // ── Fetch Portal Users ──
+  const fetchCourseEnrollments = useCallback(async () => {
+    setCourseEnrollmentsLoading(true);
+    setCourseEnrollmentsError('');
+    try {
+      const res = await req('/auth/portal/users');
+      if (res.ok) {
+        const data = await res.json();
+        setCourseEnrollments(data.users || []);
+        setCourseEnrollmentsTotal(data.total || 0);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setCourseEnrollmentsError(errData.detail || 'Failed to load course enrollments');
+      }
+    } catch (e) {
+      setCourseEnrollmentsError(e?.message || 'Error fetching course enrollments');
+    } finally {
+      setCourseEnrollmentsLoading(false);
+    }
+  }, []);
+
   const fetchPortalUsers = useCallback(async () => {
     setPortalUsersLoading(true);
     setPortalUsersError('');
     setPortalUsersDeleteMsg('');
     try {
-      const res = await req(`/auth/portal/users?status=${encodeURIComponent(portalUsersStatus)}`);
+      const res = await req(`/auth/portal/user-signups?status=${encodeURIComponent(portalUsersStatus)}`);
       if (res.ok) {
         const data = await res.json();
         setPortalUsers(data.users || []);
         setPortalUsersTotal(data.total || 0);
       } else {
         const errData = await res.json().catch(() => ({}));
-        setPortalUsersError(errData.detail || 'Failed to load portal users');
+        setPortalUsersError(errData.detail || 'Failed to load user signups');
       }
     } catch (e) {
-      setPortalUsersError(e?.message || 'Error fetching portal users');
+      setPortalUsersError(e?.message || 'Error fetching user signups');
     } finally {
       setPortalUsersLoading(false);
     }
@@ -289,7 +315,7 @@ const SuperAdminDashboard = () => {
     setPortalUsersError('');
     setPortalUsersDeleteMsg('');
     try {
-      const res = await req(`/auth/portal/users/${signupId}/review`, {
+      const res = await req(`/auth/portal/user-signups/${signupId}/review`, {
         method: 'POST',
         body: JSON.stringify({ action, reason }),
       });
@@ -369,6 +395,50 @@ const SuperAdminDashboard = () => {
     return `"${raw.replace(/"/g, '""')}"`;
   };
 
+  const handleExportCourseEnrollmentsCsv = () => {
+    if (!courseEnrollments.length) return;
+    const headers = [
+      'name',
+      'email',
+      'mobile',
+      'city',
+      'experience_level',
+      'interest',
+      'learning_goal',
+      'ip_details',
+      'sms_verified',
+      'email_verified',
+      'created_at',
+    ];
+    const rows = courseEnrollments.map((u) => [
+      u.name,
+      u.email,
+      u.mobile,
+      u.city,
+      u.experience_level,
+      u.interest,
+      u.learning_goal,
+      u.ip_details,
+      u.sms_verified,
+      u.email_verified,
+      u.created_at,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map(escapeCsv).join(','))
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    anchor.href = url;
+    anchor.download = `course-enrollments-${stamp}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
   const handleExportPortalUsersCsv = () => {
     if (!portalUsers.length) return;
     const headers = [
@@ -381,6 +451,9 @@ const SuperAdminDashboard = () => {
       'ifsc',
       'upi_id',
       'city',
+      'ip_details',
+      'sms_verified',
+      'email_verified',
       'status',
       'rejection_reason',
       'created_at',
@@ -395,6 +468,9 @@ const SuperAdminDashboard = () => {
       u.ifsc,
       u.upi_id,
       u.city,
+      u.ip_details,
+      u.sms_verified,
+      u.email_verified,
       u.status,
       u.rejection_reason,
       u.created_at,
@@ -408,16 +484,22 @@ const SuperAdminDashboard = () => {
     const anchor = document.createElement('a');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     anchor.href = url;
-    anchor.download = `portal-signups-${stamp}.csv`;
+    anchor.download = `user-signups-${stamp}.csv`;
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
   };
 
-  // Load portal users when tab is active
+  // Load admin signup tabs when active
   useEffect(() => {
-    if (activeTab === 'portalUsers') {
+    if (activeTab === 'courseEnrollments') {
+      fetchCourseEnrollments();
+    }
+  }, [activeTab, fetchCourseEnrollments]);
+
+  useEffect(() => {
+    if (activeTab === 'userSignups') {
       fetchPortalUsers();
     }
   }, [activeTab, fetchPortalUsers]);
@@ -1451,13 +1533,90 @@ const SuperAdminDashboard = () => {
         </div>
       )}
 
-      {/* ── Portal Users ── */}
-      {activeTab === 'portalUsers' && (
+      {/* ── Course Enrollments ── */}
+      {activeTab === 'courseEnrollments' && (
         <div className="space-y-4">
           <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
-                <h2 className="text-base font-semibold">Prop-Signups</h2>
+                <h2 className="text-base font-semibold">Course Enrollments</h2>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Total enrollments: <span className="font-semibold text-zinc-100">{courseEnrollmentsTotal}</span>
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={handleExportCourseEnrollmentsCsv} disabled={!courseEnrollments.length || courseEnrollmentsLoading} className={btnCls('green')}>
+                  Export CSV
+                </button>
+                <button onClick={fetchCourseEnrollments} disabled={courseEnrollmentsLoading} className={btnCls('blue')}>
+                  {courseEnrollmentsLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+
+            {courseEnrollmentsError && (
+              <div className="mb-4 p-3 bg-red-900/20 border border-red-700/40 rounded-lg text-xs text-red-300">
+                {courseEnrollmentsError}
+              </div>
+            )}
+
+            {courseEnrollmentsLoading && (
+              <div className="text-center py-8 text-zinc-400">
+                Loading course enrollments...
+              </div>
+            )}
+
+            {!courseEnrollmentsLoading && courseEnrollments.length === 0 && (
+              <div className="text-center py-8 text-zinc-400">
+                No records found
+              </div>
+            )}
+
+            {!courseEnrollmentsLoading && courseEnrollments.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-zinc-400 border-b border-zinc-700">
+                      <th className="text-left py-3 px-4">Name</th>
+                      <th className="text-left py-3 px-4">Email</th>
+                      <th className="text-left py-3 px-4">Mobile</th>
+                      <th className="text-left py-3 px-4">City</th>
+                      <th className="text-left py-3 px-4">IP Details</th>
+                      <th className="text-left py-3 px-4">SMS Verified</th>
+                      <th className="text-left py-3 px-4">Email Verified</th>
+                      <th className="text-left py-3 px-4">Enrollment Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {courseEnrollments.map((user, idx) => (
+                      <tr key={user.id} className={`border-b border-zinc-700 hover:bg-zinc-700/30 ${idx % 2 === 0 ? 'bg-zinc-800/50' : ''}`}>
+                        <td className="py-3 px-4 font-medium text-zinc-100">{user.name}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.email}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.mobile || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.city || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.ip_details || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.sms_verified ? 'Yes' : 'No'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.email_verified ? 'Yes' : 'No'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-400">
+                          {user.created_at ? new Date(user.created_at).toLocaleString() : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── User Signups ── */}
+      {activeTab === 'userSignups' && (
+        <div className="space-y-4">
+          <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-base font-semibold">User Signups</h2>
                 <p className="text-xs text-zinc-400 mt-1">
                   Total {portalUsersStatus.toLowerCase()} items: <span className="font-semibold text-zinc-100">{portalUsersTotal}</span>
                 </p>
@@ -1515,6 +1674,9 @@ const SuperAdminDashboard = () => {
                       <th className="text-left py-3 px-4">Name</th>
                       <th className="text-left py-3 px-4">Email</th>
                       <th className="text-left py-3 px-4">Mobile</th>
+                      <th className="text-left py-3 px-4">IP Details</th>
+                      <th className="text-left py-3 px-4">SMS Verified</th>
+                      <th className="text-left py-3 px-4">Email Verified</th>
                       <th className="text-left py-3 px-4">PAN</th>
                       <th className="text-left py-3 px-4">Aadhar</th>
                       <th className="text-left py-3 px-4">Bank A/C</th>
@@ -1531,6 +1693,9 @@ const SuperAdminDashboard = () => {
                         <td className="py-3 px-4 font-medium text-zinc-100">{user.name}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.email}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.mobile || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.ip_details || '—'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.sms_verified ? 'Yes' : 'No'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{user.email_verified ? 'Yes' : 'No'}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.pan_number || '—'}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.aadhar_number || '—'}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.bank_account_number || '—'}</td>

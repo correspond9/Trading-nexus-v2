@@ -243,7 +243,7 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
             raise HTTPException(status_code=409, detail="number/email already registered")
 
         exists_signup = await pool.fetchval(
-            "SELECT 1 FROM portal_users WHERE mobile=$1",
+                "SELECT 1 FROM user_signups WHERE mobile=$1",
             phone,
         )
         if exists_signup:
@@ -362,7 +362,7 @@ async def me(user: CurrentUser = Depends(get_current_user)):
 
 
 @router.post("/portal/signup")
-async def portal_signup(body: PortalSignupRequest):
+async def portal_signup(body: PortalSignupRequest, request: Request):
     """
     Register a new user for the educational portal.
     
@@ -410,11 +410,20 @@ async def portal_signup(body: PortalSignupRequest):
         # Insert new portal user
         user = await pool.fetchrow(
             """
-            INSERT INTO portal_users (name, email, mobile, city, experience_level, interest, learning_goal)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO portal_users
+                (name, email, mobile, city, experience_level, interest, learning_goal, ip_details, sms_verified, email_verified)
+            VALUES
+                ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, FALSE)
             RETURNING id, name, email, mobile, city, experience_level, interest, learning_goal, created_at
             """,
-            name, email, body.mobile, body.city, experience_level, body.interest, body.learning_goal
+            name,
+            email,
+            body.mobile,
+            body.city,
+            experience_level,
+            body.interest,
+            body.learning_goal,
+            request.client.host if request.client else "",
         )
         
         log.info(f"New portal signup: {email}")
@@ -491,7 +500,7 @@ async def verify_phone_otp(body: VerifyPhoneOtpRequest):
 
 
 @router.post("/portal/account-signup")
-async def account_signup(body: AccountSignupRequest):
+async def account_signup(body: AccountSignupRequest, request: Request):
     pool = get_pool()
     email = _normalize_email(body.email)
     phone = _normalize_mobile(body.phone)
@@ -528,8 +537,8 @@ async def account_signup(body: AccountSignupRequest):
     exists_signup = await pool.fetchval(
         """
         SELECT 1
-        FROM portal_users
-                WHERE (mobile=$1 OR lower(email)=lower($2))
+        FROM user_signups
+        WHERE mobile=$1 OR lower(email)=lower($2)
         """,
         phone,
         email,
@@ -558,20 +567,18 @@ async def account_signup(body: AccountSignupRequest):
 
     signup = await pool.fetchrow(
         """
-        INSERT INTO portal_users
+        INSERT INTO user_signups
             (name, first_name, middle_name, last_name, email, mobile,
              address, city, state, country,
-               experience_level, interest, learning_goal,
              pan_number, aadhar_number, pan_upload, aadhar_upload,
              bank_account_number, ifsc, upi_id,
-             status, otp_verified)
+             ip_details, sms_verified, email_verified, status)
         VALUES
             ($1, $2, $3, $4, $5, $6,
              $7, $8, $9, $10,
-               $11, $12, $13,
-               $14, $15, $16, $17,
-               $18, $19, $20,
-             'PENDING', TRUE)
+             $11, $12, $13, $14,
+             $15, $16, $17,
+             $18, TRUE, FALSE, 'PENDING')
         RETURNING id
         """,
         " ".join([x for x in [body.first_name.strip(), (body.middle_name or "").strip(), body.last_name.strip()] if x]),
@@ -584,9 +591,6 @@ async def account_signup(body: AccountSignupRequest):
         (body.city or "").strip(),
         (body.state or "").strip(),
         (body.country or "India").strip() or "India",
-        "N/A",
-        "",
-        "",
         body.pan_number.strip().upper(),
         body.aadhar_number.strip(),
         body.pan_upload,
@@ -594,6 +598,7 @@ async def account_signup(body: AccountSignupRequest):
         body.bank_account_number.strip(),
         body.ifsc.strip().upper(),
         (body.upi_id or "").strip(),
+        request.client.host if request.client else "",
     )
 
     await pool.execute(
@@ -609,23 +614,60 @@ async def account_signup(body: AccountSignupRequest):
 
 
 @router.get("/portal/users")
-async def get_portal_users(status: str = "PENDING", user: CurrentUser = Depends(get_admin_user)):
-    """
-    Retrieve all portal signup registrations.
-    
-    Admin only - requires SUPER_ADMIN role.
-    
-    Returns:
-    - users: List of portal users with id, name, email, experience_level, created_at
-    - total: Total count of registrations
-    """
+async def get_portal_users(user: CurrentUser = Depends(get_admin_user)):
+    """Retrieve all crash-course enrollments from the /enroll page."""
+    pool = get_pool()
+
+    try:
+        users = await pool.fetch(
+            """
+            SELECT id, name, email, mobile, city, experience_level, interest, learning_goal,
+                   ip_details, sms_verified, email_verified, created_at, updated_at
+            FROM portal_users
+            ORDER BY created_at DESC
+            """
+        )
+        count_result = await pool.fetchval("SELECT COUNT(*) FROM portal_users")
+
+        users_list = [
+            {
+                "id": str(u["id"]),
+                "name": u["name"],
+                "email": u["email"],
+                "mobile": u["mobile"],
+                "city": u["city"],
+                "experience_level": u.get("experience_level") or "",
+                "interest": u.get("interest") or "",
+                "learning_goal": u.get("learning_goal") or "",
+                "ip_details": u.get("ip_details") or "",
+                "sms_verified": bool(u.get("sms_verified")),
+                "email_verified": bool(u.get("email_verified")),
+                "created_at": u["created_at"].isoformat() if u["created_at"] else None,
+                "updated_at": u["updated_at"].isoformat() if u["updated_at"] else None,
+            }
+            for u in users
+        ]
+
+        log.info(f"Course enrollments retrieved by {user.mobile}: {count_result} total")
+
+        return {
+            "users": users_list,
+            "total": count_result,
+        }
+
+    except Exception as e:
+        log.error(f"Error fetching course enrollments: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch course enrollments")
+
+
+@router.get("/portal/user-signups")
+async def get_user_signups(status: str = "PENDING", user: CurrentUser = Depends(get_admin_user)):
     pool = get_pool()
     status_filter = (status or "PENDING").strip().upper()
     if status_filter not in ("PENDING", "APPROVED", "REJECTED", "ALL"):
         raise HTTPException(status_code=400, detail="Invalid status filter")
-    
+
     try:
-        # Fetch all portal users ordered by creation date (newest first)
         if status_filter == "ALL":
             users = await pool.fetch(
                 """
@@ -633,12 +675,13 @@ async def get_portal_users(status: str = "PENDING", user: CurrentUser = Depends(
                        address, city, state, country,
                        pan_number, aadhar_number,
                        bank_account_number, ifsc, upi_id,
+                       ip_details, sms_verified, email_verified,
                        status, rejection_reason, reviewed_at, created_at, updated_at
-                FROM portal_users
+                FROM user_signups
                 ORDER BY created_at DESC
                 """
             )
-            count_result = await pool.fetchval("SELECT COUNT(*) FROM portal_users")
+            count_result = await pool.fetchval("SELECT COUNT(*) FROM user_signups")
         else:
             users = await pool.fetch(
                 """
@@ -646,19 +689,16 @@ async def get_portal_users(status: str = "PENDING", user: CurrentUser = Depends(
                        address, city, state, country,
                        pan_number, aadhar_number,
                        bank_account_number, ifsc, upi_id,
+                       ip_details, sms_verified, email_verified,
                        status, rejection_reason, reviewed_at, created_at, updated_at
-                FROM portal_users
+                FROM user_signups
                 WHERE status=$1
                 ORDER BY created_at DESC
                 """,
                 status_filter,
             )
-            count_result = await pool.fetchval(
-                "SELECT COUNT(*) FROM portal_users WHERE status=$1",
-                status_filter,
-            )
-        
-        # Convert to dict format for JSON response
+            count_result = await pool.fetchval("SELECT COUNT(*) FROM user_signups WHERE status=$1", status_filter)
+
         users_list = [
             {
                 "id": str(u["id"]),
@@ -677,6 +717,9 @@ async def get_portal_users(status: str = "PENDING", user: CurrentUser = Depends(
                 "bank_account_number": u.get("bank_account_number") or "",
                 "ifsc": u.get("ifsc") or "",
                 "upi_id": u.get("upi_id") or "",
+                "ip_details": u.get("ip_details") or "",
+                "sms_verified": bool(u.get("sms_verified")),
+                "email_verified": bool(u.get("email_verified")),
                 "status": u.get("status") or "PENDING",
                 "rejection_reason": u.get("rejection_reason") or "",
                 "reviewed_at": u["reviewed_at"].isoformat() if u.get("reviewed_at") else None,
@@ -685,22 +728,22 @@ async def get_portal_users(status: str = "PENDING", user: CurrentUser = Depends(
             }
             for u in users
         ]
-        
-        log.info(f"Portal users retrieved by {user.mobile}: {count_result} total")
-        
+
+        log.info(f"User signups retrieved by {user.mobile}: {count_result} total")
+
         return {
             "users": users_list,
             "total": count_result,
             "status": status_filter,
         }
-    
+
     except Exception as e:
-        log.error(f"Error fetching portal users: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to fetch portal users")
+        log.error(f"Error fetching user signups: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch user signups")
 
 
-@router.post("/portal/users/{signup_id}/review")
-async def review_portal_user(
+@router.post("/portal/user-signups/{signup_id}/review")
+async def review_user_signup(
     signup_id: str,
     body: PortalSignupReviewRequest,
     user: CurrentUser = Depends(get_admin_user),
@@ -711,7 +754,7 @@ async def review_portal_user(
 
     pool = get_pool()
     signup = await pool.fetchrow(
-        "SELECT * FROM portal_users WHERE id=$1::uuid",
+        "SELECT * FROM user_signups WHERE id=$1::uuid",
         signup_id,
     )
     if not signup:
@@ -722,7 +765,7 @@ async def review_portal_user(
     if action == "REJECT":
         await pool.execute(
             """
-            UPDATE portal_users
+            UPDATE user_signups
             SET status='REJECTED', reviewed_by=$2::uuid, reviewed_at=NOW(), rejection_reason=$3
             WHERE id=$1::uuid
             """,
@@ -808,7 +851,7 @@ async def review_portal_user(
 
     await pool.execute(
         """
-        UPDATE portal_users
+        UPDATE user_signups
         SET status='APPROVED', reviewed_by=$2::uuid, reviewed_at=NOW(), rejection_reason=''
         WHERE id=$1::uuid
         """,

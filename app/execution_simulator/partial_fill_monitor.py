@@ -85,13 +85,12 @@ class _PartialFillMonitor:
                 po.instrument_token,
                 po.transaction_type,
                 po.quantity,
-                                po.filled_qty,
-                                COALESCE(po.remaining_qty, po.quantity - COALESCE(po.filled_qty, 0)) AS remaining_qty,
+                po.filled_quantity,
                 po.order_type,
                 po.limit_price
             FROM paper_orders po
-                        WHERE po.status IN ('PENDING', 'PARTIAL', 'PARTIALLY_FILLED')
-                            AND COALESCE(po.remaining_qty, po.quantity - COALESCE(po.filled_qty, 0)) > 0
+            WHERE po.status = 'PENDING'
+              AND po.filled_quantity < po.quantity
             ORDER BY po.created_at
             """
         )
@@ -106,7 +105,7 @@ class _PartialFillMonitor:
                 await self._check_single_order(row)
             except Exception as exc:
                 log.error(
-                    f"Error checking order {row['order_id']}: {exc}",
+                    f"Error checking order {row['id']}: {exc}",
                     exc_info=True
                 )
 
@@ -150,17 +149,12 @@ class _PartialFillMonitor:
                 price = level.get("price")
                 if price is None:
                     continue
-                try:
-                    price_d = float(price)
-                    limit_d = float(limit_price)
-                except Exception:
-                    continue
                 
                 # BUY LIMIT: only levels at or below limit price
-                if transaction_type == "BUY" and price_d <= limit_d:
+                if transaction_type == "BUY" and price <= limit_price:
                     eligible_depth.append(level)
                 # SELL LIMIT: only levels at or above limit price
-                elif transaction_type == "SELL" and price_d >= limit_d:
+                elif transaction_type == "SELL" and price >= limit_price:
                     eligible_depth.append(level)
             
             depth_to_monitor = eligible_depth
@@ -170,32 +164,6 @@ class _PartialFillMonitor:
         
         if not depth_to_monitor:
             return
-
-        # Immediate catch-up for marketable LIMITs: do not wait for depth-change pattern.
-        if order_type in ("LIMIT", "SLL", "SLM") and limit_price is not None:
-            best_prices = [float(level.get("price")) for level in depth_to_monitor if level.get("price") is not None and (level.get("qty") or 0) > 0]
-            if best_prices:
-                best_exec_price = min(best_prices) if transaction_type == "BUY" else max(best_prices)
-                try:
-                    limit_d = float(limit_price)
-                except Exception:
-                    limit_d = None
-                if limit_d is not None:
-                    marketable_now = (
-                        (transaction_type == "BUY" and best_exec_price <= limit_d)
-                        or (transaction_type == "SELL" and best_exec_price >= limit_d)
-                    )
-                    if marketable_now:
-                        _depth_snapshots[order_id] = (0, 0)
-                        log.info(
-                            "Order %s (%s): marketable now at top-book (best=%s, limit=%s). Re-executing partial fill...",
-                            order_id,
-                            order_type,
-                            best_exec_price,
-                            limit_price,
-                        )
-                        await self._execute_partial_fill(order)
-                        return
         
         # Get top 2 quantities by size from eligible depth
         sorted_by_qty = sorted(depth_to_monitor, key=lambda x: x.get("qty", 0), reverse=True)
@@ -257,7 +225,7 @@ class _PartialFillMonitor:
         user_id = order["user_id"]
         order_uuid = order_id  # Already a string UUID
         instrument_token = order["instrument_token"]
-        remaining_qty = int(order.get("remaining_qty") or (order["quantity"] - order["filled_qty"]))
+        remaining_qty = order["quantity"] - order["filled_quantity"]
         
         if remaining_qty <= 0:
             return
@@ -338,7 +306,7 @@ class _PartialFillMonitor:
             # Update database (merge with existing fills)
             async with pool.acquire() as conn:
                 existing = await conn.fetchrow(
-                    "SELECT filled_qty, avg_fill_price FROM paper_orders WHERE order_id=$1",
+                    "SELECT filled_qty, avg_fill_price FROM paper_orders WHERE id=$1",
                     order_id,
                 )
                 
@@ -367,7 +335,7 @@ class _PartialFillMonitor:
                         remaining_qty = $4,
                         status = $5,
                         updated_at = now()
-                    WHERE order_id = $1
+                    WHERE id = $1
                     """,
                     order_id, new_filled_total, new_avg, new_remaining, new_status,
                 )

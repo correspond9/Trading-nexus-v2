@@ -11,16 +11,16 @@ export default defineConfig({
     },
   },
   server: {
-    // Dev-mode proxy: all /api calls go to the FastAPI backend on port 18080
+    // Dev-mode proxy: all /api calls go to the FastAPI backend on port 8000
     // In Docker, Nginx handles this — this is only for `npm run dev`
     proxy: {
       '/api': {
-        target: 'http://localhost:18080',
+        target: 'http://localhost:8000',
         changeOrigin: true,
         // Do NOT rewrite — backend now serves /api/v2/... directly
       },
       '/ws': {
-        target: 'ws://localhost:18080',
+        target: 'ws://localhost:8000',
         ws: true,
       },
     },

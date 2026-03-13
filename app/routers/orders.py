@@ -384,28 +384,6 @@ async def place_paper_order(
         prod     = body.product_type.upper()
         lp       = body.limit_price or body.price
 
-        # Normalize exit intents into a concrete trade side so matching logic
-        # (best bid/ask + limit checks) works identically for EXIT flows.
-        if side in {"EXIT", "CLOSE"}:
-            if not token:
-                raise HTTPException(status_code=400, detail="EXIT order requires a valid instrument.")
-            pos_row = await pool.fetchrow(
-                """
-                SELECT quantity
-                FROM paper_positions
-                WHERE user_id = $1::uuid
-                  AND instrument_token = $2
-                  AND status = 'OPEN'
-                ORDER BY updated_at DESC NULLS LAST, position_id DESC
-                LIMIT 1
-                """,
-                user_id,
-                int(token),
-            )
-            if not pos_row or int(pos_row["quantity"] or 0) == 0:
-                raise HTTPException(status_code=400, detail="No open position found to EXIT for this instrument.")
-            side = "SELL" if int(pos_row["quantity"]) > 0 else "BUY"
-
         # ── Auto-slice oversized orders based on exchange freeze limits (lots) ──
         if not body.skip_slicing and qty > 0:
             im_lot_size = int((im_seg_row["lot_size"] if im_seg_row else 0) or 1)
@@ -575,9 +553,6 @@ async def place_paper_order(
         # Track any PENDING SL orders that need to be removed from the in-memory queue
         # after the position is fully closed in the transaction below.
         _sl_to_cancel: list[dict] = []
-        limit_filled_qty = 0
-        limit_remaining_qty = qty
-        limit_status = "PENDING"
 
         # ── Margin enforcement & Order placement in transaction (prevents race condition) ──
         async with pool.acquire() as conn:
@@ -742,7 +717,7 @@ async def place_paper_order(
 
                     valid_fills = [f for f in fills if getattr(f, "fill_qty", 0) > 0]
                     limit_filled_qty = int(sum(f.fill_qty for f in valid_fills))
-                    limit_remaining_qty = max(0, qty - limit_filled_qty)
+                    limit_remaining_qty = qty - limit_filled_qty
 
                     if limit_filled_qty > 0:
                         weighted = sum(Decimal(str(f.fill_price)) * Decimal(f.fill_qty) for f in valid_fills)
@@ -780,9 +755,7 @@ async def place_paper_order(
                             side, fill.fill_qty, fill.fill_price, fill.slippage,
                         )
 
-                    # LIMIT orders should update position for whatever quantity filled immediately.
-                    # Only the remaining quantity (if any) is queued.
-                    _is_sl = False
+                    _is_sl = (limit_status in {"PENDING", "PARTIAL"})  # Queue only if not fully filled
                 else:
                     # Insert order record (MARKET only — fill immediately at LTP)
                     await conn.execute(
@@ -803,12 +776,7 @@ async def place_paper_order(
                 # Update or create signed position (handles long/short open, partial close, full close, flip)
                 # SL orders stay PENDING; position update deferred to trigger fill
                 if not _is_sl:
-                    if ord_type == "MARKET":
-                        exec_qty = market_filled_qty
-                    elif ord_type == "LIMIT":
-                        exec_qty = limit_filled_qty
-                    else:
-                        exec_qty = qty
+                    exec_qty = market_filled_qty if ord_type == "MARKET" else qty
                     if exec_qty <= 0:
                         signed_delta = 0
                     else:
@@ -956,9 +924,8 @@ async def place_paper_order(
                 await _queue_cancel_by_id(_item["order_id"])
                 log.info("Auto-cancelled pending SL order %s (position fully closed)", _item["order_id"])
 
-        # ── SL and remaining LIMIT qty: enqueue for trigger/deferred fill ──
-        should_queue = ord_type in {"SLM", "SLL"} or (ord_type == "LIMIT" and limit_remaining_qty > 0)
-        if should_queue:
+        # ── SL & LIMIT order: enqueue for trigger-based/market-based fill, return PENDING ──
+        if ord_type in {"SLM", "SLL", "LIMIT"}:
             from app.execution_simulator.execution_config import get_tick_size as _get_tick_size
             tick_size = _get_tick_size(body.exchange_segment or "NSE_FNO")
             im_lot_row = await pool.fetchrow(
@@ -989,28 +956,15 @@ async def place_paper_order(
                 symbol           = body.symbol or "",
                 limit_price      = effective_limit,
                 trigger_price    = effective_trigger,
-                quantity         = (limit_remaining_qty if ord_type == "LIMIT" else qty),
+                quantity         = qty,
                 tick_size        = tick_size,
                 lot_size         = lot_size,
             )
             await _queue_enqueue(queued)
             if ord_type == "LIMIT":
-                log.info(
-                    "LIMIT order %s queued remainder: %s requested=%s filled=%s remaining=%s limit=%.2f",
-                    order_id,
-                    side,
-                    qty,
-                    limit_filled_qty,
-                    limit_remaining_qty,
-                    float(lp),
-                )
-                return {
-                    "order_id": order_id,
-                    "status": "PENDING",
-                    "limit_price": float(lp),
-                    "filled_qty": limit_filled_qty,
-                    "remaining_qty": limit_remaining_qty,
-                }
+                log.info("LIMIT order %s queued: %s %s %s limit=%.2f",
+                         order_id, side, qty, body.symbol, float(lp))
+                return {"order_id": order_id, "status": "PENDING", "limit_price": float(lp)}
             else:
                 log.info("SL order %s queued: %s %s %s trigger=%.2f",
                          order_id, side, qty, body.symbol, body.trigger_price)
@@ -1055,16 +1009,6 @@ async def place_paper_order(
                 "fill_price": fill_price,
                 "filled_qty": market_filled_qty,
                 "requested_qty": qty,
-            }
-
-        if ord_type == "LIMIT":
-            return {
-                "order_id": order_id,
-                "status": "FILLED" if limit_remaining_qty == 0 else "PARTIAL",
-                "fill_price": fill_price,
-                "filled_qty": limit_filled_qty,
-                "requested_qty": qty,
-                "remaining_qty": limit_remaining_qty,
             }
 
         return {"order_id": order_id, "status": "FILLED",

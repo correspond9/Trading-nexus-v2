@@ -26,6 +26,7 @@ export function useAuthoritativeOptionChain(
   const wsRef          = useRef(null);
   const timerRef       = useRef(null);
   const mountedRef     = useRef(true);
+  const lastStrikesRef = useRef(null); // Track last strikes hash to prevent redundant updates
 
   // ── ATM drift detection ──────────────────────────────────────────────────
   // Tracks the ATM at the time of the last full calibration (re-fetch).
@@ -35,6 +36,22 @@ export function useAuthoritativeOptionChain(
   const ATM_DRIFT_THRESHOLD = 7;   // strikes before re-centering
   const baseAtmRef      = useRef(null);  // ATM at last calibration
   const driftFetchingRef = useRef(false); // prevent concurrent drift re-fetches
+
+  // Helper to detect if strikes data has actually changed
+  const hasStrikesChanged = useCallback((newStrikes) => {
+    if (!newStrikes || !lastStrikesRef.current) return true;
+    const newKeys = Object.keys(newStrikes).sort();
+    const oldKeys = Object.keys(lastStrikesRef.current).sort();
+    if (newKeys.length !== oldKeys.length) return true;
+    for (let i = 0; i < newKeys.length; i++) {
+      if (newKeys[i] !== oldKeys[i]) return true;
+      const newStrike = newStrikes[newKeys[i]];
+      const oldStrike = lastStrikesRef.current[oldKeys[i]];
+      // Check if CE/PE prices have changed
+      if (newStrike?.CE?.ltp !== oldStrike?.CE?.ltp || newStrike?.PE?.ltp !== oldStrike?.PE?.ltp) return true;
+    }
+    return false;
+  }, []);
 
   // ── REST fetch ──────────────────────────────────────────────────────────
   const fetchData = useCallback(async (ul = underlying, exp = expiry) => {
@@ -50,12 +67,16 @@ export function useAuthoritativeOptionChain(
       if (!mountedRef.current) return;
       // Backend returns an object: { underlying, expiry, underlying_ltp, lot_size, strike_interval, atm, strikes }
       if (result && typeof result === 'object' && !Array.isArray(result)) {
-        const normalized = {
-          ...result,
-          // keep older UI fields working
-          atm_strike: result.atm_strike ?? result.atm ?? null,
-        };
-        setData(normalized);
+        // Only update if strikes data has actually changed
+        if (hasStrikesChanged(result.strikes)) {
+          lastStrikesRef.current = result.strikes;
+          const normalized = {
+            ...result,
+            // keep older UI fields working
+            atm_strike: result.atm_strike ?? result.atm ?? null,
+          };
+          setData(normalized);
+        }
       } else {
         // Legacy fallback (shouldn't happen): treat as empty.
         setData(null);
@@ -66,7 +87,7 @@ export function useAuthoritativeOptionChain(
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [underlying, expiry]);
+  }, [underlying, expiry, hasStrikesChanged]);
 
   // ── WebSocket stream ─────────────────────────────────────────────────────
   const connectWS = useCallback(() => {
@@ -90,11 +111,15 @@ export function useAuthoritativeOptionChain(
           const msg = JSON.parse(evt.data);
           // Backend WS sends: { type: 'option_chain', strikes: { ... } }
           if (msg && typeof msg === 'object' && msg.strikes) {
-            setData((prev) => ({
-              ...(prev && typeof prev === 'object' ? prev : {}),
-              strikes: msg.strikes,
-              atm_strike: (prev && prev.atm_strike) || (prev && prev.atm) || null,
-            }));
+            // Only update if strikes data has actually changed
+            if (hasStrikesChanged(msg.strikes)) {
+              lastStrikesRef.current = msg.strikes;
+              setData((prev) => ({
+                ...(prev && typeof prev === 'object' ? prev : {}),
+                strikes: msg.strikes,
+                atm_strike: (prev && prev.atm_strike) || (prev && prev.atm) || null,
+              }));
+            }
           } else if (msg && typeof msg === 'object' && msg.prices) {
             // ignore unrelated messages
           }
@@ -111,7 +136,7 @@ export function useAuthoritativeOptionChain(
       console.warn('[useAuthoritativeOptionChain] WS error:', e);
       if (autoRefresh) timerRef.current = setInterval(() => fetchData(), pollInterval);
     }
-  }, [underlying, expiry, fetchData, autoRefresh, pollInterval]);
+  }, [underlying, expiry, fetchData, hasStrikesChanged, autoRefresh, pollInterval]);
 
   useEffect(() => {
     mountedRef.current = true;

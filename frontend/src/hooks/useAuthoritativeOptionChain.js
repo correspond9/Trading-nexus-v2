@@ -26,6 +26,7 @@ export function useAuthoritativeOptionChain(
   const wsRef          = useRef(null);
   const timerRef       = useRef(null);
   const mountedRef     = useRef(true);
+  const wsConnectedRef = useRef(false);
   const lastStrikesRef = useRef(null); // Track last strikes hash to prevent redundant updates
 
   // ── ATM drift detection ──────────────────────────────────────────────────
@@ -119,6 +120,15 @@ export function useAuthoritativeOptionChain(
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
+      ws.onopen = () => {
+        wsConnectedRef.current = true;
+        // Stop any fallback poller once WS is healthy.
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+      };
+
       ws.onmessage = (evt) => {
         if (!mountedRef.current) return;
         try {
@@ -141,12 +151,14 @@ export function useAuthoritativeOptionChain(
       };
 
       ws.onclose = () => {
+        wsConnectedRef.current = false;
         // Fall back to polling
         if (mountedRef.current && timerRef.current === null && autoRefresh) {
           timerRef.current = setInterval(() => fetchData(), pollInterval);
         }
       };
     } catch (e) {
+      wsConnectedRef.current = false;
       console.warn('[useAuthoritativeOptionChain] WS error:', e);
       if (autoRefresh) timerRef.current = setInterval(() => fetchData(), pollInterval);
     }
@@ -159,13 +171,10 @@ export function useAuthoritativeOptionChain(
     if (underlying && expiry) {
       fetchData();
       connectWS();
-      if (autoRefresh) {
-        clearInterval(timerRef.current);
-        timerRef.current = setInterval(() => fetchData(), Math.max(250, Number(refreshInterval) || 1000));
-      }
     }
     return () => {
       mountedRef.current = false;
+      wsConnectedRef.current = false;
       clearInterval(timerRef.current);
       timerRef.current = null;
       if (wsRef.current) wsRef.current.close();

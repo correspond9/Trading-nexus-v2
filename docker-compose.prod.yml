@@ -2,11 +2,11 @@ services:
   backend:
     build: .
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)\" || exit 1"]
-      interval: 30s
-      timeout: 15s
-      retries: 5
-      start_period: 300s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 600s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.tradingbackend.rule=Host(`api.tradingnexus.pro`)"
@@ -80,7 +80,7 @@ services:
       - VITE_API_URL=${VITE_API_URL:-/api/v2}
     depends_on:
       backend:
-        condition: service_healthy
+        condition: service_started
     restart: always
 
 volumes:

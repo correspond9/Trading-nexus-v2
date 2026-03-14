@@ -17,6 +17,7 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 
 from app.credentials.credential_store import get_depth_ws_url
+from app.market_hours import is_nse_bse_ws_window_open_strict
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,10 @@ class _DepthWSManager:
 
     async def start(self, tokens: list[int]) -> None:
         self._tokens = tokens
+        if not is_nse_bse_ws_window_open_strict():
+            await self.stop()
+            log.info("Depth WS: skipped startup (NSE/BSE market window is closed).")
+            return
         if self._task and not self._task.done():
             return
         self._task = asyncio.create_task(self._run_forever(), name="depth-ws-20")
@@ -73,6 +78,10 @@ class _DepthWSManager:
 
     async def _run_forever(self) -> None:
         while True:
+            if not is_nse_bse_ws_window_open_strict():
+                await asyncio.sleep(30.0)
+                continue
+
             if self._attempts >= _MAX_ATTEMPTS:
                 log.error(f"Depth WS: {_MAX_ATTEMPTS} failed attempts. Cooling down.")
                 await asyncio.sleep(_COOLDOWN_SEC)

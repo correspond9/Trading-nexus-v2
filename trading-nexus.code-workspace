@@ -19,6 +19,7 @@
 				"approve": true,
 				"matchCommandLine": true
 			}
-		}
+		},
+		"geminicodeassist.contextExclusionGitignore": false
 	}
 }

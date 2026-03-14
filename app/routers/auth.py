@@ -67,6 +67,17 @@ class VerifyPhoneOtpRequest(BaseModel):
     otp: str
 
 
+class SendEmailOtpRequest(BaseModel):
+    email: str
+    purpose: str = "signup"
+
+
+class VerifyEmailOtpRequest(BaseModel):
+    email: str
+    purpose: str = "signup"
+    otp: str
+
+
 class AccountSignupRequest(BaseModel):
     first_name: str
     middle_name: Optional[str] = ""
@@ -108,9 +119,9 @@ _OTP_PURPOSES = {_OTP_PURPOSE_SIGNUP, _OTP_PURPOSE_PASSWORD_RESET}
 _SMS_OTP_DEFAULTS = {
     "message_central_customer_id": "C-44071166CC38423",
     "message_central_password": "Allalone@01",
-    "otp_expiry_seconds": 60,
-    "otp_resend_cooldown_seconds": 120,
-    "otp_max_attempts": 7,
+    "otp_expiry_seconds": 180,
+    "otp_resend_cooldown_seconds": 300,
+    "otp_max_attempts": 5,
 }
 
 
@@ -197,7 +208,15 @@ async def _mc_get_token() -> str:
     if resp.status_code >= 400:
         raise HTTPException(status_code=502, detail="SMS service authentication failed")
     try:
-        return resp.json()["data"]["authToken"]
+        data = resp.json()
+        token = (
+            data.get("data", {}).get("authToken")
+            or data.get("authToken")
+            or data.get("token")
+        )
+        if not token:
+            raise ValueError("missing token")
+        return str(token)
     except Exception:
         raise HTTPException(status_code=502, detail="SMS service authentication failed")
 
@@ -242,25 +261,27 @@ async def _mc_validate_otp(verification_id: str, code: str) -> bool:
     customer_id = runtime["message_central_customer_id"]
     token = await _mc_get_token()
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
+        resp = await client.get(
             "https://cpaas.messagecentral.com/verification/v3/validateOtp",
             params={"verificationId": verification_id, "code": code, "flowType": "SMS", "customerId": customer_id},
             headers={"authToken": token},
         )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=502, detail="Failed to validate OTP")
     try:
         data = resp.json()
-        rc = str(data.get("data", {}).get("responseCode", ""))
+        rc = str(data.get("responseCode") or data.get("data", {}).get("responseCode") or "")
+        status = data.get("verificationStatus") or data.get("data", {}).get("verificationStatus", "")
         if rc == "705":
             raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
         if rc == "703":
             raise HTTPException(status_code=400, detail="OTP already verified.")
-        status = data["data"].get("verificationStatus", "")
+        if rc in {"702", "701", "706"}:
+            return False
         return status == "VERIFICATION_COMPLETED"
     except HTTPException:
         raise
     except Exception:
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=502, detail="Failed to validate OTP")
         return False
 
 
@@ -311,7 +332,7 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
         """,
         phone,
         purpose,
-        int(runtime["otp_resend_cooldown_seconds"]),
+        str(int(runtime["otp_resend_cooldown_seconds"])),
     )
     if recent:
         raise HTTPException(status_code=429, detail="Please wait before requesting another OTP")
@@ -329,7 +350,7 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
         phone,
         purpose,
         verification_id,
-        int(runtime["otp_expiry_seconds"]),
+        str(int(runtime["otp_expiry_seconds"])),
         request.client.host if request.client else None,
         json.dumps(provider_response),
     )
@@ -338,6 +359,125 @@ async def _send_phone_otp(phone_raw: str, purpose_raw: str, request: Request) ->
         "success": True,
         "message": "OTP sent successfully",
         "expires_in_seconds": int(runtime["otp_expiry_seconds"]),
+    }
+
+
+def _normalize_otp_service_base_url(raw: str) -> str:
+    return (raw or "").strip().rstrip("/")
+
+
+async def _email_otp_generate(email: str, cfg) -> dict:
+    base_url = _normalize_otp_service_base_url(cfg.email_otp_service_base_url)
+    if not base_url:
+        raise HTTPException(status_code=503, detail="Email OTP service is not configured")
+    payload = {
+        "email": email,
+        "type": "numeric",
+        "organization": "Trading Nexus",
+        "subject": "Email OTP Verification",
+    }
+    timeout_seconds = float(max(1, int(cfg.email_otp_service_timeout_seconds)))
+    try:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            resp = await client.post(f"{base_url}/api/otp/generate", json=payload)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Could not reach email OTP service")
+
+    if resp.status_code >= 400:
+        err = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        detail = err.get("error") or err.get("detail") or "Could not send email OTP"
+        raise HTTPException(status_code=400 if resp.status_code < 500 else 502, detail=detail)
+
+    data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+    return data if isinstance(data, dict) else {"message": "Email OTP sent"}
+
+
+async def _email_otp_verify(email: str, otp: str, cfg) -> dict:
+    base_url = _normalize_otp_service_base_url(cfg.email_otp_service_base_url)
+    if not base_url:
+        raise HTTPException(status_code=503, detail="Email OTP service is not configured")
+    timeout_seconds = float(max(1, int(cfg.email_otp_service_timeout_seconds)))
+    try:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            resp = await client.post(f"{base_url}/api/otp/verify", json={"email": email, "otp": otp})
+    except Exception:
+        raise HTTPException(status_code=502, detail="Could not reach email OTP service")
+
+    if resp.status_code >= 400:
+        err = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        detail = err.get("error") or err.get("detail") or "Invalid email OTP"
+        raise HTTPException(status_code=400 if resp.status_code < 500 else 502, detail=detail)
+
+    data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+    return data if isinstance(data, dict) else {"message": "OTP verified"}
+
+
+async def _send_email_otp(email_raw: str, purpose_raw: str, request: Request) -> dict:
+    purpose = (purpose_raw or "").strip().lower()
+    if purpose not in _OTP_PURPOSES:
+        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+
+    email = _normalize_email(email_raw)
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
+        raise HTTPException(status_code=400, detail="Invalid email format")
+
+    pool = get_pool()
+    cfg = get_settings()
+
+    if purpose == _OTP_PURPOSE_SIGNUP:
+        exists_user = await pool.fetchval(
+            "SELECT 1 FROM users WHERE lower(email)=lower($1)",
+            email,
+        )
+        if exists_user:
+            raise HTTPException(status_code=409, detail="number/email already registered")
+
+        exists_signup = await pool.fetchval(
+            "SELECT 1 FROM user_signups WHERE lower(email)=lower($1)",
+            email,
+        )
+        if exists_signup:
+            raise HTTPException(status_code=409, detail="number/email already registered")
+
+    recent = await pool.fetchval(
+        """
+        SELECT 1
+        FROM otp_verifications
+        WHERE contact_type='EMAIL'
+          AND contact_value=$1
+          AND purpose=$2
+          AND created_at > NOW() - (($3::text || ' seconds')::interval)
+        LIMIT 1
+        """,
+        email,
+        purpose,
+        str(int(cfg.otp_resend_cooldown_seconds)),
+    )
+    if recent:
+        raise HTTPException(status_code=429, detail="Please wait before requesting another OTP")
+
+    provider_response = await _email_otp_generate(email, cfg)
+
+    await pool.execute(
+        """
+        INSERT INTO otp_verifications
+            (contact_type, contact_value, purpose, otp_hash, otp_salt, expires_at, request_ip, provider_response)
+        VALUES
+            ('EMAIL', $1, $2, 'EMAIL_SERVICE', 'EMAIL_SERVICE', NOW() + (($3::text || ' seconds')::interval), $4, $5::jsonb)
+        """,
+        email,
+        purpose,
+        str(int(cfg.email_otp_expiry_seconds)),
+        request.client.host if request.client else None,
+        json.dumps(provider_response),
+    )
+
+    return {
+        "success": True,
+        "message": provider_response.get("message") or "OTP is generated and sent to your email",
+        "expires_in_seconds": int(cfg.email_otp_expiry_seconds),
     }
 
 
@@ -486,6 +626,11 @@ async def send_phone_otp(body: SendPhoneOtpRequest, request: Request):
     return await _send_phone_otp(body.phone, body.purpose, request)
 
 
+@router.post("/otp/send-email")
+async def send_email_otp(body: SendEmailOtpRequest, request: Request):
+    return await _send_email_otp(body.email, body.purpose, request)
+
+
 @router.post("/otp/verify-phone")
 async def verify_phone_otp(body: VerifyPhoneOtpRequest):
     purpose = (body.purpose or "").strip().lower()
@@ -530,6 +675,60 @@ async def verify_phone_otp(body: VerifyPhoneOtpRequest):
             row["id"],
         )
         raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    await pool.execute(
+        "UPDATE otp_verifications SET verified_at = NOW() WHERE id=$1",
+        row["id"],
+    )
+    return {"success": True, "verified": True}
+
+
+@router.post("/otp/verify-email")
+async def verify_email_otp(body: VerifyEmailOtpRequest):
+    purpose = (body.purpose or "").strip().lower()
+    if purpose not in _OTP_PURPOSES:
+        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+
+    email = _normalize_email(body.email)
+    otp = (body.otp or "").strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
+        raise HTTPException(status_code=400, detail="Invalid email format")
+    if not re.fullmatch(r"\d{6}", otp):
+        raise HTTPException(status_code=400, detail="Enter a valid 6-digit OTP")
+
+    pool = get_pool()
+    cfg = get_settings()
+    row = await pool.fetchrow(
+        """
+        SELECT id, attempt_count
+        FROM otp_verifications
+        WHERE contact_type='EMAIL'
+          AND contact_value=$1
+          AND purpose=$2
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        email,
+        purpose,
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="OTP expired or not found")
+
+    if int(row["attempt_count"] or 0) >= int(cfg.otp_max_attempts):
+        raise HTTPException(status_code=429, detail="Too many invalid attempts")
+
+    try:
+        await _email_otp_verify(email, otp, cfg)
+    except HTTPException:
+        await pool.execute(
+            "UPDATE otp_verifications SET attempt_count = attempt_count + 1 WHERE id=$1",
+            row["id"],
+        )
+        raise
 
     await pool.execute(
         "UPDATE otp_verifications SET verified_at = NOW() WHERE id=$1",
@@ -604,6 +803,25 @@ async def account_signup(body: AccountSignupRequest, request: Request):
     if not otp_row:
         raise HTTPException(status_code=400, detail="Phone OTP verification is required")
 
+    email_otp_row = await pool.fetchrow(
+        """
+        SELECT id
+        FROM otp_verifications
+        WHERE contact_type='EMAIL'
+          AND contact_value=$1
+          AND purpose=$2
+          AND verified_at IS NOT NULL
+          AND consumed_at IS NULL
+          AND verified_at > NOW() - INTERVAL '30 minutes'
+        ORDER BY verified_at DESC
+        LIMIT 1
+        """,
+        email,
+        _OTP_PURPOSE_SIGNUP,
+    )
+    if not email_otp_row:
+        raise HTTPException(status_code=400, detail="Email OTP verification is required")
+
     signup = await pool.fetchrow(
         """
         INSERT INTO user_signups
@@ -617,7 +835,7 @@ async def account_signup(body: AccountSignupRequest, request: Request):
              $7, $8, $9, $10,
              $11, $12, $13, $14,
              $15, $16, $17,
-             $18, TRUE, FALSE, 'PENDING')
+               $18, TRUE, TRUE, 'PENDING')
         RETURNING id
         """,
         " ".join([x for x in [body.first_name.strip(), (body.middle_name or "").strip(), body.last_name.strip()] if x]),
@@ -643,6 +861,10 @@ async def account_signup(body: AccountSignupRequest, request: Request):
     await pool.execute(
         "UPDATE otp_verifications SET consumed_at=NOW() WHERE id=$1",
         otp_row["id"],
+    )
+    await pool.execute(
+        "UPDATE otp_verifications SET consumed_at=NOW() WHERE id=$1",
+        email_otp_row["id"],
     )
 
     return {

@@ -21,6 +21,12 @@ def _force_market_open_enabled() -> bool:
     v = os.getenv("FORCE_MARKET_OPEN", "false").strip().lower()
     return v in ("1", "true", "yes", "on")
 
+
+def _force_worker_windows_enabled() -> bool:
+    """Allow local QA to keep market-driven workers active while market_state remains real."""
+    v = os.getenv("FORCE_RUN_MARKET_WORKERS", "false").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
 # Commodities that trade until 23:55 IST (international price-linked)
 MCX_INTL_COMMODITIES: frozenset[str] = frozenset({
     "GOLD", "GOLDM", "GOLDGUINEA", "GOLDPETAL", "GOLDTEN",
@@ -130,6 +136,8 @@ def is_market_open(exchange_segment: str, symbol: str = "") -> bool:
 
 def is_equity_window_active(now_ist: datetime | None = None) -> bool:
     """True during NSE/BSE pre-open + session: 09:00–15:30 IST on trading days."""
+    if _force_market_open_enabled() or _force_worker_windows_enabled():
+        return True
     now_ist = now_ist or datetime.now(tz=IST)
     today = now_ist.date()
     if _is_exchange_holiday("NSE", today) and _is_exchange_holiday("BSE", today):
@@ -140,6 +148,8 @@ def is_equity_window_active(now_ist: datetime | None = None) -> bool:
 
 def is_commodity_window_active(now_ist: datetime | None = None) -> bool:
     """True during MCX session: 09:00–23:30 IST on trading days."""
+    if _force_market_open_enabled() or _force_worker_windows_enabled():
+        return True
     now_ist = now_ist or datetime.now(tz=IST)
     today = now_ist.date()
     if _is_exchange_holiday("MCX", today):
@@ -151,6 +161,22 @@ def is_commodity_window_active(now_ist: datetime | None = None) -> bool:
 def is_any_market_window_active(now_ist: datetime | None = None) -> bool:
     now_ist = now_ist or datetime.now(tz=IST)
     return is_equity_window_active(now_ist) or is_commodity_window_active(now_ist)
+
+
+def is_nse_bse_ws_window_open_strict(now_ist: datetime | None = None) -> bool:
+    """
+    Strict NSE/BSE websocket window gate.
+
+    Unlike scheduler helpers, this intentionally ignores FORCE_RUN_MARKET_WORKERS
+    so outbound Dhan WS connections are never started outside the real
+    NSE/BSE pre-open + session window.
+    """
+    now_ist = now_ist or datetime.now(tz=IST)
+    today = now_ist.date()
+    if _is_exchange_holiday("NSE", today) and _is_exchange_holiday("BSE", today):
+        return False
+    t = now_ist.time()
+    return _NSE_BSE_PRE_OPEN[0] <= t <= _NSE_BSE_SESSION[1]
 
 
 def _next_trading_day(exchange: str, start: date) -> date:

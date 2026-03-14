@@ -19,20 +19,18 @@ from decimal import Decimal
 from app.config                   import get_settings
 from app.database                 import get_pool
 from app.market_data.rate_limiter import dhan_client
-from app.market_hours             import is_market_open, is_equity_window_active
-from app.instruments.atm_calculator import update_atm, get_atm
+from app.market_data.atm_selector import legs_from_rest_optionchain, select_atm_from_straddle_legs
+from app.market_hours             import MarketState, get_market_state, is_equity_window_active
+from app.instruments.atm_calculator import update_atm, get_atm, set_atm
 from app.market_data.close_price_validator import validate_close_price
+from app.market_data.index_underlyings import (
+    IDX_SEG as _IDX_SEG,
+    IDX_UNDERLYINGS,
+    resolve_index_security_id,
+)
 
 log = logging.getLogger(__name__)
 cfg = get_settings()
-
-# DhanHQ segment code for index underlyings
-_IDX_SEG = "IDX_I"
-_IDX_SECURITY_IDS = {
-    "NIFTY":     13,
-    "BANKNIFTY": 25,
-    "SENSEX":    51,
-}
 
 # Strike interval mapping (kept in-sync with /options endpoints)
 _STRIKE_INTERVALS = {
@@ -145,12 +143,26 @@ class _GreeksPoller:
             return
 
         async with pool.acquire() as conn:
+            # Remove orphan rows for this expiry whose token is no longer in
+            # instrument_master (e.g. after instrument reload with new token IDs).
+            # This prevents stale duplicates building up on the logical key.
+            await conn.execute(
+                """
+                DELETE FROM option_chain_data
+                WHERE underlying   = $1
+                  AND expiry_date  = $2::date
+                  AND instrument_token NOT IN (
+                      SELECT instrument_token FROM instrument_master
+                  )
+                """,
+                underlying, expiry,
+            )
             await conn.executemany(
                 """
                 INSERT INTO option_chain_data
                     (instrument_token, underlying, expiry_date, strike_price, option_type)
                 VALUES ($1,$2,$3::date,$4,$5)
-                ON CONFLICT (instrument_token) DO NOTHING
+                ON CONFLICT DO NOTHING
                 """,
                 to_insert,
             )
@@ -184,7 +196,9 @@ class _GreeksPoller:
         if step <= 0:
             step = 100.0
 
-        # Prefer cached ATM; otherwise derive from live underlying LTP
+        # Prefer cached ATM; otherwise derive from live underlying LTP.
+        # Do NOT persist midpoint fallback into cache, because that can poison
+        # downstream /options/live ATM when market-data LTP is temporarily missing.
         atm = get_atm(underlying)
         if atm is None:
             ltp_row = await pool.fetchrow(
@@ -201,7 +215,7 @@ class _GreeksPoller:
             if ltp is None:
                 # Fallback: pick the middle strike as a stable deterministic centre
                 center = strikes[len(strikes) // 2]
-                atm = update_atm(underlying, float(center), step)
+                atm = Decimal(str(center))
             else:
                 atm = update_atm(underlying, float(ltp), step)
 
@@ -250,7 +264,7 @@ class _GreeksPoller:
         """
         Post to /optionchain via dhan_client — rate limiting is automatic.
         """
-        security_id = _IDX_SECURITY_IDS.get(underlying)
+        security_id = await resolve_index_security_id(underlying)
         if not security_id:
             return
 
@@ -297,6 +311,32 @@ class _GreeksPoller:
         last_price = data.get("last_price")
         oc         = data.get("oc", {})
 
+        # Keep underlying spot cache aligned to Dhan index spot when available.
+        try:
+            lp = float(last_price) if last_price is not None else None
+            step = float(_STRIKE_INTERVALS.get(underlying) or 0)
+            if lp is not None and lp > 0 and step > 0:
+                update_atm(underlying, lp, step)
+        except Exception:
+            pass
+
+        # ATM rule: straddle-min with spot guardrails.
+        # Use direct cache set so ATM is not re-derived from rounded underlying LTP.
+        try:
+            lp = float(last_price) if last_price is not None else None
+            step = float(_STRIKE_INTERVALS.get(underlying) or 0)
+            legs = legs_from_rest_optionchain(oc)
+            best_strike, _atm_meta = select_atm_from_straddle_legs(
+                legs,
+                spot_price=lp if (lp is not None and lp > 0) else None,
+                strike_step=step if step > 0 else None,
+            )
+
+            if best_strike is not None:
+                set_atm(underlying, best_strike, lp if (lp is not None and lp > 0) else None)
+        except Exception:
+            pass
+
         pool = get_pool()
         allowed = await self._allowed_strikes_from_master(underlying, expiry_date)
         
@@ -319,8 +359,6 @@ class _GreeksPoller:
                 r["instrument_token"]: float(r["prev_close"]) if r["prev_close"] else None
                 for r in existing_rows
             }
-        
-        is_market_active = is_equity_window_active()
         
         rows = []
         for strike_str, strikes_data in oc.items():
@@ -346,6 +384,8 @@ class _GreeksPoller:
                     symbol = f"{underlying} {strike}{opt_type.upper()}"
                     existing = existing_prev_close.get(sec_id_int)
                     ltp = opt_data.get("last_price")
+                    segment = "BSE_FNO" if underlying in ("SENSEX", "BANKEX") else "NSE_FNO"
+                    is_market_active = get_market_state(segment, symbol) == MarketState.OPEN
                     
                     is_valid, reason = validate_close_price(
                         close_price=prev_close,
@@ -383,10 +423,14 @@ class _GreeksPoller:
                 # Validate close price here too
                 if opt_data.get("last_price") is not None:
                     close_for_market_data = opt_data.get("previous_close_price")
+                    seg = "NSE_FNO"
+                    if underlying in ("SENSEX", "BANKEX"):
+                        seg = "BSE_FNO"
                     
                     # Validate before seeding market_data
                     if close_for_market_data is not None:
                         symbol = f"{underlying} {strike}{opt_type.upper()}"
+                        is_market_active = get_market_state(seg, symbol) == MarketState.OPEN
                         is_valid, _ = validate_close_price(
                             close_price=close_for_market_data,
                             instrument_token=sec_id_int,
@@ -398,15 +442,16 @@ class _GreeksPoller:
                         if not is_valid:
                             close_for_market_data = None
                     
-                    seg = "NSE_FNO"
-                    if underlying in ("SENSEX", "BANKEX"):
-                        seg = "BSE_FNO"
                     await pool.execute(
                         """
                         INSERT INTO market_data (instrument_token, exchange_segment,
                             ltp, close, updated_at)
                         VALUES ($1, $2, $3, $4, now())
-                        ON CONFLICT (instrument_token) DO NOTHING
+                        ON CONFLICT (instrument_token) DO UPDATE SET
+                            exchange_segment = EXCLUDED.exchange_segment,
+                            ltp = EXCLUDED.ltp,
+                            close = COALESCE(EXCLUDED.close, market_data.close),
+                            updated_at = now()
                         """,
                         sec_id_int,
                         seg,
@@ -418,6 +463,19 @@ class _GreeksPoller:
             return
 
         async with pool.acquire() as conn:
+            # Purge orphan rows before upserting so the new logical-key unique
+            # index never conflicts with stale entries from old instrument loads.
+            await conn.execute(
+                """
+                DELETE FROM option_chain_data
+                WHERE underlying   = $1
+                  AND expiry_date  = $2::date
+                  AND instrument_token NOT IN (
+                      SELECT instrument_token FROM instrument_master
+                  )
+                """,
+                underlying, expiry_date,
+            )
             await conn.executemany(
                 """
                 INSERT INTO option_chain_data
@@ -469,7 +527,7 @@ class _GreeksPoller:
             WHERE rn <= 2
             ORDER BY underlying, expiry_date
             """,
-            list(_IDX_SECURITY_IDS.keys()),
+            list(IDX_UNDERLYINGS),
         )
         return [(r["underlying"], r["expiry_date"]) for r in rows]
 

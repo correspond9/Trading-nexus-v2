@@ -27,6 +27,7 @@ export function useAuthoritativeOptionChain(
   const timerRef       = useRef(null);
   const mountedRef     = useRef(true);
   const wsConnectedRef = useRef(false);
+  const requestSeqRef  = useRef(0);
   const lastStrikesRef = useRef(null); // Track last strikes hash to prevent redundant updates
 
   // ── ATM drift detection ──────────────────────────────────────────────────
@@ -57,6 +58,7 @@ export function useAuthoritativeOptionChain(
   // ── REST fetch ──────────────────────────────────────────────────────────
   const fetchData = useCallback(async (ul = underlying, exp = expiry) => {
     if (!ul || !exp) return;
+    const requestSeq = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -66,6 +68,7 @@ export function useAuthoritativeOptionChain(
       // even when the backend's cached ATM or the index LTP is stale.
       const result = await apiService.get('/options/live', { underlying: ul, expiry: exp, strikes_around: 50 });
       if (!mountedRef.current) return;
+      if (requestSeq !== requestSeqRef.current) return;
       // Backend returns an object: { underlying, expiry, underlying_ltp, lot_size, strike_interval, atm, strikes }
       if (result && typeof result === 'object' && !Array.isArray(result)) {
         const normalized = {
@@ -131,6 +134,7 @@ export function useAuthoritativeOptionChain(
 
       ws.onmessage = (evt) => {
         if (!mountedRef.current) return;
+        if (wsRef.current !== ws) return;
         try {
           const msg = JSON.parse(evt.data);
           // Backend WS sends: { type: 'option_chain', strikes: { ... } }
@@ -151,6 +155,7 @@ export function useAuthoritativeOptionChain(
       };
 
       ws.onclose = () => {
+        if (wsRef.current !== ws) return;
         wsConnectedRef.current = false;
         // Fall back to polling
         if (mountedRef.current && timerRef.current === null && autoRefresh) {
@@ -191,9 +196,13 @@ export function useAuthoritativeOptionChain(
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getATMStrike = useCallback((ltp) => {
+    const backendAtm = data?.atm_strike ?? data?.atm ?? null;
+    if (typeof backendAtm === 'number' && backendAtm > 0) return backendAtm;
+
+    // Last-resort fallback only when backend ATM is unavailable.
     const interval = Number(data?.strike_interval || getStrikeInterval(underlying) || 0);
     const price = Number(ltp || data?.underlying_ltp || 0);
-    if (!interval || !price) return data?.atm_strike ?? data?.atm ?? null;
+    if (!interval || !price) return null;
     return Math.round(price / interval) * interval;
   }, [data, underlying]);
 

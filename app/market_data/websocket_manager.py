@@ -18,7 +18,7 @@ from websockets.exceptions import ConnectionClosed
 
 from app.config import get_settings
 from app.credentials.credential_store import get_ws_url_candidates
-from app.market_hours import IST, record_exchange_tick_time
+from app.market_hours import IST, is_nse_bse_ws_window_open_strict, record_exchange_tick_time
 from app.runtime.notifications import add_notification
 
 log = logging.getLogger(__name__)
@@ -131,6 +131,11 @@ class _SingleWSConnection:
 
     async def _run_forever(self) -> None:
         while True:
+            if not is_nse_bse_ws_window_open_strict():
+                # Hard gate: do not even attempt handshakes outside NSE/BSE window.
+                await asyncio.sleep(30.0)
+                continue
+
             rate_limited = False
             if self._attempts >= _MAX_ATTEMPTS:
                 log.error(
@@ -465,6 +470,11 @@ class _WebSocketManager:
             return list(range(len(self._conns)))
 
     async def start_all(self) -> None:
+        if not is_nse_bse_ws_window_open_strict():
+            await self.stop_all()
+            log.info("WS manager: skipped startup (NSE/BSE market window is closed).")
+            return
+
         active_slots = self._active_slots()
         if not active_slots:
             log.warning("WS manager: no active subscription slots found; skipping WS startup.")
@@ -500,6 +510,9 @@ class _WebSocketManager:
         log.info("WS manager: active slot reconnect complete.")
 
     async def subscribe_tokens(self, slot: int, tokens: list[int]) -> None:
+        if not is_nse_bse_ws_window_open_strict():
+            return
+
         # Lazy-start slot connection on first demand; _resubscribe_all will replay
         # the full slot token-set once connected.
         conn = self._conns[slot]

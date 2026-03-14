@@ -14,8 +14,9 @@ from typing import Optional
 from fastapi import APIRouter, Query, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.database                   import get_pool
+from app.market_data.atm_selector   import select_atm_from_straddle_legs
 from app.serializers.market_data    import serialize_option_row
-from app.instruments.atm_calculator import get_atm
+from app.instruments.atm_calculator import get_atm, get_underlying_price, set_atm
 import app.instruments.subscription_manager as subscription_manager
 
 log    = logging.getLogger(__name__)
@@ -56,7 +57,9 @@ async def get_option_chain(
     underlying = underlying.upper()
     pool       = get_pool()
     atm_raw    = get_atm(underlying)
-    atm: float | None = float(atm_raw) if atm_raw is not None else None
+    cached_atm: float | None = float(atm_raw) if atm_raw is not None else None
+    spot_raw   = get_underlying_price(underlying)
+    cached_spot: float | None = float(spot_raw) if spot_raw is not None else None
 
     try:
         expiry_date: date = datetime.strptime(expiry, "%Y-%m-%d").date()
@@ -84,33 +87,73 @@ async def get_option_chain(
     except Exception:
         lot_size_csv = None
 
-    # Underlying LTP from nearest futures (INDEX instruments don't exist in Dhan data)
-    # Futures track spot indices very closely and are subscribed via Tier-B WebSocket
+    # Underlying LTP from freshest available source (INDEX or nearest futures).
+    # This prevents stale ATM cache from becoming the de-facto underlying price.
     ul_row = await pool.fetchrow(
         """
-        SELECT md.ltp FROM market_data md
-        JOIN instrument_master im ON im.instrument_token = md.instrument_token
-        WHERE im.underlying = $1
-          AND im.instrument_type IN ('FUTIDX','FUTSTK','FUTCOM')
-          AND im.expiry_date >= CURRENT_DATE
-        ORDER BY im.expiry_date ASC
+        SELECT ltp, updated_at
+        FROM (
+            SELECT md.ltp, md.updated_at
+            FROM market_data md
+            JOIN instrument_master im ON im.instrument_token = md.instrument_token
+            WHERE im.symbol = $1
+              AND im.instrument_type = 'INDEX'
+
+            UNION ALL
+
+            SELECT md.ltp, md.updated_at
+            FROM market_data md
+            JOIN instrument_master im ON im.instrument_token = md.instrument_token
+            WHERE im.underlying = $1
+              AND im.instrument_type IN ('FUTIDX','FUTSTK','FUTCOM')
+              AND im.expiry_date >= CURRENT_DATE
+        ) q
+        WHERE ltp IS NOT NULL
+        ORDER BY updated_at DESC NULLS LAST
         LIMIT 1
         """,
         underlying,
     )
-    underlying_ltp = float(ul_row["ltp"]) if (ul_row and ul_row["ltp"]) else (atm or 0.0)
+    db_underlying_ltp = float(ul_row["ltp"]) if (ul_row and ul_row["ltp"]) else None
+    # Prefer Dhan spot cached by greeks_poller; fallback to DB then ATM cache.
+    underlying_ltp = cached_spot if (cached_spot is not None and cached_spot > 0) else (
+        db_underlying_ltp if db_underlying_ltp is not None else (cached_atm or 0.0)
+    )
 
     ocd_rows = await pool.fetch(
         """
-         SELECT ocd.*, ocd.prev_close AS ocd_prev_close,
-             md.ltp, md.open, md.high, md.low, md.close,
-             md.bid_depth, md.ask_depth, md.ltt, md.updated_at,
-             im.exchange_segment, im.tick_size, im.symbol
-        FROM option_chain_data ocd
-        JOIN instrument_master im ON im.instrument_token = ocd.instrument_token
-        LEFT JOIN market_data md   ON md.instrument_token = ocd.instrument_token
-        WHERE ocd.underlying = $1 AND ocd.expiry_date = $2::date
-        ORDER BY ocd.strike_price, ocd.option_type
+        WITH ranked AS (
+            SELECT
+                ocd.*,
+                ocd.prev_close AS ocd_prev_close,
+                md.ltp,
+                md.open,
+                md.high,
+                md.low,
+                md.close,
+                md.bid_depth,
+                md.ask_depth,
+                md.ltt,
+                md.updated_at,
+                im.exchange_segment,
+                im.tick_size,
+                im.symbol,
+                ROW_NUMBER() OVER (
+                    PARTITION BY ocd.strike_price, ocd.option_type
+                    ORDER BY
+                        COALESCE(md.updated_at, ocd.greeks_updated_at) DESC NULLS LAST,
+                        ocd.greeks_updated_at DESC NULLS LAST,
+                        ocd.instrument_token DESC
+                ) AS rn
+            FROM option_chain_data ocd
+            LEFT JOIN market_data md ON md.instrument_token = ocd.instrument_token
+            LEFT JOIN instrument_master im ON im.instrument_token = ocd.instrument_token
+            WHERE ocd.underlying = $1 AND ocd.expiry_date = $2::date
+        )
+        SELECT *
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY strike_price, option_type
         """,
         underlying, expiry_date,
     )
@@ -123,13 +166,44 @@ async def get_option_chain(
             "underlying_ltp": underlying_ltp,
             "lot_size":   lot_size_csv or _lot_size(underlying),
             "strike_interval": _strike_interval(underlying),
-            "atm":        atm,
+            "atm":        cached_atm,
             "strikes":    {},
         }
 
     all_strikes = sorted({float(r["strike_price"]) for r in ocd_rows})
-    if atm is not None and all_strikes:
-        closest = min(all_strikes, key=lambda s: abs(s - float(atm)))
+
+    # ATM rule: strike with minimum (CE LTP + PE LTP).
+    # Build straddle sums from current option_chain_data + market_data fallback.
+    straddle_prices: dict[float, dict[str, float]] = {}
+    for row in ocd_rows:
+        strike = float(row["strike_price"])
+        ltp_val = row["ltp"] if row["ltp"] is not None else row["ocd_prev_close"]
+        if ltp_val is None:
+            continue
+        ltp = float(ltp_val)
+        if ltp <= 0:
+            continue
+        opt_type = str(row["option_type"] or "").upper()
+        if opt_type not in ("CE", "PE"):
+            continue
+        legs = straddle_prices.setdefault(strike, {})
+        legs[opt_type] = ltp
+
+    straddle_atm, _atm_meta = select_atm_from_straddle_legs(
+        straddle_prices,
+        spot_price=underlying_ltp if underlying_ltp > 0 else None,
+        strike_step=float(_strike_interval(underlying)),
+    )
+
+    effective_atm: float | None = straddle_atm if straddle_atm is not None else cached_atm
+    if effective_atm is not None and (cached_atm is None or abs(cached_atm - effective_atm) >= 0.001):
+        try:
+            set_atm(underlying, effective_atm, underlying_ltp if underlying_ltp > 0 else None)
+        except Exception:
+            pass
+
+    if effective_atm is not None and all_strikes:
+        closest = min(all_strikes, key=lambda s: abs(s - float(effective_atm)))
         idx     = all_strikes.index(closest)
         lo      = max(0, idx - strikes_around)
         hi      = min(len(all_strikes) - 1, idx + strikes_around)
@@ -139,20 +213,24 @@ async def get_option_chain(
 
     result: dict[str, dict] = {}
     for row in ocd_rows:
-        strike = float(row["strike_price"])
+        row_data = dict(row)
+        strike = float(row_data["strike_price"])
         if strike not in active:
             continue
         # Closed-market fallback: use prev_close when ltp/close are missing.
-        if row.get("ltp") is None and row.get("ocd_prev_close") is not None:
-            row["ltp"] = row.get("ocd_prev_close")
-        if row.get("close") is None and row.get("ocd_prev_close") is not None:
-            row["close"] = row.get("ocd_prev_close")
+        if row_data.get("ltp") is None and row_data.get("ocd_prev_close") is not None:
+            row_data["ltp"] = row_data.get("ocd_prev_close")
+        if row_data.get("close") is None and row_data.get("ocd_prev_close") is not None:
+            row_data["close"] = row_data.get("ocd_prev_close")
         key = str(int(strike)) if strike == int(strike) else str(strike)
         if key not in result:
             result[key] = {"strike": strike, "CE": None, "PE": None}
-        opt_type = row["option_type"]
+        opt_type = row_data["option_type"]
+        inferred_segment = "BSE_FNO" if underlying in ("SENSEX", "BANKEX") else "NSE_FNO"
         result[key][opt_type] = serialize_option_row(
-            tick=dict(row), ocd=dict(row), segment=row["exchange_segment"] or "NSE_FNO"
+            tick=row_data,
+            ocd=row_data,
+            segment=row_data.get("exchange_segment") or inferred_segment,
         )
 
     # Server-driven Tier-A subscriptions (idempotent)
@@ -177,7 +255,7 @@ async def get_option_chain(
         "underlying_ltp":  underlying_ltp,
         "lot_size":        lot_size_csv or _lot_size(underlying),
         "strike_interval": _strike_interval(underlying),
-        "atm":             atm,
+        "atm":             effective_atm,
         "strikes":         result,
     }
 
@@ -235,13 +313,34 @@ async def option_chain_ws(
             pool = get_pool()
             ocd_rows = await pool.fetch(
                 """
-                SELECT ocd.instrument_token, ocd.strike_price, ocd.option_type,
-                       COALESCE(md.ltp, 0) AS ltp,
-                       ocd.iv, ocd.delta, ocd.theta, ocd.gamma, ocd.vega
-                FROM option_chain_data ocd
-                LEFT JOIN market_data md ON md.instrument_token = ocd.instrument_token
-                WHERE ocd.underlying = $1 AND ocd.expiry_date = $2::date
-                ORDER BY ocd.strike_price, ocd.option_type
+                WITH ranked AS (
+                    SELECT
+                        ocd.instrument_token,
+                        ocd.strike_price,
+                        ocd.option_type,
+                        COALESCE(md.ltp, 0) AS ltp,
+                        md.updated_at,
+                        ocd.greeks_updated_at,
+                        ocd.iv,
+                        ocd.delta,
+                        ocd.theta,
+                        ocd.gamma,
+                        ocd.vega,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY ocd.strike_price, ocd.option_type
+                            ORDER BY
+                                COALESCE(md.updated_at, ocd.greeks_updated_at) DESC NULLS LAST,
+                                ocd.greeks_updated_at DESC NULLS LAST,
+                                ocd.instrument_token DESC
+                        ) AS rn
+                    FROM option_chain_data ocd
+                    LEFT JOIN market_data md ON md.instrument_token = ocd.instrument_token
+                    WHERE ocd.underlying = $1 AND ocd.expiry_date = $2::date
+                )
+                SELECT instrument_token, strike_price, option_type, ltp, iv, delta, theta, gamma, vega
+                FROM ranked
+                WHERE rn = 1
+                ORDER BY strike_price, option_type
                 """,
                 underlying.upper(), expiry_date,
             )

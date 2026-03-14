@@ -12,6 +12,8 @@ log = logging.getLogger(__name__)
 
 # Cache: underlying → current ATM strike
 _atm_cache: dict[str, Decimal] = {}
+# Cache: underlying → latest underlying spot/last price
+_underlying_price_cache: dict[str, Decimal] = {}
 
 
 def calculate_atm(underlying_ltp: float, strike_step: float) -> Decimal:
@@ -32,11 +34,13 @@ def update_atm(underlying: str, ltp: float, strike_step: float) -> Decimal:
     """
     Compute and cache ATM for an underlying.
     Call only at startup / expiry rollover / explicit admin refresh.
+    Also stores the latest underlying spot/last price for API consumers.
     Returns the new ATM strike.
     """
     atm = calculate_atm(ltp, strike_step)
     prev = _atm_cache.get(underlying)
     _atm_cache[underlying] = atm
+    _underlying_price_cache[underlying] = Decimal(str(ltp))
 
     if prev != atm:
         log.info(
@@ -44,6 +48,28 @@ def update_atm(underlying: str, ltp: float, strike_step: float) -> Decimal:
             f"(LTP={ltp}, step={strike_step})"
         )
     return atm
+
+
+def set_atm(underlying: str, atm_strike: float, underlying_price: float | None = None) -> Decimal:
+    """
+    Set ATM cache directly to an already-computed strike.
+    Use when ATM is derived from straddle minima (CE+PE) instead of LTP rounding.
+    """
+    atm = Decimal(str(atm_strike))
+    prev = _atm_cache.get(underlying)
+    _atm_cache[underlying] = atm
+
+    if underlying_price is not None and underlying_price > 0:
+        _underlying_price_cache[underlying] = Decimal(str(underlying_price))
+
+    if prev != atm:
+        log.info(f"ATM set — {underlying}: {prev} → {atm} (straddle-min)")
+    return atm
+
+
+def get_underlying_price(underlying: str) -> Decimal | None:
+    """Return latest cached underlying spot/last price, or None if unavailable."""
+    return _underlying_price_cache.get(underlying)
 
 
 def get_atm(underlying: str) -> Decimal | None:

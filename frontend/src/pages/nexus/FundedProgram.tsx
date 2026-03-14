@@ -2,7 +2,8 @@ import React from 'react';
 import '../../styles/nexus/NeoTheme.css';
 import { usePortalLogo } from '../../hooks/usePortalLogo';
 
-const REGISTER_URL = '/register';
+const ENROLL_URL = '/enroll';
+const SIGNUP_URL = '/sign-up';
 
 type ProcessGraphic = 'register' | 'training' | 'evaluation' | 'funding';
 
@@ -117,7 +118,7 @@ const FundedProgram: React.FC = () => {
             {logo ? <img src={logo} alt="TradingNexus" className="funded-logo-img" /> : null}
             <div className="funded-logo">TradingNexus</div>
           </div>
-          <a href={REGISTER_URL}>Sign Up</a>
+          <a href={SIGNUP_URL}>Sign Up</a>
         </nav>
 
         <section className="funded-hero">
@@ -132,7 +133,7 @@ const FundedProgram: React.FC = () => {
             to trade with <span className="funded-gradient">400% capital provided by TradingNexus.</span>
           </p>
 
-          <a className="funded-cta" href={REGISTER_URL}>
+          <a className="funded-cta" href={ENROLL_URL}>
             Sign Up Now
           </a>
         </section>
@@ -140,7 +141,7 @@ const FundedProgram: React.FC = () => {
         <section className="funded-grid">
           <div className="funded-card">
             <div className="funded-icon">💰</div>
-            <h3>80% Capital Funding</h3>
+            <h3>400% Capital Funding</h3>
             <p>Selected traders receive access to trading capital provided by TradingNexus.</p>
           </div>
 
@@ -220,7 +221,7 @@ const FundedProgram: React.FC = () => {
               </p>
             </div>
 
-            <a className="funded-cta funded-cta-secondary" href={REGISTER_URL}>
+            <a className="funded-cta funded-cta-secondary" href={SIGNUP_URL}>
               Explore Instant Funding
             </a>
           </div>
@@ -232,7 +233,7 @@ const FundedProgram: React.FC = () => {
             Join the upcoming batch of the Free Derivatives Crash Course and get the
             opportunity to become a funded trader.
           </p>
-          <a className="funded-cta" href={REGISTER_URL}>
+          <a className="funded-cta" href={ENROLL_URL}>
             Secure Your Seat
           </a>
         </section>

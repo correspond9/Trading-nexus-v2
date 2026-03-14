@@ -7,7 +7,7 @@ const FUNDED_URL = '/funded';
 
 const Rules: React.FC = () => {
   const logo = usePortalLogo();
-  const [walletPayInInput, setWalletPayInInput] = useState('100000');
+  const [walletPayInInput, setWalletPayInInput] = useState('');
 
   const walletPayIn = useMemo(() => {
     const numeric = Number(walletPayInInput.replace(/[^\d]/g, ''));
@@ -73,7 +73,7 @@ const Rules: React.FC = () => {
                   className="rules-payin-input"
                   type="text"
                   inputMode="numeric"
-                  placeholder="100000"
+                  placeholder="Enter amount"
                   value={walletPayInInput}
                   onChange={handleWalletPayInChange}
                 />

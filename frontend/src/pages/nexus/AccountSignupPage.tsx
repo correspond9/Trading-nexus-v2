@@ -24,6 +24,7 @@ type FormState = {
   last_name: string;
   phone: string;
   otp: string;
+  email_otp: string;
   email: string;
   address: string;
   city: string;
@@ -46,6 +47,7 @@ const initialForm: FormState = {
   last_name: '',
   phone: '',
   otp: '',
+  email_otp: '',
   email: '',
   address: '',
   city: '',
@@ -69,6 +71,10 @@ const AccountSignupPage: React.FC = () => {
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
   const [otpMessage, setOtpMessage] = useState('');
+  const [emailOtpSending, setEmailOtpSending] = useState(false);
+  const [emailOtpVerifying, setEmailOtpVerifying] = useState(false);
+  const [emailOtpVerified, setEmailOtpVerified] = useState(false);
+  const [emailOtpMessage, setEmailOtpMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -83,7 +89,7 @@ const AccountSignupPage: React.FC = () => {
     });
   }, [form]);
 
-  const canSubmit = mandatoryComplete && otpVerified && !submitting;
+  const canSubmit = mandatoryComplete && otpVerified && emailOtpVerified && !submitting;
 
   const update = (key: keyof FormState, value: string) => {
     if (key === 'phone') {
@@ -93,6 +99,14 @@ const AccountSignupPage: React.FC = () => {
     if (key === 'otp') {
       setOtpVerified(false);
       setOtpMessage('');
+    }
+    if (key === 'email') {
+      setEmailOtpVerified(false);
+      setEmailOtpMessage('');
+    }
+    if (key === 'email_otp') {
+      setEmailOtpVerified(false);
+      setEmailOtpMessage('');
     }
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -185,13 +199,76 @@ const AccountSignupPage: React.FC = () => {
     }
   };
 
+  const sendEmailOtp = async () => {
+    setErrorMessage('');
+    setSuccessMessage('');
+    setEmailOtpMessage('');
+    setEmailOtpVerified(false);
+
+    if (!form.email.trim()) {
+      setErrorMessage('Please enter email first.');
+      return;
+    }
+
+    setEmailOtpSending(true);
+    try {
+      const res = await fetch(`${apiBase}/auth/otp/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, purpose: 'signup' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorMessage(data?.detail || 'Could not send email OTP. Please try again.');
+      } else {
+        setEmailOtpMessage('Email OTP sent successfully.');
+      }
+    } catch {
+      setErrorMessage('Network issue while sending email OTP.');
+    } finally {
+      setEmailOtpSending(false);
+    }
+  };
+
+  const verifyEmailOtp = async () => {
+    setErrorMessage('');
+    setSuccessMessage('');
+    setEmailOtpMessage('');
+
+    if (!form.email.trim() || !form.email_otp.trim()) {
+      setErrorMessage('Please enter email and email OTP first.');
+      return;
+    }
+
+    setEmailOtpVerifying(true);
+    try {
+      const res = await fetch(`${apiBase}/auth/otp/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, purpose: 'signup', otp: form.email_otp }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEmailOtpVerified(false);
+        setErrorMessage(data?.detail || 'Invalid email OTP.');
+      } else {
+        setEmailOtpVerified(true);
+        setEmailOtpMessage('Email verified successfully.');
+      }
+    } catch {
+      setErrorMessage('Network issue while verifying email OTP.');
+    } finally {
+      setEmailOtpVerifying(false);
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
 
     if (!canSubmit) {
-      setErrorMessage('Fill all mandatory fields and verify OTP before submitting.');
+      setErrorMessage('Fill all mandatory fields and verify both phone OTP and email OTP before submitting.');
       return;
     }
 
@@ -229,6 +306,8 @@ const AccountSignupPage: React.FC = () => {
         setForm(initialForm);
         setOtpVerified(false);
         setOtpMessage('');
+        setEmailOtpVerified(false);
+        setEmailOtpMessage('');
       }
     } catch {
       setErrorMessage('Network issue while submitting form.');
@@ -253,7 +332,10 @@ const AccountSignupPage: React.FC = () => {
         </nav>
 
         <section className="rules-hero signup-hero">
-          <h1>Account <span className="rules-gradient">Signup</span></h1>
+          <div className="signup-hero-title">
+            <h1>Account <span className="rules-gradient">Signup</span></h1>
+            {logo ? <img src={logo} alt="TradingNexus logo" className="signup-hero-logo" /> : null}
+          </div>
           <p>Fields marked with * are mandatory. Uploads must be image files up to 1 MB.</p>
         </section>
 
@@ -292,9 +374,29 @@ const AccountSignupPage: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Email Id*"><input className="input" type="email" value={form.email} onChange={(e) => update('email', e.target.value)} /></Field>
+            <Field label="Email Id*">
+              <div className="flex items-center gap-2">
+                <input className="input" type="email" value={form.email} onChange={(e) => update('email', e.target.value)} />
+                {emailOtpVerified && <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-label="Email verified" />}
+              </div>
+            </Field>
             <Field label="Address"><input className="input" value={form.address} onChange={(e) => update('address', e.target.value)} /></Field>
           </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+              <button type="button" onClick={sendEmailOtp} disabled={emailOtpSending} className="btn-secondary w-full">
+                {emailOtpSending ? 'Sending...' : 'Send Email OTP'}
+              </button>
+            </div>
+            <Field label="Email OTP*"><input className="input" value={form.email_otp} onChange={(e) => update('email_otp', e.target.value)} /></Field>
+            <div>
+              <button type="button" onClick={verifyEmailOtp} disabled={emailOtpVerifying} className="btn-secondary w-full">
+                {emailOtpVerifying ? 'Verifying...' : 'Verify Email OTP'}
+              </button>
+            </div>
+          </div>
+          <div className="text-xs text-slate-600">{emailOtpMessage}</div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Field label="City"><input className="input" value={form.city} onChange={(e) => update('city', e.target.value)} /></Field>
@@ -356,6 +458,18 @@ const AccountSignupPage: React.FC = () => {
         .signup-hero {
           margin-top: 28px;
           padding: 42px 30px;
+        }
+        .signup-hero-title {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+        }
+        .signup-hero-logo {
+          height: 34px;
+          width: auto;
+          max-width: 150px;
+          object-fit: contain;
         }
         .signup-card {
           margin-top: 24px;

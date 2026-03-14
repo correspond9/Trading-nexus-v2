@@ -52,19 +52,11 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     setUnderlyingPrice(null);
   }, [activeChainData?.underlying_ltp]);
 
-  // ATM RULE (unified for both OPTIONS and STRADDLE):
-  // Primary = underlying LTP rounded to strike interval (from hook helper).
-  // Fallback = backend ATM cache.
+  // ATM RULE: backend-provided ATM (straddle-min CE+PE) is authoritative.
   const straddleAtmStrike = useMemo(() => {
-    const ltp = Number(activeChainData?.underlying_ltp || 0);
-    const interval = Number(activeChainData?.strike_interval || 0);
-    if (ltp > 0 && interval > 0) {
-      return Math.round(ltp / interval) * interval;
-    }
-
     const backendAtm = activeChainData?.atm_strike || activeChainData?.atm || null;
     return (typeof backendAtm === 'number' && backendAtm > 0) ? backendAtm : null;
-  }, [activeChainData?.underlying_ltp, activeChainData?.strike_interval, activeChainData?.atm_strike, activeChainData?.atm]);
+  }, [activeChainData?.atm_strike, activeChainData?.atm]);
 
   // Reset center when context changes so a new symbol/expiry gets correct initial anchoring.
   useEffect(() => {
@@ -116,6 +108,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
     }
 
     const atmStrike = centerStrike ?? straddleAtmStrike;
+    const highlightedAtmStrike = straddleAtmStrike ?? centerStrike;
     const configuredLot = getConfiguredLotSize(symbol);
     const lotSize = activeChainData?.lot_size && activeChainData.lot_size > 0 ? activeChainData.lot_size : configuredLot;
     const snapshotMap = Object.fromEntries(
@@ -150,7 +143,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
 
         return {
           strike,
-          isATM: atmStrike && strike === atmStrike,
+          isATM: highlightedAtmStrike && strike === highlightedAtmStrike,
           ce_ltp: ceLtp,
           pe_ltp: peLtp,
           straddle_premium: (ceLtp + peLtp).toFixed(2),
@@ -176,6 +169,11 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
 
     const strikesSorted = straddles.map((s) => s.strike).sort((a, b) => a - b);
     const liveAtm = (typeof straddleAtmStrike === 'number' && straddleAtmStrike > 0) ? straddleAtmStrike : null;
+    const intervalFromChain = Number(activeChainData?.strike_interval || 0);
+    const inferredInterval = strikesSorted.length > 1
+      ? Math.min(...strikesSorted.slice(1).map((v, i) => Math.abs(v - strikesSorted[i])).filter((n) => n > 0))
+      : 0;
+    const strikeInterval = intervalFromChain > 0 ? intervalFromChain : inferredInterval;
 
     const nearestStrike = (target) => {
       if (target == null) return strikesSorted[Math.floor(strikesSorted.length / 2)] || null;
@@ -199,8 +197,18 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
       }
       return;
     }
-    // Do not auto-shift center after initial lock.
-    // Re-centering is manual via the Re-centre button.
+
+    // Guard against stale lock: realign when center drifts materially from live ATM.
+    if (liveAtm != null && strikeInterval > 0) {
+      const drift = Math.abs(centerStrike - liveAtm);
+      if (drift >= strikeInterval * 2) {
+        const corrected = nearestStrike(liveAtm);
+        if (corrected != null && corrected !== centerStrike) {
+          setCenterStrike(corrected);
+          console.log(`📍 [STRADDLE] Center realigned: ${centerStrike} -> ${corrected} (live ATM ${liveAtm})`);
+        }
+      }
+    }
   }, [straddles, activeChainData?.strike_interval, straddleAtmStrike, centerStrike]);
 
   const displayedStraddles = useMemo(() => {
@@ -345,7 +353,7 @@ const StraddleMatrix = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expi
               >
                 <div className="flex-1 text-left text-xs sm:text-xs pr-2">
                   <div className="font-semibold">
-                    {straddle.strike} {straddle.isATM ? ' (ATM)' : ''}
+                    {straddle.strike}
                   </div>
                   <div style={{ color: '#a1a1aa' }} className="text-[10px]">
                     {' CE: ' + (straddle.ce_ltp > 0 ? straddle.ce_ltp.toFixed(2) : '0.00') +

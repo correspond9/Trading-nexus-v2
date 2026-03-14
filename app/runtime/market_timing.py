@@ -24,6 +24,7 @@ from app.market_hours import (
     IST,
     is_equity_window_active,
     is_commodity_window_active,
+    is_nse_bse_ws_window_open_strict,
 )
 
 log = logging.getLogger(__name__)
@@ -71,8 +72,12 @@ class MarketTimingController:
 
     async def enforce_now(self) -> None:
         """Apply the start/stop decisions immediately."""
+        from app.config import get_settings
+        from app.database import get_pool
         from app.market_data.tick_processor import tick_processor
         from app.market_data.greeks_poller import greeks_poller
+        from app.market_data.websocket_manager import ws_manager
+        from app.market_data.depth_ws_manager import depth_ws_manager
         from app.credentials.token_refresher import token_refresher
         from app.execution_simulator import super_order_monitor
 
@@ -80,6 +85,7 @@ class MarketTimingController:
         equity_on = is_equity_window_active(now)
         comm_on = is_commodity_window_active(now)
         any_on = equity_on or comm_on
+        ws_on = is_nse_bse_ws_window_open_strict(now)
 
         async def _apply(name: str, should_run: bool, start_fn, stop_fn, is_running: bool):
             ov = self.get_override(name)
@@ -125,6 +131,31 @@ class MarketTimingController:
             token_refresher.stop,
             token_refresher.is_running,
         )
+
+        # Strict rule: no outbound Dhan websocket connections outside NSE/BSE window.
+        ws_running = any(c._task is not None and not c._task.done() for c in ws_manager._conns)
+        if ws_on and not ws_running:
+            await ws_manager.start_all()
+        elif (not ws_on) and ws_running:
+            await ws_manager.stop_all()
+
+        depth_running = depth_ws_manager._task is not None and not depth_ws_manager._task.done()
+        if ws_on and not depth_running:
+            cfg = get_settings()
+            pool = get_pool()
+            depth_rows = await pool.fetch(
+                """
+                SELECT instrument_token FROM instrument_master
+                WHERE underlying = ANY($1::text[])
+                  AND instrument_type IN ('FUTIDX','OPTIDX')
+                LIMIT 10
+                """,
+                cfg.depth_20_underlying,
+            )
+            depth_tokens = [r["instrument_token"] for r in depth_rows]
+            await depth_ws_manager.start(depth_tokens)
+        elif (not ws_on) and depth_running:
+            await depth_ws_manager.stop()
 
     async def _loop(self) -> None:
         # Periodic enforcement (kept simple and robust)

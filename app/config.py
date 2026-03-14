@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     otp_resend_cooldown_seconds: int = 60
     otp_max_attempts: int = 5
 
+    # ── Email OTP (external service) ───────────────────────────────────────
+    email_otp_service_base_url: str = "https://nexus-otp-server.vercel.app"
+    email_otp_service_timeout_seconds: int = 15
+    email_otp_expiry_seconds: int = 300
+
     @property
     def cors_origins(self) -> list[str]:
         """Return CORS origins list."""

@@ -24,6 +24,7 @@ import app.instruments.subscription_manager as subscription_manager
 from app.database           import get_pool
 from app.serializers.market_data import serialize_tick
 from app.market_hours import IST, is_equity_window_active, is_commodity_window_active
+from app.instruments.atm_calculator import get_underlying_price
 
 router = APIRouter(prefix="/ws", tags=["WebSocket Feed"])
 log    = logging.getLogger(__name__)
@@ -69,8 +70,11 @@ async def _get_prices_payload_cached() -> dict:
             """
             SELECT DISTINCT ON (im.underlying)
                 im.underlying,
+                im.instrument_type,
                 md.ltp,
-                md.close
+                md.close,
+                md.updated_at,
+                im.expiry_date
             FROM instrument_master im
             JOIN market_data md ON md.instrument_token = im.instrument_token
             WHERE im.underlying = ANY($1::text[])
@@ -78,18 +82,31 @@ async def _get_prices_payload_cached() -> dict:
               AND (md.ltp IS NOT NULL OR md.close IS NOT NULL)
             ORDER BY
                 im.underlying,
+                CASE WHEN im.instrument_type = 'INDEX' THEN 0 ELSE 1 END,
                 (im.expiry_date >= CURRENT_DATE) DESC,
                 im.expiry_date NULLS LAST,
                 md.updated_at DESC
             """,
             core_underlyings,
-            ["FUTIDX", "FUTSTK", "FUTCOM"],
+            ["INDEX", "FUTIDX", "FUTSTK", "FUTCOM"],
         )
         prices: dict[str, float] = {}
         for r in core_rows:
             val = r["ltp"] if r["ltp"] is not None else r["close"]
             if val is not None:
                 prices[r["underlying"]] = float(val)
+
+        # Fallback for index underlyings: use cached spot from optionchain poller
+        # when market_data has temporary gaps (commonly visible for SENSEX).
+        for ul in ("NIFTY", "BANKNIFTY", "SENSEX"):
+            if ul in prices:
+                continue
+            try:
+                spot = get_underlying_price(ul)
+                if spot is not None and float(spot) > 0:
+                    prices[ul] = float(spot)
+            except Exception:
+                pass
 
         wl_tokens = await pool.fetch(
             "SELECT DISTINCT instrument_token FROM watchlist_items WHERE instrument_token IS NOT NULL"

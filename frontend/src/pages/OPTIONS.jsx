@@ -10,11 +10,13 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
   const { user } = useAuth();
   const [underlyingPrice, setUnderlyingPrice] = useState(null);
   const [displayCenterStrike, setDisplayCenterStrike] = useState(null);
+  const [isCenterLocked, setIsCenterLocked] = useState(false);
   const [openActionMenuKey, setOpenActionMenuKey] = useState(null);
   const [message, setMessage] = useState(null);
   const [bidAskModal, setBidAskModal] = useState(null);
   const listRef = useRef(null);
   const didInitialScroll = useRef(false);
+  const lastScrolledAtmRef = useRef(null);
 
   const symbol = normalizeUnderlying(selectedIndex);
 
@@ -27,22 +29,31 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
   const { data: chainData, loading: chainLoading, error: chainError, refresh: refreshChain, recalibrate: recalibrateChain, getATMStrike } =
     useAuthoritativeOptionChain(symbol, expiry, { autoRefresh: true, refreshInterval: 1000 });
 
+  // Ignore stale payloads from the previous symbol/expiry while the next request is in flight.
+  const chainMatchesSelection =
+    !!chainData &&
+    chainData.underlying === symbol &&
+    (expiry == null || chainData.expiry === expiry);
+  const activeChainData = chainMatchesSelection ? chainData : null;
+
   const lotSize = React.useMemo(() => {
     const configured = getConfiguredLotSize(symbol);
-    const fromChain = chainData?.lot_size;
+    const fromChain = activeChainData?.lot_size;
     return fromChain && fromChain > 0 ? fromChain : configured;
-  }, [symbol, chainData?.lot_size]);
+  }, [symbol, activeChainData?.lot_size]);
 
   useEffect(() => {
     setUnderlyingPrice(null);
     setDisplayCenterStrike(null);
+    setIsCenterLocked(false);
     didInitialScroll.current = false;
+    lastScrolledAtmRef.current = null;
   }, [symbol, expiry]);
 
   useEffect(() => {
-    const ltp = chainData?.underlying_ltp;
+    const ltp = activeChainData?.underlying_ltp;
     if (typeof ltp === 'number' && ltp > 0) setUnderlyingPrice(ltp);
-  }, [chainData?.underlying_ltp]);
+  }, [activeChainData?.underlying_ltp]);
 
   const effectiveAtmStrike = React.useMemo(() => {
     // Primary ATM source = underlying LTP rounded to strike interval (hook helper).
@@ -50,20 +61,21 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
     if (typeof fromLtp === 'number' && fromLtp > 0) return fromLtp;
 
     // Fallback = backend ATM cache.
-    const backendAtm = chainData?.atm_strike || chainData?.atm || null;
+    const backendAtm = activeChainData?.atm_strike || activeChainData?.atm || null;
     return (typeof backendAtm === 'number' && backendAtm > 0) ? backendAtm : null;
-  }, [getATMStrike, chainData?.atm_strike, chainData?.atm]);
+  }, [getATMStrike, activeChainData?.atm_strike, activeChainData?.atm]);
 
-  const visualAtmStrike = displayCenterStrike ?? effectiveAtmStrike;
+  const visualAtmStrike = (isCenterLocked ? displayCenterStrike : null) ?? effectiveAtmStrike;
+  const highlightedAtmStrike = effectiveAtmStrike ?? visualAtmStrike;
 
   const strikes = React.useMemo(() => {
-    if (!chainData || !chainData.strikes) return [];
-    return Object.entries(chainData.strikes)
+    if (!activeChainData || !activeChainData.strikes) return [];
+    return Object.entries(activeChainData.strikes)
       .map(([strikeStr, strikeData]) => {
         const strike = parseFloat(strikeStr);
         return {
           strike,
-          isATM: visualAtmStrike && strike === visualAtmStrike,
+          isATM: highlightedAtmStrike && strike === highlightedAtmStrike,
           ltpCE: strikeData.CE?.ltp || 0,
           ltpPE: strikeData.PE?.ltp || 0,
           bidCE: strikeData.CE?.bid || 0,
@@ -82,7 +94,7 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
         };
       })
       .sort((a, b) => a.strike - b.strike);
-  }, [chainData, visualAtmStrike, lotSize]);
+  }, [activeChainData, highlightedAtmStrike, lotSize]);
 
   const atmStrike = effectiveAtmStrike;
 
@@ -91,6 +103,11 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
 
     const strikeValues = strikes.map((s) => s.strike).sort((a, b) => a - b);
     const liveAtm = (typeof atmStrike === 'number' && atmStrike > 0) ? atmStrike : null;
+    const intervalFromChain = Number(activeChainData?.strike_interval || 0);
+    const inferredInterval = strikeValues.length > 1
+      ? Math.min(...strikeValues.slice(1).map((v, i) => Math.abs(v - strikeValues[i])).filter((n) => n > 0))
+      : 0;
+    const strikeInterval = intervalFromChain > 0 ? intervalFromChain : inferredInterval;
 
     const nearestStrike = (target) => {
       if (target == null) return strikeValues[Math.floor(strikeValues.length / 2)] || null;
@@ -106,18 +123,30 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
       return nearest;
     };
 
+    const hasTradablePremiums = strikes.some((s) => Number(s.ltpCE) > 0 || Number(s.ltpPE) > 0);
+
     if (displayCenterStrike == null) {
+      // Avoid locking to a potentially stale center during transient empty/zero snapshots.
+      if (!hasTradablePremiums && liveAtm == null) return;
       setDisplayCenterStrike(nearestStrike(liveAtm));
+      setIsCenterLocked(true);
       return;
     }
-    // Do not auto-shift center after initial lock.
-    // Re-centering is manual via the Re-centre button.
-  }, [strikes, chainData?.strike_interval, atmStrike, displayCenterStrike]);
+
+    // Guard against stale lock: realign when center drifts materially from live ATM.
+    // This keeps the highlighted row aligned with the current ATM after data source updates.
+    if (liveAtm != null && strikeInterval > 0) {
+      const drift = Math.abs(displayCenterStrike - liveAtm);
+      if (drift >= strikeInterval * 2) {
+        setDisplayCenterStrike(nearestStrike(liveAtm));
+      }
+    }
+  }, [strikes, activeChainData?.strike_interval, atmStrike, displayCenterStrike]);
 
   const displayedStrikes = React.useMemo(() => {
     if (!strikes.length) return [];
     const sorted = strikes.map(s => s.strike).sort((a, b) => a - b);
-    const atm = displayCenterStrike ?? atmStrike ?? null;
+    const atm = highlightedAtmStrike ?? displayCenterStrike ?? atmStrike ?? null;
     if (atm == null) return strikes;
     let centerIdx = sorted.findIndex(v => v === atm);
     if (centerIdx < 0) {
@@ -131,21 +160,26 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
     if (end > sorted.length - 1) { end = sorted.length - 1; start = Math.max(0, end - total + 1); }
     const allowed = new Set(sorted.slice(start, end + 1));
     return strikes.filter(s => allowed.has(s.strike));
-  }, [strikes, atmStrike, displayCenterStrike]);
+  }, [strikes, highlightedAtmStrike, atmStrike, displayCenterStrike]);
 
   useEffect(() => {
-    if (didInitialScroll.current) return;
     const el = listRef.current;
     if (!el) return;
     const atmEl = el.querySelector('[data-atm="true"]');
     if (!atmEl) return;
+
+    // Re-center whenever ATM row changes for a symbol/expiry, not only once.
+    const currentAtm = highlightedAtmStrike ?? displayCenterStrike ?? atmStrike ?? null;
+    if (didInitialScroll.current && lastScrolledAtmRef.current === currentAtm) return;
+
     const elRect = el.getBoundingClientRect();
     const rowRect = atmEl.getBoundingClientRect();
     const delta = rowRect.top - elRect.top;
     const target = el.scrollTop + delta - (el.clientHeight / 2) + (atmEl.clientHeight / 2);
     el.scrollTo({ top: Math.max(target, 0), behavior: 'smooth' });
     didInitialScroll.current = true;
-  }, [displayedStrikes]);
+    lastScrolledAtmRef.current = currentAtm;
+  }, [displayedStrikes, highlightedAtmStrike, displayCenterStrike, atmStrike]);
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -258,7 +292,7 @@ const Options = ({ handleOpenOrderModal, selectedIndex = 'NIFTY 50', expiry }) =
           {lotSize && <span className="text-xs text-blue-600 font-medium">Lot: {lotSize}</span>}
           {expiry && <span className="text-xs text-orange-600 font-medium">Exp: {expiry}</span>}
         </div>
-        <button onClick={recalibrateChain} disabled={chainLoading} className="px-2 py-0.5 text-xs font-semibold rounded border border-indigo-400 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50" title="Re-centre strikes to current ATM">
+        <button onClick={() => { setDisplayCenterStrike(null); setIsCenterLocked(false); recalibrateChain(); }} disabled={chainLoading} className="px-2 py-0.5 text-xs font-semibold rounded border border-indigo-400 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50" title="Re-centre strikes to current ATM">
           Re-centre
         </button>
         <button onClick={refreshChain} disabled={chainLoading} className="p-1 hover:bg-gray-200 rounded transition-colors disabled:opacity-50" title="Refresh data">

@@ -24,7 +24,12 @@ from zoneinfo import ZoneInfo
 from app.database import get_pool
 from app.config import get_settings
 from app.market_data.rate_limiter import dhan_client
-from app.instruments.atm_calculator import update_atm, get_atm
+from app.instruments.atm_calculator import update_atm, get_atm, set_atm
+from app.market_data.index_underlyings import (
+    IDX_SEG as _IDX_SEG,
+    IDX_UNDERLYINGS,
+    resolve_index_security_id,
+)
 
 log = logging.getLogger(__name__)
 cfg = get_settings()
@@ -37,13 +42,6 @@ IST = ZoneInfo("Asia/Kolkata")
 MARKET_CLOSE_CAPTURE_TIME = time(15, 46, 0)  # 3:46 PM IST
 
 # Underlying configurations
-_IDX_UNDERLYINGS = ["NIFTY", "BANKNIFTY", "SENSEX"]
-_IDX_SEG = "IDX_I"
-_IDX_SECURITY_IDS = {
-    "NIFTY": 13,
-    "BANKNIFTY": 25,
-    "SENSEX": 51,
-}
 _STRIKE_INTERVALS = {
     "NIFTY": 50,
     "BANKNIFTY": 100,
@@ -207,7 +205,24 @@ class _ClosePriceCapture:
         """
         step = _STRIKE_INTERVALS.get(underlying, 100)
 
-        # Try Method 1: Query market_data table for latest LTP
+        # Try Method 1: Derive ATM from minimum CE+PE straddle (nearest expiry)
+        straddle_atm = await self._get_atm_from_straddle_db(underlying)
+        if straddle_atm is not None:
+            try:
+                new_atm = set_atm(underlying, straddle_atm)
+                return {
+                    "status": "success",
+                    "new_atm": new_atm,
+                    "ltp": straddle_atm,
+                    "used_fallback": False,
+                }
+            except Exception as exc:
+                return {
+                    "status": "error",
+                    "error": f"Failed to set ATM from straddle minima: {exc}",
+                }
+
+        # Try Method 2: Query market_data table for latest LTP
         ltp = await self._get_ltp_from_market_data(underlying)
 
         if ltp is not None:
@@ -225,7 +240,7 @@ class _ClosePriceCapture:
                     "error": f"Failed to update ATM from DB LTP: {exc}",
                 }
 
-        # Method 2: Fallback to Dhan REST API
+        # Method 3: Fallback to Dhan REST API
         ltp = await self._get_ltp_from_dhan_rest(underlying)
 
         if ltp is not None:
@@ -248,6 +263,50 @@ class _ClosePriceCapture:
             "status": "error",
             "error": "No closing price available from DB or Dhan REST API",
         }
+
+    async def _get_atm_from_straddle_db(self, underlying: str) -> float | None:
+        """Derive ATM as strike with minimum (CE+PE) for nearest available expiry."""
+        pool = get_pool()
+        try:
+            row = await pool.fetchrow(
+                """
+                WITH nearest AS (
+                    SELECT MIN(expiry_date) AS exp
+                    FROM option_chain_data
+                    WHERE underlying = $1
+                      AND expiry_date >= CURRENT_DATE
+                ),
+                legs AS (
+                    SELECT
+                        ocd.strike_price,
+                        ocd.option_type,
+                        COALESCE(md.close, md.ltp, ocd.prev_close) AS px
+                    FROM option_chain_data ocd
+                    LEFT JOIN market_data md ON md.instrument_token = ocd.instrument_token
+                    JOIN nearest n ON ocd.expiry_date = n.exp
+                    WHERE ocd.underlying = $1
+                )
+                SELECT
+                    strike_price,
+                    MAX(CASE WHEN option_type = 'CE' THEN px END) AS ce_px,
+                    MAX(CASE WHEN option_type = 'PE' THEN px END) AS pe_px
+                FROM legs
+                GROUP BY strike_price
+                HAVING MAX(CASE WHEN option_type = 'CE' THEN px END) IS NOT NULL
+                   AND MAX(CASE WHEN option_type = 'PE' THEN px END) IS NOT NULL
+                ORDER BY (MAX(CASE WHEN option_type = 'CE' THEN px END)
+                       +  MAX(CASE WHEN option_type = 'PE' THEN px END)) ASC,
+                         strike_price ASC
+                LIMIT 1
+                """,
+                underlying,
+            )
+            if not row or row["strike_price"] is None:
+                return None
+            return float(row["strike_price"])
+        except Exception as exc:
+            log.warning(f"{underlying}: Error deriving ATM from straddle DB data: {exc}")
+            return None
 
     async def _get_ltp_from_market_data(self, underlying: str) -> float | None:
         """
@@ -294,7 +353,7 @@ class _ClosePriceCapture:
         
         This works even if index tokens don't have WS subscriptions or missed ticks.
         """
-        security_id = _IDX_SECURITY_IDS.get(underlying)
+        security_id = await resolve_index_security_id(underlying)
         if not security_id:
             log.error(f"{underlying}: Unknown security ID")
             return None

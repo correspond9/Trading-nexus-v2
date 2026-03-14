@@ -36,6 +36,39 @@
   box-sizing: border-box;
 }
 
+.neo-page {
+  color-scheme: light;
+}
+
+.neo-page :is(input, select, textarea) {
+  color-scheme: light;
+  background-color: var(--neo-surface) !important;
+  color: var(--neo-text-main) !important;
+  -webkit-text-fill-color: var(--neo-text-main);
+}
+
+.neo-page :is(input, select, textarea)::placeholder {
+  color: color-mix(in srgb, var(--neo-text-muted) 82%, #ffffff);
+  opacity: 1;
+}
+
+.neo-page :is(input, select, textarea):-webkit-autofill,
+.neo-page :is(input, select, textarea):-webkit-autofill:hover,
+.neo-page :is(input, select, textarea):-webkit-autofill:focus,
+.neo-page :is(input, select, textarea):-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--neo-surface) inset;
+  -webkit-text-fill-color: var(--neo-text-main);
+  transition: background-color 9999s ease-out 0s;
+}
+
+.neo-page input[type='file']::file-selector-button,
+.neo-page input[type='file']::-webkit-file-upload-button {
+  background: color-mix(in srgb, var(--neo-surface) 92%, #ffffff);
+  color: var(--neo-text-main);
+  border: 1px solid color-mix(in srgb, var(--neo-text-muted) 35%, #ffffff);
+  border-radius: 10px;
+}
+
 .neo-page::before,
 .neo-page::after {
   content: '';
@@ -241,6 +274,39 @@
 
 .funded-page * {
   box-sizing: border-box;
+}
+
+.funded-page {
+  color-scheme: light;
+}
+
+.funded-page :is(input, select, textarea) {
+  color-scheme: light;
+  background-color: var(--surface) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text);
+}
+
+.funded-page :is(input, select, textarea)::placeholder {
+  color: color-mix(in srgb, var(--muted) 82%, #ffffff);
+  opacity: 1;
+}
+
+.funded-page :is(input, select, textarea):-webkit-autofill,
+.funded-page :is(input, select, textarea):-webkit-autofill:hover,
+.funded-page :is(input, select, textarea):-webkit-autofill:focus,
+.funded-page :is(input, select, textarea):-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+  -webkit-text-fill-color: var(--text);
+  transition: background-color 9999s ease-out 0s;
+}
+
+.funded-page input[type='file']::file-selector-button,
+.funded-page input[type='file']::-webkit-file-upload-button {
+  background: color-mix(in srgb, var(--surface) 92%, #ffffff);
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--muted) 32%, #ffffff);
+  border-radius: 10px;
 }
 
 .funded-container {
@@ -1000,6 +1066,39 @@
   box-sizing: border-box;
 }
 
+.rules-page {
+  color-scheme: light;
+}
+
+.rules-page :is(input, select, textarea) {
+  color-scheme: light;
+  background-color: #ffffff !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text);
+}
+
+.rules-page :is(input, select, textarea)::placeholder {
+  color: color-mix(in srgb, var(--muted) 82%, #ffffff);
+  opacity: 1;
+}
+
+.rules-page :is(input, select, textarea):-webkit-autofill,
+.rules-page :is(input, select, textarea):-webkit-autofill:hover,
+.rules-page :is(input, select, textarea):-webkit-autofill:focus,
+.rules-page :is(input, select, textarea):-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+  -webkit-text-fill-color: var(--text);
+  transition: background-color 9999s ease-out 0s;
+}
+
+.rules-page input[type='file']::file-selector-button,
+.rules-page input[type='file']::-webkit-file-upload-button {
+  background: #f8fafc;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--muted) 34%, #ffffff);
+  border-radius: 10px;
+}
+
 .rules-page::before,
 .rules-page::after {
   content: '';
@@ -1263,6 +1362,7 @@
   border-radius: 12px;
   padding: 12px 14px;
   background: #f8fbff;
+  background-color: #f8fbff !important;
   box-shadow: var(--shadow-inset);
   color: var(--text);
   text-align: center;
@@ -1270,6 +1370,11 @@
   font-weight: 700;
   outline: none;
   transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.rules-payin-input::placeholder {
+  color: color-mix(in srgb, var(--muted) 78%, #ffffff);
+  opacity: 1;
 }
 
 .rules-payin-input:focus {

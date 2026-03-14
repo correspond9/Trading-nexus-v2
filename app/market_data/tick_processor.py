@@ -18,7 +18,7 @@ from app.database import get_pool
 from app.config   import get_settings
 from app.runtime.notifications import add_notification
 from app.market_data.close_price_validator import validate_close_price
-from app.market_hours import is_equity_window_active
+from app.market_hours import MarketState, get_market_state
 
 log = logging.getLogger(__name__)
 cfg = get_settings()
@@ -168,8 +168,6 @@ class _TickProcessor:
             for r in existing_rows
         }
 
-        is_market_active = is_equity_window_active()
-
         rows = []
         for tick in batch:
             t   = tick["instrument_token"]
@@ -183,6 +181,7 @@ class _TickProcessor:
                 existing = existing_data.get(t, {})
                 prev_close = existing.get("prev_close")
                 current_ltp = tick.get("ltp")
+                is_market_active = get_market_state(seg, sym or "") == MarketState.OPEN
                 
                 is_valid, _ = validate_close_price(
                     close_price=close_price,

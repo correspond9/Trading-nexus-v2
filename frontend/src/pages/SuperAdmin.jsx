@@ -27,9 +27,9 @@ const defaultMarketConfig = () => ({
 const defaultSmsOtpSettings = () => ({
   message_central_customer_id: 'C-44071166CC38423',
   message_central_password: 'Allalone@01',
-  otp_expiry_seconds: 60,
-  otp_resend_cooldown_seconds: 120,
-  otp_max_attempts: 7,
+  otp_expiry_seconds: 180,
+  otp_resend_cooldown_seconds: 300,
+  otp_max_attempts: 5,
 });
 
 const TABS = [
@@ -217,9 +217,9 @@ const SuperAdminDashboard = () => {
       setSmsOtpSettings({
         message_central_customer_id: data.message_central_customer_id || 'C-44071166CC38423',
         message_central_password: data.message_central_password || 'Allalone@01',
-        otp_expiry_seconds: Number(data.otp_expiry_seconds || 60),
-        otp_resend_cooldown_seconds: Number(data.otp_resend_cooldown_seconds || 120),
-        otp_max_attempts: Number(data.otp_max_attempts || 7),
+        otp_expiry_seconds: Number(data.otp_expiry_seconds || 180),
+        otp_resend_cooldown_seconds: Number(data.otp_resend_cooldown_seconds || 300),
+        otp_max_attempts: Number(data.otp_max_attempts || 5),
       });
     } catch (e) {
       setSmsOtpError(e?.message || 'Failed to load SMS OTP settings');
@@ -636,9 +636,9 @@ const SuperAdminDashboard = () => {
       const payload = {
         message_central_customer_id: (smsOtpSettings.message_central_customer_id || '').trim(),
         message_central_password: (smsOtpSettings.message_central_password || '').trim(),
-        otp_expiry_seconds: Number(smsOtpSettings.otp_expiry_seconds || 60),
-        otp_resend_cooldown_seconds: Number(smsOtpSettings.otp_resend_cooldown_seconds || 120),
-        otp_max_attempts: Number(smsOtpSettings.otp_max_attempts || 7),
+        otp_expiry_seconds: Number(smsOtpSettings.otp_expiry_seconds || 180),
+        otp_resend_cooldown_seconds: Number(smsOtpSettings.otp_resend_cooldown_seconds || 300),
+        otp_max_attempts: Number(smsOtpSettings.otp_max_attempts || 5),
       };
 
       if (!payload.message_central_customer_id) {
@@ -1103,8 +1103,8 @@ const SuperAdminDashboard = () => {
                     <div className="font-semibold mb-1">{ocRebuildResult.message}</div>
                     {(ocRebuildResult.atm_updates || []).map(r => (
                       <div key={r.underlying} className="font-mono">
-                        {r.underlying}: {r.status === 'atm_updated'
-                          ? `Dhan LTP=${r.dhan_ltp} | ATM ${r.old_atm} → ${r.new_atm}`
+                        {r.underlying}: {(r.new_atm !== undefined && r.new_atm !== null)
+                          ? `Dhan Spot=${r.dhan_ltp ?? 'n/a'}${r.spot_source ? ` (${r.spot_source})` : ''} | ATM ${r.old_atm ?? 'n/a'} → ${r.new_atm}${r.rounded_spot_strike ? ` (spot≈${r.rounded_spot_strike})` : ''} | CE=${r.atm_ce_ltp ?? 'n/a'} PE=${r.atm_pe_ltp ?? 'n/a'} | ${r.method || r.status}`
                           : r.status}
                       </div>
                     ))}
@@ -1341,9 +1341,9 @@ const SuperAdminDashboard = () => {
             <ul className="text-xs text-zinc-300 space-y-2">
               <li>Customer ID: C-44071166CC38423</li>
               <li>Password: Allalone@01</li>
-              <li>OTP expiry: 60 seconds (1 minute)</li>
-              <li>Resend cooldown: 120 seconds (2 minutes)</li>
-              <li>Maximum attempts: 7</li>
+              <li>OTP expiry: 180 seconds (3 minutes)</li>
+              <li>Resend cooldown: 300 seconds (5 minutes)</li>
+              <li>Maximum attempts: 5</li>
             </ul>
           </div>
         </div>

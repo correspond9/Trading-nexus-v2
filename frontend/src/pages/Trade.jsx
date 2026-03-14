@@ -105,6 +105,12 @@ const Trade = () => {
 
   useEffect(() => {
     const loadExpiries = async () => {
+      // Reset immediately so child tabs do not fetch with previous index + previous expiry.
+      setExpiries([]);
+      setIsoExpiries([]);
+      setExpiry(null);
+      setIsoExpiry(null);
+
       const requestId = ++expiryRequestRef.current;
       const expiryData = await fetchExpiryDates(selectedIndex);
       if (requestId !== expiryRequestRef.current) return;

@@ -45,7 +45,7 @@ from app.margin.exchange_holidays             import (
 )
 from app.margin import mcx_margin_data
 from app.margin import bse_margin_data
-from app.market_hours                         import load_exchange_holidays_from_db
+from app.market_hours                         import load_exchange_holidays_from_db, is_nse_bse_ws_window_open_strict
 from app.execution_simulator.super_order_monitor import (
     start_monitor   as start_super_order_monitor,
     stop_monitor    as stop_super_order_monitor,
@@ -224,22 +224,25 @@ async def lifespan(app: FastAPI):
                 log.info("[7] Starting tick processor…")
                 await tick_processor.start()
 
-                log.info("[8] Starting Live Feed WebSocket manager (5 slots)…")
-                await ws_manager.start_all()
+                if is_nse_bse_ws_window_open_strict():
+                    log.info("[8] Starting Live Feed WebSocket manager (5 slots)…")
+                    await ws_manager.start_all()
 
-                log.info("[9] Starting Full Depth WebSocket manager…")
-                pool = get_pool()
-                depth_rows = await pool.fetch(
-                    """
-                    SELECT instrument_token FROM instrument_master
-                    WHERE underlying = ANY($1::text[])
-                      AND instrument_type IN ('FUTIDX','OPTIDX')
-                    LIMIT 10
-                    """,
-                    cfg.depth_20_underlying,
-                )
-                depth_tokens = [r["instrument_token"] for r in depth_rows]
-                await depth_ws_manager.start(depth_tokens)
+                    log.info("[9] Starting Full Depth WebSocket manager…")
+                    pool = get_pool()
+                    depth_rows = await pool.fetch(
+                        """
+                        SELECT instrument_token FROM instrument_master
+                        WHERE underlying = ANY($1::text[])
+                            AND instrument_type IN ('FUTIDX','OPTIDX')
+                        LIMIT 10
+                        """,
+                        cfg.depth_20_underlying,
+                    )
+                    depth_tokens = [r["instrument_token"] for r in depth_rows]
+                    await depth_ws_manager.start(depth_tokens)
+                else:
+                    log.info("[8/9] Skipping Dhan websocket startup (NSE/BSE market window is closed).")
 
                 log.info("[10] Building option chain skeleton + starting Greeks poller…")
                 await greeks_poller.build_skeleton()

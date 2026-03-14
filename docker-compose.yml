@@ -110,6 +110,10 @@ services:
       INSTRUMENTS_CSV_PATH: /app/data/api-scrip-master-detailed.csv
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       FORCE_MARKET_OPEN: ${FORCE_MARKET_OPEN:-false}
+      FORCE_RUN_MARKET_WORKERS: ${FORCE_RUN_MARKET_WORKERS:-false}
+      EMAIL_OTP_SERVICE_BASE_URL: ${EMAIL_OTP_SERVICE_BASE_URL:-https://nexus-otp-server.vercel.app}
+      EMAIL_OTP_SERVICE_TIMEOUT_SECONDS: ${EMAIL_OTP_SERVICE_TIMEOUT_SECONDS:-15}
+      EMAIL_OTP_EXPIRY_SECONDS: ${EMAIL_OTP_EXPIRY_SECONDS:-300}
     volumes:
       # Mount the instrument CSV directory so it's available inside the container
       - ./instrument_master:/app/data:ro

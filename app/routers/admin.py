@@ -150,9 +150,9 @@ class SmsOtpSettingsRequest(BaseModel):
 _SMS_OTP_DEFAULTS = {
     "message_central_customer_id": "C-44071166CC38423",
     "message_central_password": "Allalone@01",
-    "otp_expiry_seconds": 60,
-    "otp_resend_cooldown_seconds": 120,
-    "otp_max_attempts": 7,
+    "otp_expiry_seconds": 180,
+    "otp_resend_cooldown_seconds": 300,
+    "otp_max_attempts": 5,
 }
 
 
@@ -1201,13 +1201,22 @@ async def save_credentials(req: CredentialsSaveRequest):
                 log.error(traceback.format_exc())
 
         # Safety net: if credentials exist but live-feed slots are still disconnected,
-        # trigger the same runtime connect flow used by the explicit Connect button.
-        # This covers cases where token value is unchanged/masked and rotate path is skipped.
+        # or runtime processors/pollers are not running, trigger the same runtime
+        # connect flow used by the explicit Connect button. This covers cases where
+        # token value is unchanged/masked and rotate path is skipped.
         try:
             if get_client_id() and get_access_token():
+                from app.market_data.tick_processor import tick_processor
+                from app.market_data.greeks_poller import greeks_poller
+
                 slots = ws_manager.get_status()
                 any_connected = any(bool(s.get("connected")) for s in slots)
-                if not any_connected:
+                needs_runtime_connect = (
+                    (not any_connected)
+                    or (not tick_processor.is_running)
+                    or (not greeks_poller.is_running)
+                )
+                if needs_runtime_connect:
                     await dhan_connect()
                     if "runtime_connect" not in saved_items:
                         saved_items.append("runtime_connect")
@@ -2076,6 +2085,7 @@ async def dhan_connect():
     from app.market_data.depth_ws_manager  import depth_ws_manager
     from app.market_data.tick_processor    import tick_processor
     from app.market_data.greeks_poller     import greeks_poller
+    from app.market_hours                  import is_nse_bse_ws_window_open_strict
     from app.credentials.credential_store  import get_client_id, get_access_token
     from app.credentials.token_refresher   import token_refresher
     from app.instruments import subscription_manager as sm
@@ -2119,35 +2129,39 @@ async def dhan_connect():
         await tick_processor.start()
         started.append("tick_processor")
 
-    # 3. Live-feed WebSocket manager (5 slots)
-    need_ws_start = any(
-        conn._task is None or conn._task.done()
-        for conn in ws_manager._conns
-    )
-    if need_ws_start:
-        # Stop any partially-started connections first to avoid duplicate tasks
-        await ws_manager.stop_all()
-        await ws_manager.start_all()
-        started.append("ws_manager (5 slots)")
-
-    # 4. Full-depth WebSocket manager
-    if depth_ws_manager._task is None or depth_ws_manager._task.done():
-        from app.database import get_pool as _get_pool
-        from app.config   import get_settings as _get_settings
-        _cfg = _get_settings()
-        pool = _get_pool()
-        depth_rows = await pool.fetch(
-            """
-            SELECT instrument_token FROM instrument_master
-            WHERE underlying = ANY($1::text[])
-              AND instrument_type IN ('FUTIDX','OPTIDX')
-            LIMIT 10
-            """,
-            _cfg.depth_20_underlying,
+    # 3/4. Dhan WebSocket managers (strict NSE/BSE gate)
+    if is_nse_bse_ws_window_open_strict():
+        need_ws_start = any(
+            conn._task is None or conn._task.done()
+            for conn in ws_manager._conns
         )
-        depth_tokens = [r["instrument_token"] for r in depth_rows]
-        await depth_ws_manager.start(depth_tokens)
-        started.append("depth_ws_manager")
+        if need_ws_start:
+            # Stop any partially-started connections first to avoid duplicate tasks
+            await ws_manager.stop_all()
+            await ws_manager.start_all()
+            started.append("ws_manager (5 slots)")
+
+        if depth_ws_manager._task is None or depth_ws_manager._task.done():
+            from app.database import get_pool as _get_pool
+            from app.config   import get_settings as _get_settings
+            _cfg = _get_settings()
+            pool = _get_pool()
+            depth_rows = await pool.fetch(
+                """
+                SELECT instrument_token FROM instrument_master
+                WHERE underlying = ANY($1::text[])
+                  AND instrument_type IN ('FUTIDX','OPTIDX')
+                LIMIT 10
+                """,
+                _cfg.depth_20_underlying,
+            )
+            depth_tokens = [r["instrument_token"] for r in depth_rows]
+            await depth_ws_manager.start(depth_tokens)
+            started.append("depth_ws_manager")
+    else:
+        await ws_manager.stop_all()
+        await depth_ws_manager.stop()
+        errors.append("Skipped websocket startup: NSE/BSE market window is closed")
 
     # 5. Greeks poller
     if greeks_poller._task is None or greeks_poller._task.done():
@@ -3366,6 +3380,67 @@ _OC_STRIKE_INTERVALS = {"NIFTY": 50, "BANKNIFTY": 100, "SENSEX": 100}
 _OC_UNDERLYINGS      = ["NIFTY", "BANKNIFTY", "SENSEX"]
 
 
+def _extract_ltp_from_marketfeed_payload(payload: dict, security_id: int) -> float | None:
+    """
+    Best-effort extractor for Dhan marketfeed/ltp responses.
+    Handles common response shapes returned by different account modes.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    data = payload.get("data")
+    candidates = []
+    sid_s = str(security_id)
+
+    if isinstance(data, dict):
+        # Documented Dhan shape for marketfeed/ltp:
+        # {"data": {"IDX_I": {"51": {"last_price": ...}}, ...}, "status": "success"}
+        for seg_val in data.values():
+            if not isinstance(seg_val, dict):
+                continue
+            for token_key, token_payload in seg_val.items():
+                if str(token_key) != sid_s:
+                    continue
+                if isinstance(token_payload, dict):
+                    for key in ("last_price", "lastTradedPrice", "lastPrice", "ltp"):
+                        val = token_payload.get(key)
+                        try:
+                            f = float(val)
+                            if f > 0:
+                                return f
+                        except Exception:
+                            continue
+
+        if isinstance(data.get("quotes"), list):
+            candidates.extend(data.get("quotes") or [])
+        if isinstance(data.get("data"), list):
+            candidates.extend(data.get("data") or [])
+        if isinstance(data.get("ltp"), list):
+            candidates.extend(data.get("ltp") or [])
+
+    if isinstance(payload.get("data"), list):
+        candidates.extend(payload.get("data") or [])
+
+    if isinstance(payload.get("ltp"), list):
+        candidates.extend(payload.get("ltp") or [])
+
+    for row in candidates:
+        if not isinstance(row, dict):
+            continue
+        row_sid = row.get("securityId") or row.get("SecurityId") or row.get("security_id")
+        if row_sid is not None and str(row_sid) != sid_s:
+            continue
+        for key in ("lastTradedPrice", "last_price", "lastPrice", "ltp"):
+            val = row.get(key)
+            try:
+                f = float(val)
+                if f > 0:
+                    return f
+            except Exception:
+                continue
+    return None
+
+
 @router.post("/option-chain/recalibrate-atm")
 async def recalibrate_atm(
     current_user: CurrentUser = Depends(get_super_admin_user),
@@ -3378,7 +3453,7 @@ async def recalibrate_atm(
     strike window so the frontend re-centres correctly.
     """
     from app.database import get_pool as _pool
-    from app.instruments.atm_calculator import update_atm, get_atm
+    from app.instruments.atm_calculator import update_atm, get_atm, set_atm
 
     pool = _pool()
     results = []
@@ -3389,27 +3464,71 @@ async def recalibrate_atm(
         try:
             row = await pool.fetchrow(
                 """
-                SELECT md.ltp
-                FROM market_data md
-                JOIN instrument_master im ON im.instrument_token = md.instrument_token
-                WHERE im.symbol = $1
-                  AND im.instrument_type = 'INDEX'
+                WITH nearest AS (
+                    SELECT MIN(expiry_date) AS exp
+                    FROM option_chain_data
+                    WHERE underlying = $1
+                      AND expiry_date >= CURRENT_DATE
+                ),
+                legs AS (
+                    SELECT
+                        ocd.strike_price,
+                        ocd.option_type,
+                        COALESCE(md.ltp, ocd.prev_close) AS px
+                    FROM option_chain_data ocd
+                    LEFT JOIN market_data md ON md.instrument_token = ocd.instrument_token
+                    JOIN nearest n ON ocd.expiry_date = n.exp
+                    WHERE ocd.underlying = $1
+                )
+                SELECT
+                    strike_price,
+                    MAX(CASE WHEN option_type = 'CE' THEN px END) AS ce_px,
+                    MAX(CASE WHEN option_type = 'PE' THEN px END) AS pe_px
+                FROM legs
+                GROUP BY strike_price
+                HAVING MAX(CASE WHEN option_type = 'CE' THEN px END) IS NOT NULL
+                   AND MAX(CASE WHEN option_type = 'PE' THEN px END) IS NOT NULL
+                ORDER BY (MAX(CASE WHEN option_type = 'CE' THEN px END)
+                       +  MAX(CASE WHEN option_type = 'PE' THEN px END)) ASC,
+                         strike_price ASC
                 LIMIT 1
                 """,
                 underlying,
             )
-            ltp = float(row["ltp"]) if (row and row["ltp"]) else None
-            if ltp and ltp > 0:
-                new_atm = update_atm(underlying, ltp, step)
+            if row and row["strike_price"] is not None:
+                strike = float(row["strike_price"])
+                new_atm = set_atm(underlying, strike)
                 results.append({
                     "underlying": underlying,
-                    "ltp": ltp,
                     "old_atm": float(old_atm) if old_atm is not None else None,
                     "new_atm": float(new_atm),
-                    "status": "updated",
+                    "status": "updated_from_straddle",
                 })
             else:
-                results.append({"underlying": underlying, "status": "no_ltp", "ltp": None})
+                # Fallback to LTP-based rounding if no CE+PE pair is available.
+                ltp_row = await pool.fetchrow(
+                    """
+                    SELECT md.ltp
+                    FROM market_data md
+                    JOIN instrument_master im ON im.instrument_token = md.instrument_token
+                    WHERE im.symbol = $1
+                      AND im.instrument_type = 'INDEX'
+                    LIMIT 1
+                    """,
+                    underlying,
+                )
+                ltp = float(ltp_row["ltp"]) if (ltp_row and ltp_row["ltp"]) else None
+                if ltp and ltp > 0:
+                    new_atm = update_atm(underlying, ltp, step)
+                    results.append({
+                        "underlying": underlying,
+                        "ltp": ltp,
+                        "old_atm": float(old_atm) if old_atm is not None else None,
+                        "new_atm": float(new_atm),
+                        "status": "updated_ltp_fallback",
+                    })
+                else:
+                    results.append({"underlying": underlying, "status": "no_data"})
         except Exception as exc:
             results.append({"underlying": underlying, "status": "error", "error": str(exc)})
 
@@ -3434,35 +3553,43 @@ async def rebuild_option_chain_skeleton(
     4. Triggers an immediate forced Greeks poll (force_once) to re-hydrate
        prices from the Dhan WS snapshot.
     """
-    from app.instruments.atm_calculator import update_atm, get_atm
-
-    _IDX_SECURITY_IDS = {"NIFTY": 13, "BANKNIFTY": 25, "SENSEX": 51}
-    _IDX_SEG          = "IDX_I"
+    from app.instruments.atm_calculator import update_atm, get_atm, set_atm
+    from app.market_data.atm_selector import legs_from_rest_optionchain, select_atm_from_straddle_legs
+    from app.market_data.index_underlyings import (
+        IDX_SEG as _IDX_SEG,
+        resolve_index_security_id,
+        resolve_nearest_optidx_expiry,
+    )
 
     atm_results = []
     for underlying in _OC_UNDERLYINGS:
         step = _OC_STRIKE_INTERVALS.get(underlying, 50)
         old_atm = get_atm(underlying)
-        security_id = _IDX_SECURITY_IDS.get(underlying)
+        security_id = await resolve_index_security_id(underlying)
         if not security_id:
             atm_results.append({"underlying": underlying, "status": "no_security_id"})
             continue
         try:
-            # Get the nearest expiry for this underlying to call Dhan's /optionchain
-            from app.database import get_pool as _pool
-            pool = _pool()
-            exp_row = await pool.fetchrow(
-                """
-                SELECT MIN(expiry_date) AS expiry
-                FROM option_chain_data
-                WHERE underlying = $1 AND expiry_date >= CURRENT_DATE
-                """,
-                underlying,
-            )
-            if not exp_row or not exp_row["expiry"]:
+            # Resolve nearest active expiry from instrument_master.
+            # option_chain_data may lag after resets and produce stale/no expiry.
+            expiry = await resolve_nearest_optidx_expiry(underlying)
+            if not expiry:
                 atm_results.append({"underlying": underlying, "status": "no_expiry"})
                 continue
-            expiry_str = str(exp_row["expiry"])
+            expiry_str = str(expiry)
+
+            # Fetch authoritative index spot first via marketfeed/ltp.
+            # /optionchain last_price can drift for some underlyings (notably SENSEX).
+            ltp_f: float | None = None
+            try:
+                ltp_resp = await dhan_client.post(
+                    "/marketfeed/ltp",
+                    json={_IDX_SEG: [security_id]},
+                )
+                if ltp_resp.status_code == 200:
+                    ltp_f = _extract_ltp_from_marketfeed_payload(ltp_resp.json(), security_id)
+            except Exception:
+                ltp_f = None
 
             resp = await dhan_client.post(
                 "/optionchain",
@@ -3479,20 +3606,60 @@ async def rebuild_option_chain_skeleton(
                 })
                 continue
 
-            data    = resp.json().get("data", {})
-            ltp     = data.get("last_price")
-            if not ltp or float(ltp) <= 0:
-                atm_results.append({"underlying": underlying, "status": "no_ltp_from_dhan"})
+            data = resp.json().get("data", {})
+            oc = data.get("oc", {})
+            ltp = data.get("last_price")
+            if ltp_f is None:
+                try:
+                    ltp_raw = float(ltp) if ltp is not None else None
+                    ltp_f = ltp_raw if (ltp_raw is not None and ltp_raw > 0) else None
+                except Exception:
+                    ltp_f = None
+
+            spot_for_atm = ltp_f
+            if spot_for_atm is None:
+                try:
+                    lp_raw = float(ltp) if ltp is not None else None
+                    spot_for_atm = lp_raw if (lp_raw is not None and lp_raw > 0) else None
+                except Exception:
+                    spot_for_atm = None
+
+            legs = legs_from_rest_optionchain(oc)
+            best_strike, atm_meta = select_atm_from_straddle_legs(
+                legs,
+                spot_price=spot_for_atm,
+                strike_step=float(step),
+            )
+
+            if best_strike is None:
+                if ltp_f is not None:
+                    new_atm = update_atm(underlying, ltp_f, step)
+                    atm_results.append({
+                        "underlying": underlying,
+                        "dhan_ltp": ltp_f,
+                        "spot_source": "marketfeed_ltp_or_optionchain_last_price",
+                        "old_atm": float(old_atm) if old_atm is not None else None,
+                        "new_atm": float(new_atm),
+                        "method": "ltp_rounding_fallback",
+                        "status": "atm_updated_ltp_fallback",
+                    })
+                    continue
+                atm_results.append({"underlying": underlying, "status": "no_ce_pe_pair_from_dhan"})
                 continue
 
-            ltp_f   = float(ltp)
-            new_atm = update_atm(underlying, ltp_f, step)
+            new_atm = set_atm(underlying, best_strike, ltp_f)
+            chosen_legs = legs.get(float(best_strike), {})
             atm_results.append({
                 "underlying": underlying,
                 "dhan_ltp":   ltp_f,
+                "spot_source": "marketfeed_ltp_or_optionchain_last_price",
                 "old_atm":    float(old_atm) if old_atm is not None else None,
                 "new_atm":    float(new_atm),
-                "status":     "atm_updated",
+                "method":     atm_meta.get("method") or "straddle_min_from_optionchain_rest",
+                "rounded_spot_strike": atm_meta.get("rounded_spot"),
+                "atm_ce_ltp": chosen_legs.get("CE"),
+                "atm_pe_ltp": chosen_legs.get("PE"),
+                "status":     "atm_updated_from_straddle",
             })
         except Exception as exc:
             atm_results.append({"underlying": underlying, "status": "error", "error": str(exc)})

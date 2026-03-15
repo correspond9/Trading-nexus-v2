@@ -23,6 +23,10 @@ __pycache__/
 frontend/node_modules/
 *.log
 
+# Mobile app (Android) — lives in its own separate repository
+# See MOBILE_APP_REPO_SETUP.md for migration instructions
+frontend/android/
+
 # Test outputs & temporary files
 test_*/
 results/

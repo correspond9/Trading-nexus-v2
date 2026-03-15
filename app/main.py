@@ -329,6 +329,9 @@ async def lifespan(app: FastAPI):
         log.info("[18b] Starting watchlist cleanup scheduler (06:30 IST) …")
         await watchlist_cleanup_scheduler.start()
 
+        log.info("[19] Starting VPS monitor (default ON) …")
+        await vps_monitor.start(interval_seconds=5)
+
         log.info("─── Application ready ─────────────────────────────────────")
 
     except Exception as exc:

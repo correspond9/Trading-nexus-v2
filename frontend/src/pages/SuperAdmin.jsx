@@ -50,6 +50,32 @@ const FormField = ({ label, children }) => (
   </div>
 );
 
+const ConfirmModal = ({ open, title, message, onConfirm, onCancel }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+        <h3 className="text-sm font-semibold text-zinc-100">{title}</h3>
+        <p className="mt-2 whitespace-pre-line text-xs text-zinc-300">{message}</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
+          >
+            No
+          </button>
+          <button
+            onClick={onConfirm}
+            className="rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-500"
+          >
+            Yes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const inputCls = 'sa-input w-full px-3 py-2 text-sm border rounded-lg outline-none focus:border-blue-500';
 const btnCls   = (color = 'blue') => `px-4 py-2 rounded-lg font-medium transition-colors text-zinc-100 text-sm ${
   color === 'blue'   ? 'bg-blue-600   hover:bg-blue-500   disabled:bg-blue-900'   :
@@ -70,12 +96,6 @@ const SuperAdminDashboard = () => {
   // ── Master loading ──
   const [masterLoading, setMasterLoading] = useState(false);
   const [masterMsg, setMasterMsg]         = useState('');
-
-  // ── NSE file upload ──
-  const [uploadMsg, setUploadMsg]              = useState('');
-  const [exposureFile, setExposureFile]        = useState(null);
-  const [equitySpanFile, setEquitySpanFile]    = useState(null);
-  const [commoditySpanFile, setCommoditySpanFile] = useState(null);
 
   // ── Market config ──
   const [marketConfig, setMarketConfig] = useState(defaultMarketConfig());
@@ -178,6 +198,28 @@ const SuperAdminDashboard = () => {
 
   // ── Save error ──
   const [saveError, setSaveError] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+  });
+
+  const askConfirm = (title, message, onConfirm) => {
+    setConfirmDialog({ open: true, title, message, onConfirm });
+  };
+
+  const closeConfirm = () => {
+    setConfirmDialog({ open: false, title: '', message: '', onConfirm: null });
+  };
+
+  const runConfirmedAction = async () => {
+    const fn = confirmDialog.onConfirm;
+    closeConfirm();
+    if (typeof fn === 'function') {
+      await fn();
+    }
+  };
 
   // ── Fetch Dhan connection status ──
   const fetchDhanStatus = useCallback(async () => {
@@ -262,12 +304,10 @@ const SuperAdminDashboard = () => {
   };
 
   const handleExpiryRollover = async () => {
-    if (!window.confirm('⚠️ This will immediately unsubscribe all expired F&O contracts from WebSocket feeds.\n\nExpired instruments with no watchlist entries or open positions will be removed from subscriptions.\n\nContinue?')) return;
-    
     setExpiryRolloverLoading(true);
     setExpiryRolloverResult(null);
     try {
-      const res = await req('/admin/force-subscription-rollover', { method: 'POST' });
+      const res = await req('/admin/subscriptions/rollover', { method: 'POST' });
       const data = await res.json();
       setExpiryRolloverResult(data);
     } catch (e) {
@@ -604,20 +644,6 @@ const SuperAdminDashboard = () => {
       const data = await res.json().catch(() => ({}));
       setMasterMsg(res.ok ? (data.message || 'Instrument master reloaded.') : (data.detail || 'Failed.'));
     } catch (e) { setMasterMsg(e?.message || 'Error'); } finally { setMasterLoading(false); }
-  };
-
-  const handleUploadNseFiles = async () => {
-    if (!exposureFile && !equitySpanFile && !commoditySpanFile) { setUploadMsg('Select at least one file.'); return; }
-    setUploadMsg('Uploading...');
-    const form = new FormData();
-    if (exposureFile)      form.append('exposure_csv', exposureFile);
-    if (equitySpanFile)    form.append('equity_span', equitySpanFile);
-    if (commoditySpanFile) form.append('commodity_span', commoditySpanFile);
-    try {
-      const res = await fetch(`${API}/admin/upload-nse-files`, { method: 'POST', body: form });
-      const data = await res.json().catch(() => ({}));
-      setUploadMsg(res.ok ? (data.message || 'Files uploaded.') : (data.detail || 'Upload failed.'));
-    } catch (e) { setUploadMsg(e?.message || 'Error'); }
   };
 
   const saveMarketConfig = async () => {
@@ -968,297 +994,283 @@ const SuperAdminDashboard = () => {
 
       {/* ── Settings & Monitoring ── */}
       {activeTab === 'settings' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left column */}
-          <div className="space-y-6">
-            {/* DhanHQ Auth */}
-            <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
-              <h2 className="text-base font-semibold">DhanHQ Authentication</h2>
-              <div className="flex gap-2">
-                {['DAILY_TOKEN', 'STATIC_IP'].map(mode => (
-                  <button key={mode} onClick={() => setLocalSettings(s => ({ ...s, authMode: mode }))}
-                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
-                      localSettings.authMode === mode
-                        ? 'bg-blue-600 text-zinc-100'
-                        : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
-                    }`}>
-                    {mode}
+        <div className="space-y-8">
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Zone 1: Live Telemetry</h2>
+              <span className="text-[11px] text-zinc-400">Real-time monitoring and alerts</span>
+            </div>
+            <div className="rounded-xl border border-zinc-700 bg-zinc-800 p-6">
+              <SystemMonitoring />
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Zone 2: Operations</h2>
+              <span className="text-[11px] text-zinc-400">High-impact runtime controls</span>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <div className="rounded-xl p-5 space-y-5 bg-zinc-800 border border-zinc-700">
+                <h3 className="text-sm font-semibold">Option Chain Controls</h3>
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-400">
+                    <span className="font-semibold text-blue-400">Reset ATM Cache</span> refreshes in-memory ATM from current DB prices.
+                  </p>
+                  <button
+                    onClick={() => askConfirm('Confirm ATM Reset', 'Are you sure to reset ATM cache from DB LTP?', handleOcRecalibrateAtm)}
+                    disabled={ocAtmLoading}
+                    className={btnCls('blue')}
+                  >
+                    {ocAtmLoading ? 'Resetting…' : 'Reset ATM Cache'}
                   </button>
-                ))}
-              </div>
-
-              <FormField label="Client ID">
-                <input className={inputCls} value={localSettings.clientId || ''}
-                  onChange={e => setLocalSettings(s => ({ ...s, clientId: e.target.value }))} placeholder="DhanHQ client ID" />
-              </FormField>
-              <FormField label="Access Token">
-                <input className={inputCls} value={localSettings.accessToken || ''}
-                  onChange={e => setLocalSettings(s => ({ ...s, accessToken: e.target.value }))} placeholder="Access token" type="password" />
-              </FormField>
-              {localSettings.authMode === 'STATIC_IP' && (
-                <>
-                  <FormField label="API Key">
-                    <input className={inputCls} value={localSettings.apiKey || ''}
-                      onChange={e => setLocalSettings(s => ({ ...s, apiKey: e.target.value }))} placeholder="API key" />
-                  </FormField>
-                  <FormField label="Client Secret">
-                    <input className={inputCls} value={localSettings.clientSecret || ''}
-                      onChange={e => setLocalSettings(s => ({ ...s, clientSecret: e.target.value }))} placeholder="Client secret" type="password" />
-                  </FormField>
-                </>
-              )}
-              {saveError && <p className="text-xs text-red-400">{saveError}</p>}
-              {saved && <p className="text-xs text-green-400">Saved successfully</p>}
-
-              <div className="flex gap-2">
-                <button onClick={handleSave} disabled={isSaving || authLoading} className={btnCls('blue')}>
-                  {isSaving ? 'Saving…' : 'Save Credentials'}
-                </button>
-                {(dhanStatus?.connected || dhanStatus?.tick_processor)
-                  ? <button onClick={handleDisconnect} disabled={isConnecting} className={btnCls('red')}>
-                      {isConnecting ? 'Working…' : 'Disconnect'}
-                    </button>
-                  : <button onClick={handleConnect} disabled={isConnecting} className={btnCls('green')}>
-                      {isConnecting ? 'Connecting…' : 'Connect to Dhan'}
-                    </button>
-                }
-              </div>
-
-              {/* Connection status indicator */}
-              <div className="flex items-center gap-2 text-xs">
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  dhanStatus === null              ? 'bg-gray-500' :
-                  dhanStatus.connected             ? 'bg-green-500 animate-pulse' :
-                  dhanStatus.tick_processor        ? 'bg-yellow-400 animate-pulse' :
-                                                     'bg-red-500'
-                }`} />
-                <span className="text-zinc-400">
-                  {dhanStatus === null ? 'Checking status…'
-                    : dhanStatus.connected     ? `Connected — ${dhanStatus.slots?.filter(s => s.connected).length ?? 0}/5 WS slots active`
-                    : dhanStatus.tick_processor ? 'Services started — waiting for WS connection…'
-                    : dhanStatus.has_credentials ? 'Credentials saved — not connected'
-                    : 'No credentials saved'
-                  }
-                </span>
-              </div>
-
-              {connectMsg.text && (
-                <p className={`text-xs ${
-                  connectMsg.type === 'success' ? 'text-green-400' :
-                  connectMsg.type === 'warn'    ? 'text-yellow-400' : 'text-red-400'
-                }`}>{connectMsg.text}</p>
-              )}
-            </div>
-
-            {/* Option Chain Controls */}
-            <div className="rounded-xl p-5 space-y-5 bg-zinc-800 border border-zinc-700">
-              <h2 className="text-base font-semibold">Option Chain Controls</h2>
-
-              {/* Button 1 — Frontend ATM Reset */}
-              <div className="space-y-2">
-                <p className="text-xs text-gray-400">
-                  <span className="font-semibold text-blue-400">Reset ATM Cache</span> — reads current underlying LTP from the FastAPI DB and refreshes the in-memory ATM. The next Options/Straddle page load will slice strikes around the corrected ATM.
-                </p>
-                <button
-                  onClick={handleOcRecalibrateAtm}
-                  disabled={ocAtmLoading}
-                  className={btnCls('blue')}
-                >
-                  {ocAtmLoading ? 'Resetting…' : '↺  Reset ATM Cache (DB LTP)'}
-                </button>
-                {ocAtmResult && (
-                  <div className={`text-xs rounded p-2 mt-1 ${
-                    ocAtmResult.success ? 'bg-green-900/40 text-green-300 border border-green-700' : 'bg-red-900/40 text-red-300 border border-red-700'
-                  }`}>
-                    <div className="font-semibold mb-1">{ocAtmResult.message}</div>
-                    {(ocAtmResult.results || []).map(r => (
-                      <div key={r.underlying} className="font-mono">
-                        {r.underlying}: {r.status === 'updated'
-                          ? `LTP=${r.ltp} | ATM ${r.old_atm} → ${r.new_atm}`
-                          : r.status}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <hr className="border-zinc-700" />
-
-              {/* Button 2 — Full Backend Rebuild */}
-              <div className="space-y-2">
-                <p className="text-xs text-gray-400">
-                  <span className="font-semibold text-orange-400">Rebuild Skeleton from Dhan</span> — calls DhanHQ REST API for a live spot price snapshot, updates ATM cache, rebuilds the <code className="text-xs text-zinc-300">option_chain_data</code> skeleton centred on the fresh ATM, and queues an immediate Greeks poll to re-hydrate live prices from the Dhan WS.
-                </p>
-                <button
-                  onClick={handleOcRebuildSkeleton}
-                  disabled={ocRebuildLoading}
-                  className={btnCls('red')}
-                >
-                  {ocRebuildLoading ? 'Rebuilding…' : '⟳  Rebuild Skeleton from Dhan REST'}
-                </button>
-                {ocRebuildResult && (
-                  <div className={`text-xs rounded p-2 mt-1 ${
-                    ocRebuildResult.success ? 'bg-green-900/40 text-green-300 border border-green-700' : 'bg-red-900/40 text-red-300 border border-red-700'
-                  }`}>
-                    <div className="font-semibold mb-1">{ocRebuildResult.message}</div>
-                    {(ocRebuildResult.atm_updates || []).map(r => (
-                      <div key={r.underlying} className="font-mono">
-                        {r.underlying}: {(r.new_atm !== undefined && r.new_atm !== null)
-                          ? `Dhan Spot=${r.dhan_ltp ?? 'n/a'}${r.spot_source ? ` (${r.spot_source})` : ''} | ATM ${r.old_atm ?? 'n/a'} → ${r.new_atm}${r.rounded_spot_strike ? ` (spot≈${r.rounded_spot_strike})` : ''} | CE=${r.atm_ce_ltp ?? 'n/a'} PE=${r.atm_pe_ltp ?? 'n/a'} | ${r.method || r.status}`
-                          : r.status}
-                      </div>
-                    ))}
-                    {ocRebuildResult.skeleton_rebuild && (
-                      <div className="mt-1">Skeleton: {ocRebuildResult.skeleton_rebuild}</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Market Hours */}
-            <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
-              <h2 className="text-base font-semibold">Market Hours</h2>
-              {EXCHANGES.map(ex => (
-                <div key={ex} className="space-y-2">
-                  <div className="text-xs font-semibold text-blue-400">{ex}</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <FormField label="Open">
-                      <input type="time" className={inputCls}
-                        value={marketConfig[ex]?.open || ''}
-                        onChange={e => setMarketConfig(c => ({ ...c, [ex]: { ...c[ex], open: e.target.value } }))} />
-                    </FormField>
-                    <FormField label="Close">
-                      <input type="time" className={inputCls}
-                        value={marketConfig[ex]?.close || ''}
-                        onChange={e => setMarketConfig(c => ({ ...c, [ex]: { ...c[ex], close: e.target.value } }))} />
-                    </FormField>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {DAYS_OF_WEEK.map((day, idx) => (
-                      <label key={day} className="flex items-center gap-1 text-xs cursor-pointer">
-                        <input type="checkbox"
-                          checked={(marketConfig[ex]?.days || []).includes(idx)}
-                          onChange={e => {
-                            const days = [...(marketConfig[ex]?.days || [])];
-                            if (e.target.checked) days.push(idx); else days.splice(days.indexOf(idx), 1);
-                            setMarketConfig(c => ({ ...c, [ex]: { ...c[ex], days } }));
-                          }} />
-                        {day.slice(0, 3)}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {mcError && <p className="text-xs text-red-400">{mcError}</p>}
-              <button onClick={saveMarketConfig} className={btnCls('green')}>Save Market Hours</button>
-            </div>
-
-            {/* NSE Files */}
-            <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
-              <h2 className="text-base font-semibold">NSE File Upload</h2>
-              <FormField label="Equity Exposure CSV">
-                <input type="file" accept=".csv" onChange={e => setExposureFile(e.target.files?.[0] || null)} className="text-xs text-gray-300" />
-              </FormField>
-              <FormField label="Equity SPAN ZIP">
-                <input type="file" accept=".zip" onChange={e => setEquitySpanFile(e.target.files?.[0] || null)} className="text-xs text-gray-300" />
-              </FormField>
-              <FormField label="Commodity SPAN ZIP">
-                <input type="file" accept=".zip" onChange={e => setCommoditySpanFile(e.target.files?.[0] || null)} className="text-xs text-gray-300" />
-              </FormField>
-              {uploadMsg && <p className="text-xs text-blue-300">{uploadMsg}</p>}
-              <button onClick={handleUploadNseFiles} className={btnCls('indigo')}>Upload Files</button>
-            </div>
-
-            {/* Instrument Master */}
-            <div className="rounded-xl p-5 space-y-3 bg-zinc-800 border border-zinc-700">
-              <h2 className="text-base font-semibold">Instrument Master</h2>
-              <p className="text-xs text-gray-400">Reload the scrip master from DhanHQ / NSE files.</p>
-              {masterMsg && <p className="text-xs text-blue-300">{masterMsg}</p>}
-              <button onClick={handleLoadInstrumentMaster} disabled={masterLoading} className={btnCls('purple')}>
-                {masterLoading ? 'Reloading…' : 'Reload Instrument Master'}
-              </button>
-            </div>
-
-            {/* Subscription Management */}
-            <div className="rounded-xl p-5 space-y-3 bg-zinc-800 border border-zinc-700">
-              <h2 className="text-base font-semibold">Subscription Management</h2>
-              <p className="text-xs text-gray-400">
-                <span className="font-semibold text-orange-400">Force Expiry Rollover</span> — Immediately unsubscribe expired F&O contracts from WebSocket feeds. This removes expired instruments that have no watchlist entries or open positions. Normally runs automatically at 06:00 IST after scrip master refresh.
-              </p>
-              <button 
-                onClick={handleExpiryRollover} 
-                disabled={expiryRolloverLoading} 
-                className={btnCls('red')}
-              >
-                {expiryRolloverLoading ? 'Processing…' : '⟳  Force Expiry Rollover'}
-              </button>
-              {expiryRolloverResult && (
-                <div className={`text-xs rounded p-3 mt-2 ${
-                  expiryRolloverResult.status === 'completed' 
-                    ? 'bg-green-900/40 text-green-300 border border-green-700' 
-                    : 'bg-red-900/40 text-red-300 border border-red-700'
-                }`}>
-                  <div className="font-semibold mb-2">
-                    {expiryRolloverResult.status === 'completed' ? '✓ Rollover Completed' : '✗ Failed'}
-                  </div>
-                  <div className="space-y-1 font-mono">
-                    <div>Tokens Before: <span className="text-white">{expiryRolloverResult.tokens_before || 'N/A'}</span></div>
-                    <div>Tokens After: <span className="text-white">{expiryRolloverResult.tokens_after || 'N/A'}</span></div>
-                    <div className="font-bold">Evicted: <span className="text-white">{expiryRolloverResult.evicted || 0}</span> expired instruments</div>
-                  </div>
-                  {expiryRolloverResult.message && (
-                    <div className="mt-2 text-xs opacity-80">{expiryRolloverResult.message}</div>
+                  {ocAtmResult && (
+                    <div className={`text-xs rounded p-2 mt-1 ${
+                      ocAtmResult.success ? 'bg-green-900/40 text-green-300 border border-green-700' : 'bg-red-900/40 text-red-300 border border-red-700'
+                    }`}>
+                      <div className="font-semibold mb-1">{ocAtmResult.message}</div>
+                      {(ocAtmResult.results || []).map(r => (
+                        <div key={r.underlying} className="font-mono">
+                          {r.underlying}: {r.status === 'updated'
+                            ? `LTP=${r.ltp} | ATM ${r.old_atm} -> ${r.new_atm}`
+                            : r.status}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-
-            {/* Logo Upload */}
-            <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
-              <h2 className="text-base font-semibold">Brand Logo</h2>
-              <p className="text-xs text-gray-400">Upload a custom logo to replace the "TN" text in the header.</p>
-              
-              {currentLogo && (
+                <hr className="border-zinc-700" />
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-gray-400">Current Logo</label>
-                  <div className="flex items-center gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-700">
-                    <img src={currentLogo} alt="Current logo" className="h-8 max-w-[120px] object-contain" />
-                    <button onClick={handleLogoDelete} disabled={logoUploading} className="ml-auto px-3 py-1 text-xs bg-red-600 hover:bg-red-500 text-white rounded transition-colors">
-                      Delete
-                    </button>
+                  <p className="text-xs text-gray-400">
+                    <span className="font-semibold text-orange-400">Rebuild Skeleton from Dhan</span> pulls fresh spot from Dhan and rebuilds the options skeleton.
+                  </p>
+                  <button
+                    onClick={() => askConfirm('Confirm Skeleton Rebuild', 'Are you sure to rebuild option chain skeleton from Dhan REST?', handleOcRebuildSkeleton)}
+                    disabled={ocRebuildLoading}
+                    className={btnCls('red')}
+                  >
+                    {ocRebuildLoading ? 'Rebuilding…' : 'Rebuild Skeleton'}
+                  </button>
+                  {ocRebuildResult && (
+                    <div className={`text-xs rounded p-2 mt-1 ${
+                      ocRebuildResult.success ? 'bg-green-900/40 text-green-300 border border-green-700' : 'bg-red-900/40 text-red-300 border border-red-700'
+                    }`}>
+                      <div className="font-semibold mb-1">{ocRebuildResult.message}</div>
+                      {(ocRebuildResult.atm_updates || []).map(r => (
+                        <div key={r.underlying} className="font-mono">
+                          {r.underlying}: {(r.new_atm !== undefined && r.new_atm !== null)
+                            ? `Spot=${r.dhan_ltp ?? 'n/a'} | ATM ${r.old_atm ?? 'n/a'} -> ${r.new_atm}`
+                            : r.status}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl p-5 space-y-3 bg-zinc-800 border border-zinc-700">
+                <h3 className="text-sm font-semibold">Instrument Master</h3>
+                <p className="text-xs text-gray-400">Reload the latest instrument master and refresh tick metadata cache.</p>
+                {masterMsg && <p className="text-xs text-blue-300">{masterMsg}</p>}
+                <button
+                  onClick={() => askConfirm('Confirm Instrument Reload', 'Are you sure to reload instrument master now?', handleLoadInstrumentMaster)}
+                  disabled={masterLoading}
+                  className={btnCls('purple')}
+                >
+                  {masterLoading ? 'Reloading…' : 'Reload Instrument Master'}
+                </button>
+              </div>
+
+              <div className="rounded-xl p-5 space-y-3 bg-zinc-800 border border-zinc-700">
+                <h3 className="text-sm font-semibold">Subscription Management</h3>
+                <p className="text-xs text-gray-400">
+                  Force expiry rollover immediately unsubscribes expired contracts not needed by watchlists/open positions.
+                </p>
+                <button
+                  onClick={() => askConfirm('Confirm Expiry Rollover', 'Are you sure to force expiry rollover now?', handleExpiryRollover)}
+                  disabled={expiryRolloverLoading}
+                  className={btnCls('red')}
+                >
+                  {expiryRolloverLoading ? 'Processing…' : 'Force Expiry Rollover'}
+                </button>
+                {expiryRolloverResult && (
+                  <div className={`text-xs rounded p-3 mt-2 ${
+                    expiryRolloverResult.status === 'completed'
+                      ? 'bg-green-900/40 text-green-300 border border-green-700'
+                      : 'bg-red-900/40 text-red-300 border border-red-700'
+                  }`}>
+                    <div className="font-semibold mb-2">
+                      {expiryRolloverResult.status === 'completed' ? 'Rollover Completed' : 'Failed'}
+                    </div>
+                    <div className="space-y-1 font-mono">
+                      <div>Tokens Before: <span className="text-white">{expiryRolloverResult.tokens_before || 'N/A'}</span></div>
+                      <div>Tokens After: <span className="text-white">{expiryRolloverResult.tokens_after || 'N/A'}</span></div>
+                      <div className="font-bold">Evicted: <span className="text-white">{expiryRolloverResult.evicted || 0}</span></div>
+                    </div>
                   </div>
-                </div>
-              )}
-
-              <FormField label="Upload New Logo (PNG, JPG, SVG - Max 2MB)">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleLogoFileChange}
-                  className="text-xs text-gray-300"
-                />
-              </FormField>
-
-              {logoPreview && (
-                <div className="p-3 bg-zinc-900 rounded-lg border border-zinc-700">
-                  <img src={logoPreview} alt="Preview" className="h-8 max-w-[120px] object-contain" />
-                </div>
-              )}
-
-              {logoMsg && <p className="text-xs text-blue-300">{logoMsg}</p>}
-
-              <button onClick={handleLogoUpload} disabled={logoUploading || !logoFile} className={btnCls('indigo')}>
-                {logoUploading ? 'Uploading…' : 'Upload Logo'}
-              </button>
+                )}
+              </div>
             </div>
-          </div>
+          </section>
 
-          {/* Right column — System Monitoring */}
-          <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700">
-            <h2 className="text-base font-semibold mb-4">System Monitoring</h2>
-            <SystemMonitoring />
-          </div>
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Zone 3: Configuration</h2>
+              <span className="text-[11px] text-zinc-400">Persistent platform settings</span>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+                <h3 className="text-sm font-semibold">DhanHQ Authentication</h3>
+                <div className="flex gap-2">
+                  {['DAILY_TOKEN', 'STATIC_IP'].map(mode => (
+                    <button key={mode} onClick={() => setLocalSettings(s => ({ ...s, authMode: mode }))}
+                      className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+                        localSettings.authMode === mode
+                          ? 'bg-blue-600 text-zinc-100'
+                          : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                      }`}>
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+                <FormField label="Client ID">
+                  <input className={inputCls} value={localSettings.clientId || ''}
+                    onChange={e => setLocalSettings(s => ({ ...s, clientId: e.target.value }))} placeholder="DhanHQ client ID" />
+                </FormField>
+                <FormField label="Access Token">
+                  <input className={inputCls} value={localSettings.accessToken || ''}
+                    onChange={e => setLocalSettings(s => ({ ...s, accessToken: e.target.value }))} placeholder="Access token" type="password" />
+                </FormField>
+                {localSettings.authMode === 'STATIC_IP' && (
+                  <>
+                    <FormField label="API Key">
+                      <input className={inputCls} value={localSettings.apiKey || ''}
+                        onChange={e => setLocalSettings(s => ({ ...s, apiKey: e.target.value }))} placeholder="API key" />
+                    </FormField>
+                    <FormField label="Client Secret">
+                      <input className={inputCls} value={localSettings.clientSecret || ''}
+                        onChange={e => setLocalSettings(s => ({ ...s, clientSecret: e.target.value }))} placeholder="Client secret" type="password" />
+                    </FormField>
+                  </>
+                )}
+                {saveError && <p className="text-xs text-red-400">{saveError}</p>}
+                {saved && <p className="text-xs text-green-400">Saved successfully</p>}
+                <div className="flex gap-2">
+                  <button onClick={handleSave} disabled={isSaving || authLoading} className={btnCls('blue')}>
+                    {isSaving ? 'Saving…' : 'Save Credentials'}
+                  </button>
+                  {(dhanStatus?.connected || dhanStatus?.tick_processor)
+                    ? <button
+                        onClick={() => askConfirm('Confirm Disconnect', 'Are you sure to disconnect all Dhan services?', handleDisconnect)}
+                        disabled={isConnecting}
+                        className={btnCls('red')}
+                      >
+                        {isConnecting ? 'Working…' : 'Disconnect'}
+                      </button>
+                    : <button
+                        onClick={() => askConfirm('Confirm Connect', 'Are you sure to start Dhan services and reconnect streams?', handleConnect)}
+                        disabled={isConnecting}
+                        className={btnCls('green')}
+                      >
+                        {isConnecting ? 'Connecting…' : 'Connect to Dhan'}
+                      </button>
+                  }
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    dhanStatus === null              ? 'bg-gray-500' :
+                    dhanStatus.connected             ? 'bg-green-500 animate-pulse' :
+                    dhanStatus.tick_processor        ? 'bg-yellow-400 animate-pulse' :
+                                                       'bg-red-500'
+                  }`} />
+                  <span className="text-zinc-400">
+                    {dhanStatus === null ? 'Checking status…'
+                      : dhanStatus.connected     ? `Connected - ${dhanStatus.slots?.filter(s => s.connected).length ?? 0}/5 WS slots active`
+                      : dhanStatus.tick_processor ? 'Services started - waiting for WS connection…'
+                      : dhanStatus.has_credentials ? 'Credentials saved - not connected'
+                      : 'No credentials saved'
+                    }
+                  </span>
+                </div>
+                {connectMsg.text && (
+                  <p className={`text-xs ${
+                    connectMsg.type === 'success' ? 'text-green-400' :
+                    connectMsg.type === 'warn'    ? 'text-yellow-400' : 'text-red-400'
+                  }`}>{connectMsg.text}</p>
+                )}
+              </div>
+
+              <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+                <h3 className="text-sm font-semibold">Market Hours</h3>
+                {EXCHANGES.map(ex => (
+                  <div key={ex} className="space-y-2 border-b border-zinc-700 pb-3 last:border-0 last:pb-0">
+                    <div className="text-xs font-semibold text-blue-400">{ex}</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField label="Open">
+                        <input type="time" className={inputCls}
+                          value={marketConfig[ex]?.open || ''}
+                          onChange={e => setMarketConfig(c => ({ ...c, [ex]: { ...c[ex], open: e.target.value } }))} />
+                      </FormField>
+                      <FormField label="Close">
+                        <input type="time" className={inputCls}
+                          value={marketConfig[ex]?.close || ''}
+                          onChange={e => setMarketConfig(c => ({ ...c, [ex]: { ...c[ex], close: e.target.value } }))} />
+                      </FormField>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {DAYS_OF_WEEK.map((day, idx) => (
+                        <label key={day} className="flex items-center gap-1 text-xs cursor-pointer">
+                          <input type="checkbox"
+                            checked={(marketConfig[ex]?.days || []).includes(idx)}
+                            onChange={e => {
+                              const days = [...(marketConfig[ex]?.days || [])];
+                              if (e.target.checked) days.push(idx); else days.splice(days.indexOf(idx), 1);
+                              setMarketConfig(c => ({ ...c, [ex]: { ...c[ex], days } }));
+                            }} />
+                          {day.slice(0, 3)}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {mcError && <p className="text-xs text-red-400">{mcError}</p>}
+                <button onClick={saveMarketConfig} className={btnCls('green')}>Save Market Hours</button>
+              </div>
+
+              <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+                <h3 className="text-sm font-semibold">Brand Logo</h3>
+                <p className="text-xs text-gray-400">Upload a custom logo to replace the TN text in the header.</p>
+                {currentLogo && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-gray-400">Current Logo</label>
+                    <div className="flex items-center gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-700">
+                      <img src={currentLogo} alt="Current logo" className="h-8 max-w-[120px] object-contain" />
+                      <button onClick={handleLogoDelete} disabled={logoUploading} className="ml-auto px-3 py-1 text-xs bg-red-600 hover:bg-red-500 text-white rounded transition-colors">
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <FormField label="Upload New Logo (PNG, JPG, SVG - Max 2MB)">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoFileChange}
+                    className="text-xs text-gray-300"
+                  />
+                </FormField>
+                {logoPreview && (
+                  <div className="p-3 bg-zinc-900 rounded-lg border border-zinc-700">
+                    <img src={logoPreview} alt="Preview" className="h-8 max-w-[120px] object-contain" />
+                  </div>
+                )}
+                {logoMsg && <p className="text-xs text-blue-300">{logoMsg}</p>}
+                <button onClick={handleLogoUpload} disabled={logoUploading || !logoFile} className={btnCls('indigo')}>
+                  {logoUploading ? 'Uploading…' : 'Upload Logo'}
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
       )}
 
@@ -1989,6 +2001,14 @@ const SuperAdminDashboard = () => {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onCancel={closeConfirm}
+        onConfirm={runConfirmedAction}
+      />
 
     </div>
   );

@@ -37,14 +37,54 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-const StatusCard = ({ title, status, detail, icon: Icon }) => (
+const formatAge = (ts) => {
+  if (!ts) return 'stale';
+  const ageSec = Math.max(0, Math.floor((Date.now() - new Date(ts).getTime()) / 1000));
+  if (ageSec < 5) return 'just now';
+  if (ageSec < 60) return `${ageSec}s ago`;
+  const mins = Math.floor(ageSec / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+};
+
+const FreshnessBadge = ({ ts, label = 'Updated' }) => (
+  <span className="rounded-full border border-zinc-600 px-2 py-0.5 text-[10px] text-zinc-300">
+    {label}: {formatAge(ts)}
+  </span>
+);
+
+const ConfirmModal = ({ open, title, message, onConfirm, onCancel }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+        <h3 className="text-sm font-semibold text-zinc-100">{title}</h3>
+        <p className="mt-2 whitespace-pre-line text-xs text-zinc-300">{message}</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onCancel} className="rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700">
+            No
+          </button>
+          <button onClick={onConfirm} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-500">
+            Yes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const StatusCard = ({ title, status, detail, icon: Icon, refreshedAt }) => (
   <div className="rounded-xl p-4 flex flex-col gap-1 sa-card border">
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2 text-xs tn-muted">
         {Icon && <Icon size={13} />}
         <span>{title}</span>
       </div>
-      <StatusBadge status={status} />
+      <div className="flex items-center gap-2">
+        <FreshnessBadge ts={refreshedAt} />
+        <StatusBadge status={status} />
+      </div>
     </div>
     <div className="text-sm font-semibold capitalize">{status || '—'}</div>
     {detail && <div className="text-xs truncate tn-muted">{detail}</div>}
@@ -76,7 +116,7 @@ const formatWhen = (ts) => {
   }
 };
 
-const Sparkline = ({ title, values, colorClass, suffix = '' }) => {
+const Sparkline = ({ title, values, colorClass, suffix = '', refreshedAt }) => {
   const safeValues = (values || []).slice(-40);
   const width = 220;
   const height = 60;
@@ -97,7 +137,10 @@ const Sparkline = ({ title, values, colorClass, suffix = '' }) => {
     <div className="rounded-xl p-3 sa-card border">
       <div className="flex items-center justify-between mb-1">
         <div className="text-xs tn-muted">{title}</div>
-        <div className="text-xs font-semibold">{latest.toFixed(1)}{suffix}</div>
+        <div className="flex items-center gap-2">
+          <FreshnessBadge ts={refreshedAt} />
+          <div className="text-xs font-semibold">{latest.toFixed(1)}{suffix}</div>
+        </div>
       </div>
       {safeValues.length > 1 ? (
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-16">
@@ -129,6 +172,35 @@ const SystemMonitoring = () => {
   const [monitorSamples, setMonitorSamples] = useState([]);
   const [monitorBusy, setMonitorBusy] = useState(false);
   const [monitorError, setMonitorError] = useState('');
+  const [sourceFreshness, setSourceFreshness] = useState({
+    health: null,
+    stream: null,
+    etf: null,
+    notifications: null,
+    monitor: null,
+  });
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+  });
+
+  const askConfirm = (title, message, onConfirm) => {
+    setConfirmDialog({ open: true, title, message, onConfirm });
+  };
+
+  const closeConfirm = () => {
+    setConfirmDialog({ open: false, title: '', message: '', onConfirm: null });
+  };
+
+  const runConfirmedAction = async () => {
+    const fn = confirmDialog.onConfirm;
+    closeConfirm();
+    if (typeof fn === 'function') {
+      await fn();
+    }
+  };
 
   const fetchMonitor = useCallback(async () => {
     try {
@@ -140,6 +212,7 @@ const SystemMonitoring = () => {
       if (statusRes.ok) {
         setMonitorStatus(await statusRes.json());
         setMonitorError('');
+        setSourceFreshness((prev) => ({ ...prev, monitor: new Date().toISOString() }));
       } else {
         setMonitorStatus(null);
         setMonitorError(`Monitor status failed (HTTP ${statusRes.status})`);
@@ -148,6 +221,7 @@ const SystemMonitoring = () => {
       if (samplesRes.ok) {
         const data = await samplesRes.json();
         setMonitorSamples(Array.isArray(data?.samples) ? data.samples : []);
+        setSourceFreshness((prev) => ({ ...prev, monitor: new Date().toISOString() }));
       } else {
         setMonitorSamples([]);
         setMonitorError(`Monitor samples failed (HTTP ${samplesRes.status})`);
@@ -170,29 +244,38 @@ const SystemMonitoring = () => {
         authFetch('/admin/vps-monitor/samples?limit=120'),
       ]);
 
-      if (healthRes.status === 'fulfilled' && healthRes.value.ok)
+      if (healthRes.status === 'fulfilled' && healthRes.value.ok) {
         setHealth(await healthRes.value.json());
-      else
+        setSourceFreshness((prev) => ({ ...prev, health: new Date().toISOString() }));
+      } else {
         setHealth(null);
+      }
 
-      if (streamRes.status === 'fulfilled' && streamRes.value.ok)
+      if (streamRes.status === 'fulfilled' && streamRes.value.ok) {
         setStreamStatus(await streamRes.value.json());
-      else
+        setSourceFreshness((prev) => ({ ...prev, stream: new Date().toISOString() }));
+      } else {
         setStreamStatus(null);
+      }
 
-      if (etfRes.status === 'fulfilled' && etfRes.value.ok)
+      if (etfRes.status === 'fulfilled' && etfRes.value.ok) {
         setEtfStatus(await etfRes.value.json());
-      else
+        setSourceFreshness((prev) => ({ ...prev, etf: new Date().toISOString() }));
+      } else {
         setEtfStatus(null);
+      }
 
-      if (notifRes.status === 'fulfilled' && notifRes.value.ok)
+      if (notifRes.status === 'fulfilled' && notifRes.value.ok) {
         setNotifications(await notifRes.value.json());
-      else
+        setSourceFreshness((prev) => ({ ...prev, notifications: new Date().toISOString() }));
+      } else {
         setNotifications([]);
+      }
 
-      if (monitorStatusRes.status === 'fulfilled' && monitorStatusRes.value.ok)
+      if (monitorStatusRes.status === 'fulfilled' && monitorStatusRes.value.ok) {
         setMonitorStatus(await monitorStatusRes.value.json());
-      else {
+        setSourceFreshness((prev) => ({ ...prev, monitor: new Date().toISOString() }));
+      } else {
         setMonitorStatus(null);
         if (monitorStatusRes.status === 'fulfilled') {
           setMonitorError(`Monitor status failed (HTTP ${monitorStatusRes.value.status})`);
@@ -202,6 +285,7 @@ const SystemMonitoring = () => {
       if (monitorSamplesRes.status === 'fulfilled' && monitorSamplesRes.value.ok) {
         const data = await monitorSamplesRes.value.json();
         setMonitorSamples(Array.isArray(data?.samples) ? data.samples : []);
+        setSourceFreshness((prev) => ({ ...prev, monitor: new Date().toISOString() }));
       } else {
         setMonitorSamples([]);
         if (monitorSamplesRes.status === 'fulfilled') {
@@ -316,13 +400,13 @@ const SystemMonitoring = () => {
   const loadSeries = monitorSamples.map((s) => Number(s.load_1m || 0));
 
   const statusCards = [
-    { title: 'Database', status: dbStatus, icon: Database },
-    { title: 'API Server', status: apiStatus, detail: health?.version, icon: Server },
-    { title: 'Dhan API', status: dhanStatus, icon: Activity },
-    { title: 'Equity WS', status: equityWsStatus, detail: streamStatus?.equity?.subscriptions ? `${streamStatus.equity.subscriptions} subs` : undefined, icon: Wifi },
-    { title: 'MCX WS', status: mcxWsStatus, icon: Wifi },
-    { title: 'ETF Tier-B', status: etfTierbStatus, icon: Activity },
-    { title: 'Market Session', status: marketSession, icon: Activity },
+    { title: 'Database', status: dbStatus, icon: Database, refreshedAt: sourceFreshness.health },
+    { title: 'API Server', status: apiStatus, detail: health?.version, icon: Server, refreshedAt: sourceFreshness.health },
+    { title: 'Dhan API', status: dhanStatus, icon: Activity, refreshedAt: sourceFreshness.health },
+    { title: 'Equity WS', status: equityWsStatus, detail: streamStatus?.equity?.subscriptions ? `${streamStatus.equity.subscriptions} subs` : undefined, icon: Wifi, refreshedAt: sourceFreshness.stream },
+    { title: 'MCX WS', status: mcxWsStatus, detail: streamStatus?.mcx?.recent_ticks != null ? `${streamStatus.mcx.recent_ticks} ticks/3m` : undefined, icon: Wifi, refreshedAt: sourceFreshness.stream },
+    { title: 'ETF Tier-B', status: etfTierbStatus, icon: Activity, refreshedAt: sourceFreshness.etf },
+    { title: 'Market Session', status: marketSession, icon: Activity, refreshedAt: sourceFreshness.stream },
   ];
 
   return (
@@ -363,7 +447,7 @@ const SystemMonitoring = () => {
       {/* Admin Actions */}
       <div className="flex flex-wrap items-center gap-2">
         <button
-          onClick={handleRollover}
+          onClick={() => askConfirm('Confirm Purge', 'Are you sure to purge expired subscriptions now?', handleRollover)}
           disabled={rollingOver}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors disabled:opacity-50 sa-input hover:opacity-80"
           title="Unsubscribe expired contracts from Dhan WS and clean up the active subscription map"
@@ -387,7 +471,7 @@ const SystemMonitoring = () => {
           <WifiOff size={16} className="text-yellow-400 flex-shrink-0" />
           <span className="text-xs text-yellow-300 flex-1">WebSocket disconnected. Streams may be stale.</span>
           <button
-            onClick={handleReconnect}
+            onClick={() => askConfirm('Confirm Reconnect', 'Are you sure to reconnect websocket streams now?', handleReconnect)}
             disabled={reconnecting}
             className="flex items-center gap-1 px-3 py-1.5 bg-yellow-500 text-black rounded text-xs font-medium hover:bg-yellow-400 transition-colors disabled:opacity-50"
           >
@@ -405,21 +489,21 @@ const SystemMonitoring = () => {
               <Activity size={14} />
               VPS Live Monitor
             </h3>
-            <div className="text-[11px] text-zinc-400">Manual only. Starts and stops on demand from this panel.</div>
+            <div className="text-[11px] text-zinc-400">Default ON at startup. Stop only when intentional maintenance is needed.</div>
           </div>
           <div className="flex items-center gap-2">
             <span className={`text-xs ${monitorStatus?.running ? 'text-green-400' : 'text-zinc-400'}`}>
               {monitorStatus?.running ? 'Running' : 'Stopped'}
             </span>
             <button
-              onClick={handleStartMonitor}
+              onClick={() => askConfirm('Confirm Start Monitor', 'Are you sure to start VPS monitor sampling?', handleStartMonitor)}
               disabled={monitorBusy || monitorStatus?.running}
               className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium border border-green-700 bg-green-600/20 hover:bg-green-600/30 transition-colors disabled:opacity-50"
             >
               <Play size={11} /> Start
             </button>
             <button
-              onClick={handleStopMonitor}
+              onClick={() => askConfirm('Confirm Stop Monitor', 'Are you sure to stop VPS monitor sampling?', handleStopMonitor)}
               disabled={monitorBusy || !monitorStatus?.running}
               className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium border border-red-700 bg-red-600/20 hover:bg-red-600/30 transition-colors disabled:opacity-50"
             >
@@ -430,19 +514,19 @@ const SystemMonitoring = () => {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
           <div className="rounded-lg p-3 sa-nested border">
-            <div className="text-[11px] text-zinc-400">CPU</div>
+            <div className="mb-1 flex items-center justify-between text-[11px] text-zinc-400"><span>CPU</span><FreshnessBadge ts={sourceFreshness.monitor} /></div>
             <div className="text-sm font-semibold">{Number(latestSample?.system_cpu_percent || 0).toFixed(1)}%</div>
           </div>
           <div className="rounded-lg p-3 sa-nested border">
-            <div className="text-[11px] text-zinc-400">App CPU</div>
+            <div className="mb-1 flex items-center justify-between text-[11px] text-zinc-400"><span>App CPU</span><FreshnessBadge ts={sourceFreshness.monitor} /></div>
             <div className="text-sm font-semibold">{Number(latestSample?.app_cpu_percent || 0).toFixed(1)}%</div>
           </div>
           <div className="rounded-lg p-3 sa-nested border">
-            <div className="text-[11px] text-zinc-400">Memory</div>
+            <div className="mb-1 flex items-center justify-between text-[11px] text-zinc-400"><span>Memory</span><FreshnessBadge ts={sourceFreshness.monitor} /></div>
             <div className="text-sm font-semibold">{Number(latestSample?.memory_used_percent || 0).toFixed(1)}%</div>
           </div>
           <div className="rounded-lg p-3 sa-nested border">
-            <div className="text-[11px] text-zinc-400">Load (1m)</div>
+            <div className="mb-1 flex items-center justify-between text-[11px] text-zinc-400"><span>Load (1m)</span><FreshnessBadge ts={sourceFreshness.monitor} /></div>
             <div className="text-sm font-semibold">{Number(latestSample?.load_1m || 0).toFixed(2)}</div>
           </div>
         </div>
@@ -452,10 +536,10 @@ const SystemMonitoring = () => {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Sparkline title="System CPU" values={cpuSeries} colorClass="stroke-red-400" suffix="%" />
-          <Sparkline title="App CPU" values={appCpuSeries} colorClass="stroke-orange-400" suffix="%" />
-          <Sparkline title="Memory Used" values={memSeries} colorClass="stroke-blue-400" suffix="%" />
-          <Sparkline title="Load 1m" values={loadSeries} colorClass="stroke-emerald-400" />
+          <Sparkline title="System CPU" values={cpuSeries} colorClass="stroke-red-400" suffix="%" refreshedAt={sourceFreshness.monitor} />
+          <Sparkline title="App CPU" values={appCpuSeries} colorClass="stroke-orange-400" suffix="%" refreshedAt={sourceFreshness.monitor} />
+          <Sparkline title="Memory Used" values={memSeries} colorClass="stroke-blue-400" suffix="%" refreshedAt={sourceFreshness.monitor} />
+          <Sparkline title="Load 1m" values={loadSeries} colorClass="stroke-emerald-400" refreshedAt={sourceFreshness.monitor} />
         </div>
       </div>
 
@@ -468,6 +552,10 @@ const SystemMonitoring = () => {
           <span className="text-[11px] text-zinc-400">
             {notifications.length ? `Last ${notifications.length}` : "No recent alerts"}
           </span>
+        </div>
+
+        <div className="mb-2">
+          <FreshnessBadge ts={sourceFreshness.notifications} />
         </div>
 
         <div className="space-y-2 max-h-72 overflow-y-auto">
@@ -501,6 +589,14 @@ const SystemMonitoring = () => {
           ))}
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onCancel={closeConfirm}
+        onConfirm={runConfirmedAction}
+      />
     </div>
   );
 };

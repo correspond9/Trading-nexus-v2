@@ -423,6 +423,17 @@ async def force_subscription_rollover(
     }
 
 
+@router.post("/force-subscription-rollover")
+async def force_subscription_rollover_legacy(
+    caller: CurrentUser = Depends(get_super_admin_user),
+):
+    """
+    Backward-compatible alias for legacy dashboard clients.
+    Canonical endpoint is /admin/subscriptions/rollover.
+    """
+    return await force_subscription_rollover(caller)
+
+
 @router.get("/users")
 async def list_users(
     caller: CurrentUser = Depends(get_admin_user),
@@ -1489,6 +1500,7 @@ async def get_notifications(
     category: Optional[str] = None,
     severity: Optional[str] = None,
     unread_only: bool = False,
+    _: CurrentUser = Depends(get_super_admin_user),
 ):
     """Return system notifications for admin dashboard."""
     from app.database import get_pool

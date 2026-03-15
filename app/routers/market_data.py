@@ -124,11 +124,51 @@ async def get_snapshot(token: int):
 async def stream_status():
     """Return WebSocket stream health — used by SystemMonitoring dashboard."""
     from app.market_data.websocket_manager import ws_manager
+    pool = get_pool()
 
     slots = ws_manager.get_status()
     equity_connected = any(s.get("connected") for s in slots)
     equity_state = get_market_state("NSE_FNO").value
     commodity_state = get_market_state("MCX_FO").value
+    equity_window_active = is_equity_window_active()
+    commodity_window_active = is_commodity_window_active()
+
+    equity_recent_ticks = await pool.fetchval(
+        """
+        SELECT COUNT(*)
+        FROM market_data md
+        JOIN instrument_master im ON im.instrument_token = md.instrument_token
+        WHERE im.exchange_segment IN ('NSE_EQ', 'NSE_FNO', 'BSE_EQ', 'BSE_FNO', 'IDX_I')
+          AND md.updated_at >= now() - interval '120 seconds'
+        """
+    )
+
+    mcx_recent_ticks = await pool.fetchval(
+        """
+        SELECT COUNT(*)
+        FROM market_data md
+        JOIN instrument_master im ON im.instrument_token = md.instrument_token
+        WHERE im.exchange_segment IN ('MCX_COMM', 'MCX_FO', 'MCX_EQ')
+          AND md.updated_at >= now() - interval '180 seconds'
+        """
+    )
+
+    if not equity_window_active:
+        equity_status = "closed"
+    elif (equity_recent_ticks or 0) > 0:
+        equity_status = "connected"
+    elif equity_connected:
+        equity_status = "degraded"
+    else:
+        equity_status = "disconnected"
+
+    if not commodity_window_active:
+        mcx_status = "closed"
+    elif (mcx_recent_ticks or 0) > 0:
+        mcx_status = "connected"
+    else:
+        mcx_status = "disconnected"
+
     session_label = "closed"
     if equity_state == MarketState.OPEN.value and commodity_state == MarketState.OPEN.value:
         session_label = "both_open"
@@ -144,11 +184,13 @@ async def stream_status():
         session_label = "equity_post_close"
     return {
         "equity": {
-            "status":        "connected" if equity_connected else "disconnected",
+            "status":        equity_status,
             "subscriptions": sum(int(s.get("tokens") or 0) for s in slots),
+            "recent_ticks":  int(equity_recent_ticks or 0),
         },
         "mcx": {
-            "status": "connected" if equity_connected else "disconnected",
+            "status": mcx_status,
+            "recent_ticks": int(mcx_recent_ticks or 0),
         },
         "market_session": session_label,
         "exchange_sessions": {
@@ -156,8 +198,8 @@ async def stream_status():
             "commodity": commodity_state,
         },
         "windows": {
-            "equity_active": is_equity_window_active(),
-            "commodity_active": is_commodity_window_active(),
+            "equity_active": equity_window_active,
+            "commodity_active": commodity_window_active,
         },
         "slots": slots,
     }

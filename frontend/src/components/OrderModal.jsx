@@ -89,7 +89,7 @@ const OrderModal = ({ isOpen, onClose, orderData, orderType = "BUY" }) => {
           symbol: orderData?.symbol,
           security_id: orderData?.security_id || orderData?.token,
           exchange_segment: orderData?.exchange_segment || orderData?.exchange,
-          action: orderData?.action || side,
+          action: side,
           ltp: orderData?.ltp,
         }];
 

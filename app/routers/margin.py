@@ -118,6 +118,18 @@ def _extract_underlying(symbol: str) -> str:
     return sym
 
 
+def _map_span_underlying(underlying: str, exchange_segment: str) -> str:
+    """Map exchange-specific index underlyings to available SPAN symbols."""
+    und = (underlying or "").upper().strip()
+    seg = (exchange_segment or "").upper().strip()
+    if "BSE" in seg:
+        if und == "SENSEX":
+            return "NIFTY"
+        if und == "BANKEX":
+            return "BANKNIFTY"
+    return und
+
+
 class MarginCalcRequest(BaseModel):
     user_id:          Optional[str]   = None
     symbol:           Optional[str]   = None
@@ -317,10 +329,11 @@ async def calculate_margin_endpoint(body: MarginCalcRequest, request: Request):
 
     # For SPAN lookup, use the underlying symbol (strip expiry/strike)
     underlying = _extract_underlying(sym)
+    span_underlying = _map_span_underlying(underlying, seg)
 
     # ── NSE SPAN + ELM margin calculation ────────────────────────────────────
     breakdown = _nse_calculate_margin(
-        symbol=underlying,
+        symbol=span_underlying,
         transaction_type=tx_type,
         quantity=qty,
         ltp=price,

@@ -34,6 +34,7 @@ const defaultSmsOtpSettings = () => ({
 
 const TABS = [
   { id: 'settings',  label: 'Settings & Monitoring' },
+  { id: 'marketData', label: 'Market Data Connection' },
   { id: 'smsOtp', label: 'SMS OTP Settings' },
   { id: 'authCheck', label: 'User Auth Check' },
   { id: 'historic',  label: 'Historic Position' },
@@ -275,7 +276,7 @@ const SuperAdminDashboard = () => {
   const [selectedUserType, setSelectedUserType] = useState(null); // 'signup' | 'enrollment'
 
   // ── Auth settings ──
-  const { localSettings, setLocalSettings, saved, loading: authLoading, isSaving, saveSettings } = useAuthSettings();
+  const { localSettings, setLocalSettings, saved, loading: authLoading, isSaving, saveSettings, switchMode } = useAuthSettings();
 
   // ── Master loading ──
   const [masterLoading, setMasterLoading] = useState(false);
@@ -369,6 +370,9 @@ const SuperAdminDashboard = () => {
   const [dhanStatus,    setDhanStatus]    = useState(null);
   const [isConnecting,  setIsConnecting]  = useState(false);
   const [connectMsg,    setConnectMsg]    = useState({ text: '', type: '' });
+  const [marketAuthStatus, setMarketAuthStatus] = useState(null);
+  const [authSwitchLoading, setAuthSwitchLoading] = useState(false);
+  const [authSwitchMsg, setAuthSwitchMsg] = useState({ text: '', type: '' });
 
   // ── Scheduler dashboard ──
   const [schedSnapshot, setSchedSnapshot] = useState(null);
@@ -431,6 +435,22 @@ const SuperAdminDashboard = () => {
     const id = setInterval(fetchDhanStatus, 5000);
     return () => clearInterval(id);
   }, [fetchDhanStatus]);
+
+  const fetchMarketAuthStatus = useCallback(async () => {
+    try {
+      const data = await apiService.get('/admin/auth-status');
+      setMarketAuthStatus(data || null);
+    } catch {
+      // ignore noisy polling errors
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'marketData') return;
+    fetchMarketAuthStatus();
+    const id = setInterval(fetchMarketAuthStatus, 5000);
+    return () => clearInterval(id);
+  }, [activeTab, fetchMarketAuthStatus]);
 
   // ── Load market config on mount ──
   const fetchMarketConfig = useCallback(async () => {
@@ -850,6 +870,22 @@ const SuperAdminDashboard = () => {
   const handleSave = async () => {
     setSaveError('');
     try { await saveSettings(); } catch (e) { setSaveError(e?.message || 'Save failed'); }
+    fetchMarketAuthStatus();
+  };
+
+  const handleForceSwitchMode = async () => {
+    setAuthSwitchLoading(true);
+    setAuthSwitchMsg({ text: '', type: '' });
+    try {
+      await switchMode(localSettings.authMode, { force: true, dailyToken: localSettings.accessToken });
+      setAuthSwitchMsg({ text: `Switched mode to ${localSettings.authMode}.`, type: 'success' });
+    } catch (e) {
+      setAuthSwitchMsg({ text: e?.message || 'Force switch failed.', type: 'error' });
+    } finally {
+      setAuthSwitchLoading(false);
+      fetchMarketAuthStatus();
+      fetchDhanStatus();
+    }
   };
 
   const handleConnect = async () => {
@@ -1374,61 +1410,10 @@ const SuperAdminDashboard = () => {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
               <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
                 <h3 className="text-sm font-semibold">DhanHQ Authentication</h3>
-                <div className="flex gap-2">
-                  {['DAILY_TOKEN', 'STATIC_IP'].map(mode => (
-                    <button key={mode} onClick={() => setLocalSettings(s => ({ ...s, authMode: mode }))}
-                      className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
-                        localSettings.authMode === mode
-                          ? 'bg-blue-600 text-zinc-100'
-                          : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
-                      }`}>
-                      {mode}
-                    </button>
-                  ))}
-                </div>
-                <FormField label="Client ID">
-                  <input className={inputCls} value={localSettings.clientId || ''}
-                    onChange={e => setLocalSettings(s => ({ ...s, clientId: e.target.value }))} placeholder="DhanHQ client ID" />
-                </FormField>
-                <FormField label="Access Token">
-                  <input className={inputCls} value={localSettings.accessToken || ''}
-                    onChange={e => setLocalSettings(s => ({ ...s, accessToken: e.target.value }))} placeholder="Access token" type="password" />
-                </FormField>
-                {localSettings.authMode === 'STATIC_IP' && (
-                  <>
-                    <FormField label="API Key">
-                      <input className={inputCls} value={localSettings.apiKey || ''}
-                        onChange={e => setLocalSettings(s => ({ ...s, apiKey: e.target.value }))} placeholder="API key" />
-                    </FormField>
-                    <FormField label="Client Secret">
-                      <input className={inputCls} value={localSettings.clientSecret || ''}
-                        onChange={e => setLocalSettings(s => ({ ...s, clientSecret: e.target.value }))} placeholder="Client secret" type="password" />
-                    </FormField>
-                  </>
-                )}
-                {saveError && <p className="text-xs text-red-400">{saveError}</p>}
-                {saved && <p className="text-xs text-green-400">Saved successfully</p>}
-                <div className="flex gap-2">
-                  <button onClick={handleSave} disabled={isSaving || authLoading} className={btnCls('blue')}>
-                    {isSaving ? 'Saving…' : 'Save Credentials'}
-                  </button>
-                  {(dhanStatus?.connected || dhanStatus?.tick_processor)
-                    ? <button
-                        onClick={() => askConfirm('Confirm Disconnect', 'Are you sure to disconnect all Dhan services?', handleDisconnect)}
-                        disabled={isConnecting}
-                        className={btnCls('red')}
-                      >
-                        {isConnecting ? 'Working…' : 'Disconnect'}
-                      </button>
-                    : <button
-                        onClick={() => askConfirm('Confirm Connect', 'Are you sure to start Dhan services and reconnect streams?', handleConnect)}
-                        disabled={isConnecting}
-                        className={btnCls('green')}
-                      >
-                        {isConnecting ? 'Connecting…' : 'Connect to Dhan'}
-                      </button>
-                  }
-                </div>
+                <p className="text-xs text-gray-400">
+                  Authentication controls moved to the <span className="text-blue-400 font-semibold">Market Data Connection</span> tab.
+                  Configure AUTO_TOTP (primary), STATIC_IP (secondary), and DAILY_MANUAL fallback there.
+                </p>
                 <div className="flex items-center gap-2 text-xs">
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
                     dhanStatus === null              ? 'bg-gray-500' :
@@ -1445,12 +1430,6 @@ const SuperAdminDashboard = () => {
                     }
                   </span>
                 </div>
-                {connectMsg.text && (
-                  <p className={`text-xs ${
-                    connectMsg.type === 'success' ? 'text-green-400' :
-                    connectMsg.type === 'warn'    ? 'text-yellow-400' : 'text-red-400'
-                  }`}>{connectMsg.text}</p>
-                )}
               </div>
 
               <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
@@ -1524,6 +1503,161 @@ const SuperAdminDashboard = () => {
               </div>
             </div>
           </section>
+        </div>
+      )}
+
+      {/* ── Market Data Connection ── */}
+      {activeTab === 'marketData' && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+            <h2 className="text-base font-semibold">DhanHQ Market Data Authentication</h2>
+            <p className="text-xs text-gray-400">
+              Primary: <span className="text-green-400 font-semibold">AUTO_TOTP</span> | Secondary: <span className="text-blue-400 font-semibold">STATIC_IP</span> | Fallback: <span className="text-yellow-400 font-semibold">DAILY_MANUAL</span>
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+              {['AUTO_TOTP', 'STATIC_IP', 'DAILY_MANUAL'].map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setLocalSettings(s => ({ ...s, authMode: mode }))}
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                    localSettings.authMode === mode
+                      ? 'bg-blue-600 text-zinc-100'
+                      : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                  }`}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+
+            <FormField label="Client ID">
+              <input
+                className={inputCls}
+                value={localSettings.clientId || ''}
+                onChange={e => setLocalSettings(s => ({ ...s, clientId: e.target.value }))}
+                placeholder="DhanHQ client ID"
+              />
+            </FormField>
+
+            <FormField label={localSettings.authMode === 'DAILY_MANUAL' ? 'Daily Access Token (Required)' : 'Daily Access Token (Optional fallback)'}>
+              <input
+                className={inputCls}
+                value={localSettings.accessToken || ''}
+                onChange={e => setLocalSettings(s => ({ ...s, accessToken: e.target.value }))}
+                placeholder="Paste daily token for manual fallback"
+                type="password"
+              />
+            </FormField>
+
+            {localSettings.authMode === 'STATIC_IP' && (
+              <>
+                <FormField label="Static API Key">
+                  <input
+                    className={inputCls}
+                    value={localSettings.apiKey || ''}
+                    onChange={e => setLocalSettings(s => ({ ...s, apiKey: e.target.value }))}
+                    placeholder="API key for static mode"
+                  />
+                </FormField>
+                <FormField label="Static API Secret">
+                  <input
+                    className={inputCls}
+                    value={localSettings.clientSecret || ''}
+                    onChange={e => setLocalSettings(s => ({ ...s, clientSecret: e.target.value }))}
+                    placeholder="API secret for static mode"
+                    type="password"
+                  />
+                </FormField>
+              </>
+            )}
+
+            {saveError && <p className="text-xs text-red-400">{saveError}</p>}
+            {saved && <p className="text-xs text-green-400">Credentials saved successfully.</p>}
+
+            <div className="flex flex-wrap gap-2">
+              <button onClick={handleSave} disabled={isSaving || authLoading} className={btnCls('blue')}>
+                {isSaving ? 'Saving…' : 'Save Credentials'}
+              </button>
+              <button onClick={handleForceSwitchMode} disabled={authSwitchLoading || authLoading} className={btnCls('yellow')}>
+                {authSwitchLoading ? 'Switching…' : 'Force Switch Mode'}
+              </button>
+            </div>
+
+            {authSwitchMsg.text && (
+              <p className={`text-xs ${authSwitchMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                {authSwitchMsg.text}
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-xl p-5 space-y-4 bg-zinc-800 border border-zinc-700">
+            <h3 className="text-sm font-semibold">Connection Runtime Status</h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="rounded-lg border border-zinc-700 p-3 bg-zinc-900">
+                <div className="text-zinc-400">Active Auth Mode</div>
+                <div className="text-zinc-100 font-semibold mt-1">{marketAuthStatus?.mode || 'unknown'}</div>
+              </div>
+              <div className="rounded-lg border border-zinc-700 p-3 bg-zinc-900">
+                <div className="text-zinc-400">Daily Token</div>
+                <div className="text-zinc-100 font-semibold mt-1">{marketAuthStatus?.daily_token?.has_token ? 'Available' : 'Missing'}</div>
+              </div>
+              <div className="rounded-lg border border-zinc-700 p-3 bg-zinc-900">
+                <div className="text-zinc-400">Static Configured</div>
+                <div className="text-zinc-100 font-semibold mt-1">{marketAuthStatus?.static_configured ? 'Yes' : 'No'}</div>
+              </div>
+              <div className="rounded-lg border border-zinc-700 p-3 bg-zinc-900">
+                <div className="text-zinc-400">Static Failure Counter</div>
+                <div className="text-zinc-100 font-semibold mt-1">{marketAuthStatus?.monitor?.failure_count ?? 0}</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs">
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                dhanStatus === null              ? 'bg-gray-500' :
+                dhanStatus.connected             ? 'bg-green-500 animate-pulse' :
+                dhanStatus.tick_processor        ? 'bg-yellow-400 animate-pulse' :
+                                                   'bg-red-500'
+              }`} />
+              <span className="text-zinc-400">
+                {dhanStatus === null ? 'Checking status…'
+                  : dhanStatus.connected     ? `Connected - ${dhanStatus.slots?.filter(s => s.connected).length ?? 0}/5 WS slots active`
+                  : dhanStatus.tick_processor ? 'Services started - waiting for WS connection…'
+                  : dhanStatus.has_credentials ? 'Credentials saved - not connected'
+                  : 'No credentials saved'
+                }
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {(dhanStatus?.connected || dhanStatus?.tick_processor)
+                ? <button
+                    onClick={() => askConfirm('Confirm Disconnect', 'Are you sure to disconnect all Dhan services?', handleDisconnect)}
+                    disabled={isConnecting}
+                    className={btnCls('red')}
+                  >
+                    {isConnecting ? 'Working…' : 'Disconnect'}
+                  </button>
+                : <button
+                    onClick={() => askConfirm('Confirm Connect', 'Are you sure to start Dhan services and reconnect streams?', handleConnect)}
+                    disabled={isConnecting}
+                    className={btnCls('green')}
+                  >
+                    {isConnecting ? 'Connecting…' : 'Connect to Dhan'}
+                  </button>
+              }
+            </div>
+
+            {connectMsg.text && (
+              <p className={`text-xs ${
+                connectMsg.type === 'success' ? 'text-green-400' :
+                connectMsg.type === 'warn'    ? 'text-yellow-400' : 'text-red-400'
+              }`}>
+                {connectMsg.text}
+              </p>
+            )}
+          </div>
         </div>
       )}
 

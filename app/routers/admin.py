@@ -243,7 +243,7 @@ async def get_auth_mode_status():
 
 
 @router.post("/auth-mode")
-async def switch_auth_mode(req: AuthModeRequest):
+async def switch_auth_mode_basic(req: AuthModeRequest):
     """
     Switch between auto_totp and manual token auth modes.
 
@@ -1153,16 +1153,30 @@ class CredentialsSaveRequest(BaseModel):
     api_key: str = ""
     secret_api: str = ""
     daily_token: str = ""
-    auth_mode: str = "DAILY_TOKEN"
+    auth_mode: str = "auto_totp"
 
 
 class AuthModeSwitchRequest(BaseModel):
     """Request to switch authentication mode."""
-    auth_mode: str  # 'static_ip' | 'auto_totp'
+    auth_mode: str
+    force: bool = False
+    daily_token: str = ""
+
+
+def _normalize_auth_mode(mode: str) -> str:
+    """Accept legacy dashboard values and map to internal auth modes."""
+    raw = (mode or "").strip().upper()
+    if raw in ("AUTO_TOTP", "TOTP", "AUTO"):
+        return "auto_totp"
+    if raw in ("STATIC_IP", "STATIC"):
+        return "static_ip"
+    if raw in ("DAILY_TOKEN", "DAILY_MANUAL", "MANUAL"):
+        return "manual"
+    return (mode or "").strip().lower()
 
 
 @router.get("/credentials/active")
-async def get_credentials_active():
+async def get_credentials_active(admin: CurrentUser = Depends(get_super_admin_user)):
     """Return full credential data for the SuperAdmin dashboard."""
     token = get_access_token()
     expiry = get_token_expiry()
@@ -1172,14 +1186,16 @@ async def get_credentials_active():
         "token_masked": f"****{token[-6:]}" if token else None,
         "has_token":   bool(token),
         "auth_mode":   get_auth_mode(),
+        "effective_mode": get_active_auth_mode(),
         "last_updated": expiry.isoformat() if expiry else None,
         "static_configured": is_static_configured(),
         "static_client_id": static_masked.get("client_id"),
+        "preferred_order": ["auto_totp", "static_ip", "manual"],
     }
 
 
 @router.post("/credentials/save")
-async def save_credentials(req: CredentialsSaveRequest):
+async def save_credentials(req: CredentialsSaveRequest, admin: CurrentUser = Depends(get_super_admin_user)):
     """Save credentials (client_id + access_token) from SuperAdmin dashboard."""
     from app.credentials.credential_store import update_client_id as _update_client_id
     import traceback
@@ -1263,10 +1279,23 @@ async def save_credentials(req: CredentialsSaveRequest):
             log.error(error_msg)
             log.error(traceback.format_exc())
         
-        # Update Auth Mode
-        if not token_refresher.is_enabled:
+        # Persist requested auth mode (best effort)
+        requested_mode = _normalize_auth_mode(req.auth_mode)
+        if requested_mode in ("auto_totp", "static_ip", "manual"):
+            try:
+                await set_auth_mode(requested_mode)
+                if "auth_mode" not in saved_items:
+                    saved_items.append("auth_mode")
+                log.info("✅ Auth mode set to %s", requested_mode)
+            except Exception as e:
+                error_msg = f"Failed to set auth mode: {str(e)}"
+                errors.append(error_msg)
+                log.error(error_msg)
+        elif not token_refresher.is_enabled:
             try:
                 await set_auth_mode("manual")
+                if "auth_mode" not in saved_items:
+                    saved_items.append("auth_mode")
                 log.info("✅ Auth mode set to manual")
             except Exception as e:
                 error_msg = f"Failed to set auth mode: {str(e)}"
@@ -1310,21 +1339,22 @@ async def save_credentials(req: CredentialsSaveRequest):
 
 
 @router.post("/auth-mode/switch")
-async def switch_auth_mode(req: AuthModeSwitchRequest):
+async def switch_auth_mode(req: AuthModeSwitchRequest, admin: CurrentUser = Depends(get_super_admin_user)):
     """
     Switch authentication mode and verify the change.
     
     Modes:
-    - 'static_ip': Use API Key + Secret with HMAC-SHA256 signatures
-    - 'auto_totp': Use Daily Token with auto-refresh
+    - 'auto_totp' (primary): auto token generation via TOTP
+    - 'static_ip' (secondary): signed REST auth for whitelisted static IP setup
+    - 'manual' (fallback): paste daily token manually
     """
-    target_mode = req.auth_mode.lower()
+    target_mode = _normalize_auth_mode(req.auth_mode)
     
     # Validate mode
-    if target_mode not in ("static_ip", "auto_totp"):
+    if target_mode not in ("static_ip", "auto_totp", "manual"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid auth_mode: {target_mode!r}. Use 'static_ip' or 'auto_totp'.",
+            detail=f"Invalid auth_mode: {target_mode!r}. Use 'auto_totp', 'static_ip', or 'manual'.",
         )
     
     current_mode = get_active_auth_mode()
@@ -1346,10 +1376,19 @@ async def switch_auth_mode(req: AuthModeSwitchRequest):
                 detail="Static IP credentials not configured. Save API Key + Secret first.",
             )
     elif target_mode == "auto_totp":
-        if not get_access_token():
+        if not token_refresher.is_enabled:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Daily Token not available. Save access token first.",
+                detail="TOTP is not configured. Set DHAN_PIN and DHAN_TOTP_SECRET first.",
+            )
+    elif target_mode == "manual":
+        pasted = (req.daily_token or "").strip()
+        if pasted and not all(ch in ("*", "•") for ch in pasted) and len(pasted) > 8:
+            await rotate_token(pasted, reconnect=True)
+        if not get_access_token() and not req.force:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Manual mode requires a daily token. Paste token and retry.",
             )
     
     # Set new mode
@@ -1368,19 +1407,27 @@ async def switch_auth_mode(req: AuthModeSwitchRequest):
             else:
                 verification_result = "failed"
                 verification_error = f"HTTP {resp.status_code}: {resp.text[:100]}"
-                # Fallback to auto_totp on verification failure
-                await set_auth_mode("auto_totp")
+                # Fallback to primary mode unless force=True
+                if not req.force:
+                    await set_auth_mode("auto_totp")
         elif target_mode == "auto_totp":
-            # Token refresher will start automatically
-            # Request should succeed on next use
-            if token_refresher.is_enabled:
-                await token_refresher.start()
-            verification_result = "success"
+            try:
+                await token_refresher.resume()
+                verification_result = "success"
+            except RuntimeError as exc:
+                verification_result = "failed"
+                verification_error = str(exc)
+        elif target_mode == "manual":
+            await token_refresher.pause()
+            verification_result = "success" if get_access_token() else "pending"
+            if verification_result == "pending":
+                verification_error = "No daily token is currently saved"
     except Exception as exc:
         verification_result = "error"
         verification_error = str(exc)
         # Fallback to previous mode on error
-        await set_auth_mode(current_mode)
+        if not req.force:
+            await set_auth_mode(current_mode)
     
     # Reset failure counter on successful mode switch
     if verification_result == "success":
@@ -1399,8 +1446,14 @@ async def switch_auth_mode(req: AuthModeSwitchRequest):
     }
 
 
+@router.post("/credentials/switch-mode")
+async def switch_auth_mode_compat(req: AuthModeSwitchRequest, admin: CurrentUser = Depends(get_super_admin_user)):
+    """Backward-compatible alias used by older dashboard builds."""
+    return await switch_auth_mode(req, admin)
+
+
 @router.get("/auth-status")
-async def get_auth_status():
+async def get_auth_status(admin: CurrentUser = Depends(get_super_admin_user)):
     """
     Return full authentication status for admin diagnostics.
     """
@@ -1414,6 +1467,7 @@ async def get_auth_status():
     
     return {
         "mode": auth_mode,
+        "preferred_order": ["auto_totp", "static_ip", "manual"],
         "static_configured": is_static_configured(),
         "static_client_id": static_creds.get("client_id"),
         "daily_token": {
@@ -2129,14 +2183,35 @@ async def dhan_connect():
     from app.market_data.tick_processor    import tick_processor
     from app.market_data.greeks_poller     import greeks_poller
     from app.market_hours                  import is_nse_bse_ws_window_open_strict
-    from app.credentials.credential_store  import get_client_id, get_access_token
+    from app.credentials.credential_store  import get_client_id, get_access_token, get_active_auth_mode
     from app.credentials.token_refresher   import token_refresher
     from app.instruments import subscription_manager as sm
 
-    if not get_client_id() or not get_access_token():
+    if not get_client_id():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Client ID and Access Token must be saved before connecting.",
+            detail="Client ID must be saved before connecting.",
+        )
+
+    # In primary auto_totp mode we can bootstrap a fresh token at connect-time.
+    if not get_access_token() and get_active_auth_mode() == "auto_totp":
+        if not token_refresher.is_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="AUTO_TOTP mode selected but TOTP credentials are not configured.",
+            )
+        await token_refresher.start()
+        refresh = await token_refresher.refresh_now()
+        if not refresh.get("success"):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Unable to generate token via TOTP: {refresh.get('reason', 'unknown error')}",
+            )
+
+    if not get_access_token():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No daily token available. Paste token manually or switch to auto_totp.",
         )
 
     started: list[str] = []

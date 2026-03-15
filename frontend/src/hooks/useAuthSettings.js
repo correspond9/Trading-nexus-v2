@@ -6,7 +6,7 @@ const LOCAL_CRED_CACHE_KEY = 'dhanCredViewCache';
 
 export const useAuthSettings = () => {
   const [localSettings, setLocalSettings] = useState({
-    authMode: 'DAILY_TOKEN', // DAILY_TOKEN or STATIC_IP
+    authMode: 'AUTO_TOTP', // AUTO_TOTP | STATIC_IP | DAILY_MANUAL
     clientId: '',
     accessToken: '',
     apiKey: '',
@@ -20,6 +20,20 @@ export const useAuthSettings = () => {
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+
+  const toUiMode = (mode) => {
+    const raw = String(mode || '').toLowerCase().trim();
+    if (raw === 'static_ip') return 'STATIC_IP';
+    if (raw === 'manual') return 'DAILY_MANUAL';
+    return 'AUTO_TOTP';
+  };
+
+  const toApiMode = (mode) => {
+    const raw = String(mode || '').toUpperCase().trim();
+    if (raw === 'STATIC_IP') return 'static_ip';
+    if (raw === 'DAILY_TOKEN' || raw === 'DAILY_MANUAL' || raw === 'MANUAL') return 'manual';
+    return 'auto_totp';
+  };
 
   const withTimeout = (promise, ms = 12000) => {
     let timeoutId;
@@ -70,7 +84,7 @@ export const useAuthSettings = () => {
 
       if (data?.client_id || data?.client_id_prefix || hasPersistedToken) {
         const next = {
-          authMode: data.auth_mode || 'DAILY_TOKEN',
+          authMode: toUiMode(data.effective_mode || data.auth_mode),
           clientId: data.client_id || (data.client_id_prefix ? `${data.client_id_prefix}****` : ''),
           accessToken: hasPersistedToken ? (data.token_masked || '****************') : '',
           apiKey: '',
@@ -110,7 +124,7 @@ export const useAuthSettings = () => {
         const cached = JSON.parse(raw);
         if (cached && cached.clientId) {
           return {
-            authMode: cached.authMode || 'DAILY_TOKEN',
+            authMode: cached.authMode || 'AUTO_TOTP',
             clientId: cached.clientId || '',
             accessToken: cached.hasToken ? '****************' : '',
             apiKey: '',
@@ -138,12 +152,19 @@ export const useAuthSettings = () => {
     setIsSaving(true);
     try {
       if (!localSettings.clientId || !localSettings.accessToken) {
-        throw new Error('Client ID and Access Token are required');
+        throw new Error('Client ID is required');
       }
 
       if (localSettings.authMode === 'STATIC_IP') {
         if (!localSettings.apiKey || !localSettings.clientSecret) {
           throw new Error('API Key and Client Secret are required for Static IP mode');
+        }
+      }
+
+      if (localSettings.authMode === 'DAILY_MANUAL') {
+        const token = (localSettings.accessToken || '').trim();
+        if (!token || token.length < 10 || /^([*\u2022])+$/u.test(token)) {
+          throw new Error('Paste a valid daily access token for Daily Manual mode');
         }
       }
 
@@ -153,7 +174,7 @@ export const useAuthSettings = () => {
         api_key: localSettings.apiKey || '',
         secret_api: localSettings.clientSecret || '',
         daily_token: localSettings.accessToken,
-        auth_mode: localSettings.authMode
+        auth_mode: toApiMode(localSettings.authMode)
       };
 
       const response = await withTimeout(apiService.post('/admin/credentials/save', payload), 15000);
@@ -202,9 +223,15 @@ export const useAuthSettings = () => {
   };
 
   // Switch authentication mode
-  const switchMode = async (newMode) => {
+  const switchMode = async (newMode, options = {}) => {
+    const force = Boolean(options?.force);
+    const dailyToken = options?.dailyToken || localSettings.accessToken || '';
     try {
-      const res = await apiService.post('/admin/credentials/switch-mode', { auth_mode: newMode });
+      const res = await apiService.post('/admin/auth-mode/switch', {
+        auth_mode: toApiMode(newMode),
+        force,
+        daily_token: dailyToken,
+      });
       if (res && !res.error) {
         try {
           apiService.clearCacheEntry?.('/admin/credentials/active', {});
@@ -218,6 +245,7 @@ export const useAuthSettings = () => {
       }
     } catch (error) {
       console.error('Error switching mode:', error);
+      throw error;
     }
   };
 

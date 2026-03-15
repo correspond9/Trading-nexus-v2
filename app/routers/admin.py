@@ -50,7 +50,8 @@ log = logging.getLogger(__name__)
 
 # ── User management constants ──────────────────────────────────────────────────
 _ALLOWED_STATUSES       = {"ACTIVE", "PENDING", "SUSPENDED", "BLOCKED"}
-_ADMIN_CREATABLE_ROLES  = {"USER", "ADMIN"}
+_ADMIN_CREATABLE_ROLES  = {"USER"}
+_ADMIN_VISIBLE_ROLES    = {"USER"}
 _ALL_ROLES              = {"USER", "ADMIN", "SUPER_USER", "SUPER_ADMIN"}
 
 # ── Models ─────────────────────────────────────────────────────────────────
@@ -154,6 +155,21 @@ _SMS_OTP_DEFAULTS = {
     "otp_resend_cooldown_seconds": 300,
     "otp_max_attempts": 5,
 }
+
+
+def _can_access_target_role(caller: CurrentUser, target_role: str) -> bool:
+    if caller.role == "SUPER_ADMIN":
+        return True
+    return target_role in _ADMIN_VISIBLE_ROLES
+
+
+def _assert_target_role_access(caller: CurrentUser, target_role: str, action: str = "access this user") -> None:
+    if _can_access_target_role(caller, target_role):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"You are not allowed to {action}.",
+    )
 
 
 def _to_positive_int(value, fallback: int) -> int:
@@ -463,7 +479,8 @@ async def list_users(
         rows = await pool.fetch(base_q + "ORDER BY u.user_no")
     else:
         rows = await pool.fetch(
-            base_q + "WHERE u.role IN ('USER', 'ADMIN') ORDER BY u.user_no"
+            base_q + "WHERE u.role = ANY($1::text[]) ORDER BY u.user_no",
+            list(_ADMIN_VISIBLE_ROLES),
         )
 
     result = []
@@ -530,8 +547,7 @@ async def get_user(
         raise HTTPException(status_code=404, detail="User not found.")
 
     # ADMIN cannot see SUPER_USER / SUPER_ADMIN rows
-    if caller.role == "ADMIN" and row["role"] not in ("USER", "ADMIN"):
-        raise HTTPException(status_code=403, detail="Insufficient permissions.")
+    _assert_target_role_access(caller, row["role"], action="view this user")
 
     d = dict(row)
     d["id"] = str(d["id"])
@@ -765,8 +781,7 @@ async def update_user(
         raise HTTPException(status_code=404, detail="User not found.")
 
     # ADMIN cannot touch SUPER_USER / SUPER_ADMIN rows
-    if caller.role == "ADMIN" and existing["role"] not in ("USER", "ADMIN"):
-        raise HTTPException(status_code=403, detail="Insufficient permissions.")
+    _assert_target_role_access(caller, existing["role"], action="modify this user")
 
     # Role change validation
     if req.role is not None:
@@ -934,6 +949,11 @@ async def add_funds(
     """Credit or debit a user's paper-trading wallet."""
     from app.database import get_pool as _get_pool
     pool = _get_pool()
+
+    target = await pool.fetchrow("SELECT id, role FROM users WHERE id = $1::uuid", user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+    _assert_target_role_access(caller, target["role"], action="adjust funds for this user")
 
     if req.amount == 0:
         raise HTTPException(status_code=400, detail="Amount must be non-zero.")
@@ -1807,13 +1827,13 @@ async def backdate_position(
             # Try UUID first
             user_uuid = uuid.UUID(user_identifier)
             user_row = await pool.fetchrow(
-                "SELECT id FROM users WHERE id = $1",
+                "SELECT id, role FROM users WHERE id = $1",
                 user_uuid
             )
         except (ValueError, Exception):
             # Try mobile
             user_row = await pool.fetchrow(
-                "SELECT id FROM users WHERE mobile = $1",
+                "SELECT id, role FROM users WHERE mobile = $1",
                 user_identifier
             )
             # If mobile lookup fails and the identifier is numeric, try user_no
@@ -1821,7 +1841,7 @@ async def backdate_position(
                 try:
                     user_no = int(user_identifier)
                     user_row = await pool.fetchrow(
-                        "SELECT id FROM users WHERE user_no = $1",
+                        "SELECT id, role FROM users WHERE user_no = $1",
                         user_no,
                     )
                 except Exception:
@@ -1829,6 +1849,8 @@ async def backdate_position(
         
         if not user_row:
             return {"success": False, "detail": f"User not found: {user_identifier}"}
+
+        _assert_target_role_access(admin, user_row["role"], action="create backdated positions for this user")
         
         target_user_id = user_row["id"]
         
@@ -1956,7 +1978,10 @@ async def backdate_position(
 
 
 @router.post("/force-exit")
-async def force_exit(request: Request):
+async def force_exit(
+    request: Request,
+    admin: CurrentUser = Depends(get_admin_user),
+):
     """
     Admin endpoint to force-close any user's open position.
     Required fields: user_id, position_id, exit_price, exit_date, exit_time
@@ -1994,12 +2019,14 @@ async def force_exit(request: Request):
     
     # Resolve user_id (could be mobile, UUID, etc.)
     user_row = await pool.fetchrow(
-        "SELECT id FROM users WHERE CAST(mobile AS TEXT) = $1 OR id = $2::uuid LIMIT 1",
+        "SELECT id, role FROM users WHERE CAST(mobile AS TEXT) = $1 OR id = $2::uuid LIMIT 1",
         user_id_str, user_id_str
     )
     
     if not user_row:
         return {"success": False, "detail": f"User '{user_id_str}' not found"}
+
+    _assert_target_role_access(admin, user_row["role"], action="force-exit positions for this user")
     
     uid = user_row['id']
     
@@ -2287,8 +2314,14 @@ async def positions_userwise(
     from app.database import get_pool as _get_pool
     pool = _get_pool()
 
+    role_scope_clause = ""
+    params = []
+    if current_user.role != "SUPER_ADMIN":
+        role_scope_clause = "WHERE u.role = ANY($1::text[])"
+        params.append(list(_ADMIN_VISIBLE_ROLES))
+
     rows = await pool.fetch(
-        """
+        f"""
         WITH ist_today AS (
             -- Start-of-day in IST (UTC+5:30) converted back to UTC for comparison
             SELECT (date_trunc('day', NOW() AT TIME ZONE 'Asia/Kolkata')
@@ -2381,9 +2414,11 @@ async def positions_userwise(
         FROM users u
         LEFT JOIN paper_accounts pa  ON pa.user_id  = u.id
         LEFT JOIN filtered_pos   fp  ON fp.user_id  = u.id
+        {role_scope_clause}
         GROUP BY u.id, u.user_no, u.name, u.first_name, u.last_name, u.mobile, pa.balance, pa.margin_allotted
         ORDER BY u.user_no NULLS LAST
-        """
+        """,
+        *params,
     )
 
     result = []
@@ -2434,6 +2469,11 @@ async def userwise_active_orders(
     from app.database import get_pool as _get_pool
 
     pool = _get_pool()
+    target_user = await pool.fetchrow("SELECT id, role FROM users WHERE id = $1::uuid", user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    _assert_target_role_access(current_user, target_user["role"], action="view active orders for this user")
+
     rows = await pool.fetch(
         """
         SELECT
@@ -2460,7 +2500,7 @@ async def userwise_active_orders(
         ORDER BY po.placed_at DESC
         LIMIT 200
         """,
-        user_id,
+        str(target_user["id"]),
     )
 
     data = []
@@ -2728,12 +2768,13 @@ async def assign_user_brokerage_plans(
     pool = get_pool()
     
     # Verify user exists
-    user = await pool.fetchrow("SELECT id FROM users WHERE id = $1::uuid", user_id)
+    user = await pool.fetchrow("SELECT id, role FROM users WHERE id = $1::uuid", user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User {user_id} not found"
         )
+    _assert_target_role_access(current_user, user["role"], action="assign brokerage plans to this user")
     
     # Verify plans exist
     if plans.equity_plan_id:
@@ -3139,18 +3180,20 @@ async def get_user_positions(
         import uuid
         uuid_val = uuid.UUID(user_id)
         user = await pool.fetchrow(
-            "SELECT id, mobile, name FROM users WHERE id = $1",
+            "SELECT id, mobile, name, role FROM users WHERE id = $1",
             user_id
         )
     except (ValueError, TypeError):
         # Not a UUID, try as mobile
         user = await pool.fetchrow(
-            "SELECT id, mobile, name FROM users WHERE mobile = $1",
+            "SELECT id, mobile, name, role FROM users WHERE mobile = $1",
             user_id
         )
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    _assert_target_role_access(current_user, user["role"], action="view positions for this user")
     
     user_id_uuid = user['id']
     
@@ -3271,6 +3314,11 @@ async def recompute_historic_charge_calculation(
     params = []
 
     if user_id:
+        target_row = await pool.fetchrow("SELECT role FROM users WHERE id = $1::uuid", str(user_id))
+        if not target_row:
+            raise HTTPException(status_code=404, detail="User not found")
+        _assert_target_role_access(current_user, target_row["role"], action="recompute charges for this user")
+
         params.append(str(user_id))
         where_parts.append(f"pp.user_id = ${len(params)}::uuid")
 

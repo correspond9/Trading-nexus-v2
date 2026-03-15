@@ -173,7 +173,7 @@ const UsersPage = () => {
   const isSuperAdmin = self?.role === "SUPER_ADMIN";
   const roleOptions  = isSuperAdmin
     ? ["USER", "ADMIN", "SUPER_USER", "SUPER_ADMIN"]
-    : ["USER", "ADMIN"];
+    : ["USER"];
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 900);
@@ -347,7 +347,9 @@ const UsersPage = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showUserTypeDropdown]);
 
-  const allUserTypes = ["USER", "ADMIN", "SUPER_USER", "SUPER_ADMIN"];
+  const allUserTypes = isSuperAdmin
+    ? ["USER", "ADMIN", "SUPER_USER", "SUPER_ADMIN"]
+    : ["USER"];
 
   // ── Render ────────────────────────────────────────────────────────────
   return (

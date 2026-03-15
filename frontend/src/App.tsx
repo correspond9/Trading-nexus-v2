@@ -116,7 +116,7 @@ export default function App() {
                     <Route path="/profile" element={<Profile />} />
                     <Route path="/portfolio" element={<Portfolio />} />
                     <Route path="/dashboard" element={
-                      <ProtectedRoute requiredRoles={['ADMIN', 'SUPER_ADMIN']}><SuperAdmin /></ProtectedRoute>
+                      <ProtectedRoute requiredRoles={['SUPER_ADMIN']}><SuperAdmin /></ProtectedRoute>
                     } />
                   </Route>
                   <Route path="*" element={<Navigate to="/trade" replace />} />

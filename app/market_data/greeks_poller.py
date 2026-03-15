@@ -32,6 +32,64 @@ from app.market_data.index_underlyings import (
 log = logging.getLogger(__name__)
 cfg = get_settings()
 
+
+# ── ATM DB persistence helpers ──────────────────────────────────────────────
+
+async def load_atm_from_db() -> None:
+    """
+    Load ATM strikes persisted in system_config into the in-memory cache.
+    Call this before build_skeleton() so cold-start uses the last known ATM
+    instead of falling back to the middle-of-strikes heuristic.
+    """
+    pool = get_pool()
+    try:
+        rows = await pool.fetch(
+            "SELECT key, value FROM system_config WHERE key LIKE 'atm_persist_%'"
+        )
+    except Exception as exc:
+        log.warning(f"[ATM] load_atm_from_db query failed: {exc}")
+        return
+
+    loaded = []
+    for row in rows:
+        key = row["key"]
+        if not key.startswith("atm_persist_"):
+            continue
+        underlying = key[len("atm_persist_"):]
+        if not underlying:
+            continue
+        try:
+            atm_strike = float(row["value"])
+            if atm_strike > 0:
+                set_atm(underlying, atm_strike)
+                loaded.append(f"{underlying}={atm_strike:.2f}")
+        except (ValueError, TypeError):
+            continue
+
+    if loaded:
+        log.info(f"[ATM] Loaded from DB persistence: {', '.join(loaded)}")
+    else:
+        log.info("[ATM] No persisted ATM values found in DB — will derive from live data.")
+
+
+async def persist_atm(underlying: str, atm_strike: float) -> None:
+    """Persist ATM strike to system_config so it survives restarts."""
+    try:
+        pool = get_pool()
+        await pool.execute(
+            """
+            INSERT INTO system_config (key, value, updated_at)
+            VALUES ($1, $2, now())
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+            """,
+            f"atm_persist_{underlying.upper()}",
+            str(atm_strike),
+        )
+        log.info(f"[ATM] Persisted {underlying}={atm_strike:.2f} to DB")
+    except Exception as exc:
+        log.warning(f"[ATM] Persist failed [{underlying}={atm_strike}]: {exc}")
+
+
 # Strike interval mapping (kept in-sync with /options endpoints)
 _STRIKE_INTERVALS = {
     "NIFTY": 50,
@@ -97,6 +155,10 @@ class _GreeksPoller:
         Greeks/IV are populated later by the 15s REST poller.
         """
         log.info("Building option chain skeleton from instrument_master…")
+        # Prime the in-memory ATM cache from DB before building so that
+        # post-redeploy restarts use the last admin-confirmed ATM instead
+        # of falling back to the middle-of-strikes heuristic.
+        await load_atm_from_db()
         expiry_pairs = await self._get_active_expiry_pairs()
         for underlying, expiry in expiry_pairs:
             try:
@@ -218,6 +280,11 @@ class _GreeksPoller:
                 atm = Decimal(str(center))
             else:
                 atm = update_atm(underlying, float(ltp), step)
+                # Persist so future cold-starts use this LTP-derived ATM
+                try:
+                    await persist_atm(underlying, float(atm))
+                except Exception:
+                    pass
 
         atm_f = float(atm)
         # Find closest available strike to ATM

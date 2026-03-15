@@ -3454,6 +3454,7 @@ async def recalibrate_atm(
     """
     from app.database import get_pool as _pool
     from app.instruments.atm_calculator import update_atm, get_atm, set_atm
+    from app.market_data.greeks_poller import persist_atm
 
     pool = _pool()
     results = []
@@ -3504,6 +3505,7 @@ async def recalibrate_atm(
                     "new_atm": float(new_atm),
                     "status": "updated_from_straddle",
                 })
+                await persist_atm(underlying, float(new_atm))
             else:
                 # Fallback to LTP-based rounding if no CE+PE pair is available.
                 ltp_row = await pool.fetchrow(
@@ -3527,6 +3529,7 @@ async def recalibrate_atm(
                         "new_atm": float(new_atm),
                         "status": "updated_ltp_fallback",
                     })
+                    await persist_atm(underlying, float(new_atm))
                 else:
                     results.append({"underlying": underlying, "status": "no_data"})
         except Exception as exc:
@@ -3555,6 +3558,7 @@ async def rebuild_option_chain_skeleton(
     """
     from app.instruments.atm_calculator import update_atm, get_atm, set_atm
     from app.market_data.atm_selector import legs_from_rest_optionchain, select_atm_from_straddle_legs
+    from app.market_data.greeks_poller import persist_atm
     from app.market_data.index_underlyings import (
         IDX_SEG as _IDX_SEG,
         resolve_index_security_id,
@@ -3643,6 +3647,7 @@ async def rebuild_option_chain_skeleton(
                         "method": "ltp_rounding_fallback",
                         "status": "atm_updated_ltp_fallback",
                     })
+                    await persist_atm(underlying, float(new_atm))
                     continue
                 atm_results.append({"underlying": underlying, "status": "no_ce_pe_pair_from_dhan"})
                 continue
@@ -3661,6 +3666,7 @@ async def rebuild_option_chain_skeleton(
                 "atm_pe_ltp": chosen_legs.get("PE"),
                 "status":     "atm_updated_from_straddle",
             })
+            await persist_atm(underlying, float(new_atm))
         except Exception as exc:
             atm_results.append({"underlying": underlying, "status": "error", "error": str(exc)})
 

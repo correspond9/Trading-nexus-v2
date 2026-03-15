@@ -215,6 +215,8 @@ async def lifespan(app: FastAPI):
                 if cfg.startup_load_tier_b:
                     log.info("[6] Initialising Tier-B subscriptions…")
                     await subscription_manager.initialise_tier_b()
+                    log.info("[6b] Rehydrating Tier-A subscriptions from watchlists/open positions…")
+                    await subscription_manager.initialise_tier_a_from_state()
                 else:
                     log.warning(
                         "[6] STARTUP_LOAD_TIER_B=false — skipping Tier-B init at startup. "

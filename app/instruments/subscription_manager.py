@@ -105,6 +105,67 @@ async def initialise_tier_b() -> dict:
     return {"total": total, "slots": {i: len(_active[i]) for i in range(5)}}
 
 
+async def initialise_tier_a_from_state() -> dict:
+    """
+    Rehydrate Tier-A subscriptions from persisted user state.
+
+    Sources:
+      - watchlist_items (active watchlists)
+      - open paper_positions (quantity != 0)
+
+    This runs at startup/connect so equity/watchlist prices resume immediately
+    after restart without waiting for frontend re-subscribe events.
+    """
+    pool = get_pool()
+    rows = await pool.fetch(
+        """
+        WITH user_interest AS (
+            SELECT DISTINCT wi.instrument_token
+            FROM watchlist_items wi
+            UNION
+            SELECT DISTINCT pp.instrument_token
+            FROM paper_positions pp
+            WHERE pp.status = 'OPEN'
+              AND pp.quantity != 0
+        )
+        SELECT ui.instrument_token
+        FROM user_interest ui
+        JOIN instrument_master im ON im.instrument_token = ui.instrument_token
+        WHERE im.tier = 'A'
+        """
+    )
+
+    if not rows:
+        return {"loaded": 0, "slots": {i: 0 for i in range(5)}}
+
+    loaded = 0
+    async with _lock:
+        for row in rows:
+            token = int(row["instrument_token"])
+            if token in _token_to_slot:
+                continue
+            slot = min(range(5), key=lambda s: len(_active[s]))
+            if len(_active[slot]) >= 5000:
+                log.warning(
+                    "Skipping Tier-A token %s during state rehydrate: all WS slots full",
+                    token,
+                )
+                continue
+            _active[slot].add(token)
+            _token_to_slot[token] = slot
+            loaded += 1
+
+    if loaded:
+        slot_breakdown = ", ".join(f"WS-{i}: {len(_active[i])}" for i in range(5))
+        log.info(
+            "Tier-A startup rehydrate loaded %s tokens from watchlists/open positions. %s",
+            loaded,
+            slot_breakdown,
+        )
+
+    return {"loaded": loaded, "slots": {i: len(_active[i]) for i in range(5)}}
+
+
 # ── Tier-A on-demand ────────────────────────────────────────────────────────
 
 async def subscribe_tier_a(instrument_token: int) -> int | None:

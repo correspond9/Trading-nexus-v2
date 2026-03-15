@@ -69,6 +69,12 @@ class _TickProcessor:
             return
         await self._flush()
 
+    def clear_meta_cache(self) -> None:
+        """Clear cached instrument metadata (used after instrument master refresh)."""
+        self._meta_cache.clear()
+        self._meta_cache_time = None
+        log.info("Tick processor instrument metadata cache cleared.")
+
     async def push(self, tick: dict) -> None:
         """
         Called by WS handlers on every incoming tick.

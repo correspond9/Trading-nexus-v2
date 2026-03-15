@@ -1071,7 +1071,9 @@ async def manual_scrip_master_refresh(request: Request):
     """
     use_local: bool = request.query_params.get("local", "false").lower() in ("1", "true", "yes")
     from app.instruments.scrip_master import refresh_instruments
+    from app.market_data.tick_processor import tick_processor
     await refresh_instruments(download=not use_local)
+    tick_processor.clear_meta_cache()
     return {"success": True, "source": "local_file" if use_local else "cdn"}
 
 
@@ -1646,7 +1648,9 @@ async def save_sms_otp_settings(payload: SmsOtpSettingsRequest, admin: CurrentUs
 async def reload_scrip_master_alias(request: Request):
     """Alias — reloads instrument master from local CSV (no CDN download)."""
     from app.instruments.scrip_master import refresh_instruments
+    from app.market_data.tick_processor import tick_processor
     await refresh_instruments(download=False)
+    tick_processor.clear_meta_cache()
     return {"success": True, "message": "Instrument master reloaded from local file."}
 
 
@@ -2111,6 +2115,10 @@ async def dhan_connect():
             started.append(f"tier_b_init ({stats_after.get('total_tokens', 0)} tokens)")
         else:
             log.info(f"Tier-B already initialized with {stats.get('total_tokens', 0)} tokens")
+
+        tier_a = await sm.initialise_tier_a_from_state()
+        if (tier_a.get("loaded") or 0) > 0:
+            started.append(f"tier_a_rehydrate ({tier_a.get('loaded')} tokens)")
     except Exception as exc:
         error_msg = f"Tier-B initialization failed: {exc}"
         log.error(error_msg, exc_info=True)

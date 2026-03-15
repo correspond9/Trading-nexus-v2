@@ -41,6 +41,7 @@ const LedgerPage = () => {
   const canSaveCsv = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
   const [entries,  setEntries]  = useState([]);
+  const [unrealizedPnl, setUnrealizedPnl] = useState(0);
   const [loading,  setLoading]  = useState(true);
   const [fromDate, setFromDate] = useState(daysAgo(30)); // default: last 30 days
   const [toDate,   setToDate]   = useState(today());
@@ -69,10 +70,22 @@ const LedgerPage = () => {
       }
       const res = await apiService.get('/ledger', params);
       setEntries(res?.data || []);
+
+      // Unrealised P&L must come from MTM of currently open positions.
+      try {
+        const pnlSummary = await apiService.get('/portfolio/positions/pnl/summary', {
+          user_id: params.user_id,
+        });
+        setUnrealizedPnl(Number(pnlSummary?.unrealized_pnl || 0));
+      } catch (pnlErr) {
+        console.warn('Unable to fetch unrealized P&L summary:', pnlErr);
+        setUnrealizedPnl(0);
+      }
     } catch (err) {
       console.error('Error fetching ledger:', err);
       setError(err?.data?.detail || err?.message || "Failed to load ledger.");
       setEntries([]);
+      setUnrealizedPnl(0);
     } finally {
       setLoading(false);
     }
@@ -102,14 +115,15 @@ const LedgerPage = () => {
     : userList;
 
   // Totals for summary bar
-  const totalCredit = entries.reduce((s, e) => s + (e.credit != null ? Number(e.credit) : 0), 0);
-  const totalDebit  = entries.reduce((s, e) => s + (e.debit  != null ? Number(e.debit)  : 0), 0);
-  const tradePnl    = entries.filter(e => e.type === 'trade_pnl')
-                             .reduce((s, e) => s + (e.net_pnl != null ? Number(e.net_pnl) : (e.credit != null ? Number(e.credit) : -Number(e.debit || 0))), 0);
-  // Get current wallet balance from the latest entry's balance field
-  const currentBalance = entries.length > 0 
-    ? (entries[0].balance != null ? Number(entries[0].balance) : 0)
-    : 0;
+  const creditSum = entries.reduce((s, e) => s + (e.credit != null ? Number(e.credit) : 0), 0);
+  const totalDebit = entries.reduce((s, e) => s + (e.debit != null ? Number(e.debit) : 0), 0);
+  const syntheticOpeningBalance = entries.find((e) => {
+    const desc = String(e.description || '').trim().toLowerCase();
+    return desc === 'opening balance' && e.debit == null && e.credit == null;
+  });
+  const openingBalance = syntheticOpeningBalance?.balance != null ? Number(syntheticOpeningBalance.balance) : 0;
+  const totalCredit = creditSum + openingBalance;
+  const currentBalance = totalCredit - totalDebit;
 
   const handleSaveAsCsv = () => {
     const rows = entries.map((e) => [
@@ -213,9 +227,9 @@ const LedgerPage = () => {
             <div style={s.summaryLabel}>Total Debits</div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--negative-text, #ef4444)' }}>{INR(totalDebit)}</div>
           </div>
-          <div style={s.summaryCard(tradePnl >= 0 ? '#22c55e' : '#ef4444')}>
-            <div style={s.summaryLabel}>Trade P&L (Net)</div>
-            <div style={s.summaryValue(tradePnl)}>{INR(tradePnl)}</div>
+          <div style={s.summaryCard(unrealizedPnl >= 0 ? '#22c55e' : '#ef4444')}>
+            <div style={s.summaryLabel}>Unrealised P&amp;L</div>
+            <div style={s.summaryValue(unrealizedPnl)}>{INR(unrealizedPnl)}</div>
           </div>
           <div style={s.summaryCard(currentBalance >= 0 ? '#3b82f6' : '#f97316')}>
             <div style={s.summaryLabel}>Current Wallet Balance</div>

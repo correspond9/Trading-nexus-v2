@@ -67,8 +67,8 @@ const PositionsTab = ({ productFilter = null }) => {
   const [exitError, setExitError] = useState('');
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 900);
   const [allUsers, setAllUsers] = useState([]);
-  const [selectedUserId, setSelectedUserId] = useState(null);
-  const [selectedUserName, setSelectedUserName] = useState('All Users');
+  const [selectedUserIds, setSelectedUserIds] = useState([]);
+  const [userSelectOpen, setUserSelectOpen] = useState(false);
   const [pendingOrders, setPendingOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
 
@@ -172,7 +172,7 @@ const PositionsTab = ({ productFilter = null }) => {
     } catch (err) { console.error('Error fetching positions:', err); }
   }, [isAdminScopedView, productFilter, user?.id, user?.mobile, user?.name]);
 
-  const fetchPendingOrders = useCallback(async (userId = null) => {
+  const fetchPendingOrders = useCallback(async () => {
     if (!isAdminScopedView) {
       setPendingOrders([]);
       return;
@@ -180,38 +180,31 @@ const PositionsTab = ({ productFilter = null }) => {
 
     setLoadingOrders(true);
     try {
-      if (userId) {
-        // Fetch for specific user
-        const res = await apiService.get(`/admin/positions/userwise/${userId}/active-orders`);
-        const orders = res?.data?.data || res?.data || [];
-        setPendingOrders(Array.isArray(orders) ? orders : []);
-      } else {
-        // Fetch for all users
-        const res = await apiService.get('/admin/positions/userwise');
-        const users = res?.data?.data || res?.data || [];
-        const allOrders = [];
+      // Fetch for all users; selected users are filtered client-side.
+      const res = await apiService.get('/admin/positions/userwise');
+      const users = res?.data?.data || res?.data || [];
+      const allOrders = [];
 
-        for (const userRow of users) {
-          const uid = String(userRow.user_id || '');
-          try {
-            const ordersRes = await apiService.get(`/admin/positions/userwise/${uid}/active-orders`);
-            const userOrders = ordersRes?.data?.data || ordersRes?.data || [];
-            if (Array.isArray(userOrders)) {
-              userOrders.forEach(order => {
-                allOrders.push({
-                  ...order,
-                  userName: userRow.display_name || userRow.mobile || uid,
-                  userMobile: userRow.mobile || userRow.user_no || ''
-                });
+      for (const userRow of users) {
+        const uid = String(userRow.user_id || '');
+        try {
+          const ordersRes = await apiService.get(`/admin/positions/userwise/${uid}/active-orders`);
+          const userOrders = ordersRes?.data?.data || ordersRes?.data || [];
+          if (Array.isArray(userOrders)) {
+            userOrders.forEach(order => {
+              allOrders.push({
+                ...order,
+                userName: userRow.display_name || userRow.mobile || uid,
+                userMobile: userRow.mobile || userRow.user_no || ''
               });
-            }
-          } catch (err) {
-            console.error(`Error fetching orders for user ${uid}:`, err);
+            });
           }
+        } catch (err) {
+          console.error(`Error fetching orders for user ${uid}:`, err);
         }
-
-        setPendingOrders(allOrders);
       }
+
+      setPendingOrders(allOrders);
     } catch (err) {
       console.error('Error fetching pending orders:', err);
       setPendingOrders([]);
@@ -220,25 +213,16 @@ const PositionsTab = ({ productFilter = null }) => {
     }
   }, [isAdminScopedView]);
 
-  const handleUserFilterChange = async (userId) => {
-    setSelectedUserId(userId);
-    
-    if (userId) {
-      const selectedUser = allUsers.find(u => u.user_id === userId);
-      setSelectedUserName(selectedUser?.name || userId);
-      await fetchPendingOrders(userId);
-    } else {
-      setSelectedUserName('All Users');
-      await fetchPendingOrders(null);
-    }
-  };
-
   useEffect(() => { 
     fetchPositions();
     if (isAdminScopedView) {
-      fetchPendingOrders(null);
+      fetchPendingOrders();
     }
   }, [fetchPositions, isAdminScopedView, fetchPendingOrders]);
+
+  useEffect(() => {
+    setSelectedOpenIds(new Set());
+  }, [selectedUserIds]);
 
   useEffect(() => {
     const handlePositionsUpdated = () => fetchPositions();
@@ -269,8 +253,29 @@ const PositionsTab = ({ productFilter = null }) => {
     });
   }, [pulse?.prices, marketActive]);
 
-  const openPositions = positions.filter((p) => p.status === "OPEN");
-  const closedPositions = positions.filter((p) => p.status === "CLOSED");
+  const userOptions = allUsers.map((u) => {
+    const id = String(u?.user_id || '').trim();
+    if (!id) return null;
+    const label = `${u?.name || id}${u?.mobile ? ` (${u.mobile})` : ''}`;
+    return { id, label };
+  }).filter(Boolean);
+
+  const allUsersSelected = userOptions.length > 0 && selectedUserIds.length === userOptions.length;
+  const toggleUserSelection = (uid) => {
+    setSelectedUserIds((prev) => (prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]));
+  };
+  const selectAllUsers = () => setSelectedUserIds(userOptions.map((u) => u.id));
+  const clearAllUsers = () => setSelectedUserIds([]);
+
+  const filteredPositions = (isAdminScopedView && selectedUserIds.length > 0)
+    ? positions.filter((p) => selectedUserIds.includes(String(p.userId || '')))
+    : positions;
+
+  const openPositions = filteredPositions.filter((p) => p.status === "OPEN");
+  const closedPositions = filteredPositions.filter((p) => p.status === "CLOSED");
+  const filteredPendingOrders = (isAdminScopedView && selectedUserIds.length > 0)
+    ? pendingOrders.filter((o) => selectedUserIds.includes(String(o.user_id || o.userId || '')))
+    : pendingOrders;
   const totalMtm = openPositions.reduce((sum, p) => sum + parseFloat(p.mtm), 0);
   const totalClosed = closedPositions.reduce((sum, p) => sum + p.realizedPnl, 0);
 
@@ -469,12 +474,12 @@ const PositionsTab = ({ productFilter = null }) => {
   const csvButtonStyle = { border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: 700, background: 'var(--surface2)', color: 'var(--text)' };
 
   const formatMoney = (v) => "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
-  const filterSelectStyle = { 
-    border: '1px solid var(--border)', 
-    background: 'var(--surface2)', 
-    color: 'var(--text)', 
-    borderRadius: '6px', 
-    padding: '8px 10px', 
+  const filterSelectStyle = {
+    border: '1px solid var(--border)',
+    background: 'var(--surface2)',
+    color: 'var(--text)',
+    borderRadius: '6px',
+    padding: '8px 10px',
     fontSize: '12px',
     cursor: 'pointer'
   };
@@ -494,18 +499,48 @@ const PositionsTab = ({ productFilter = null }) => {
         {isAdminScopedView && (
           <div style={{...sectionHeaderRowStyle, marginBottom: '14px'}}>
             <div style={labelStyle}>Filter by User:</div>
-            <select 
-              value={selectedUserId || ''} 
-              onChange={(e) => handleUserFilterChange(e.target.value || null)}
-              style={{...filterSelectStyle, minWidth: '200px'}}
-            >
-              <option value="">All Users</option>
-              {allUsers.map(u => (
-                <option key={u.user_id} value={u.user_id}>
-                  {u.name} ({u.mobile})
-                </option>
-              ))}
-            </select>
+            <div style={{ position: 'relative', minWidth: isMobile ? '100%' : '320px' }}>
+              <button
+                type="button"
+                onClick={() => setUserSelectOpen((prev) => !prev)}
+                style={{ ...filterSelectStyle, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <span>
+                  {selectedUserIds.length === 0
+                    ? 'All Users'
+                    : `${selectedUserIds.length} user${selectedUserIds.length === 1 ? '' : 's'} selected`}
+                </span>
+                <span style={{ fontSize: '11px', color: 'var(--muted)' }}>{userSelectOpen ? '▲' : '▼'}</span>
+              </button>
+
+              {userSelectOpen && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 20, width: '100%', maxHeight: '280px', overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)', padding: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '6px' }}>
+                    <input
+                      type="checkbox"
+                      checked={allUsersSelected}
+                      onChange={(e) => (e.target.checked ? selectAllUsers() : clearAllUsers())}
+                    />
+                    Select All
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '6px', borderBottom: '1px solid var(--border)', marginBottom: '6px' }}>
+                    <input type="checkbox" checked={selectedUserIds.length === 0} onChange={clearAllUsers} />
+                    Clear Filter (All Users)
+                  </label>
+
+                  {userOptions.map((u) => (
+                    <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '6px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.includes(u.id)}
+                        onChange={() => toggleUserSelection(u.id)}
+                      />
+                      <span>{u.label}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -627,9 +662,9 @@ const PositionsTab = ({ productFilter = null }) => {
           <>
             <div style={{ ...sectionHeaderRowStyle, marginTop: "24px" }}>
               <div style={{...sectionTitleStyle, display: 'flex', alignItems: 'center', gap: '8px'}}>
-                Pending/Active Orders {selectedUserName !== 'All Users' && `(${selectedUserName})`} ({pendingOrders.length})
+                Pending/Active Orders {selectedUserIds.length > 0 && `(${selectedUserIds.length} selected)`} ({filteredPendingOrders.length})
                 <button 
-                  onClick={() => fetchPendingOrders(selectedUserId)} 
+                  onClick={() => fetchPendingOrders()} 
                   style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
                   title="Refresh orders"
                 >
@@ -659,10 +694,10 @@ const PositionsTab = ({ productFilter = null }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {pendingOrders.length === 0 ? (
+                    {filteredPendingOrders.length === 0 ? (
                       <tr><td style={tdStyle} colSpan="11">No pending/active orders.</td></tr>
                     ) : (
-                      pendingOrders.map((order, idx) => {
+                      filteredPendingOrders.map((order, idx) => {
                         const placeTime = order.placed_at 
                           ? new Date(order.placed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
                           : '—';

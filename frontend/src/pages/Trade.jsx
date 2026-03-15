@@ -85,8 +85,8 @@ const fetchExpiryDates = async (selectedIndex = 'NIFTY 50') => {
 const Trade = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
-  const [leftTab, setLeftTab] = useState('straddle');
-  const [rightTab, setRightTab] = useState('orders');
+  const [leftTab, setLeftTab] = useState('options');
+  const [rightTab, setRightTab] = useState('positions');
   const [selectedIndex, setSelectedIndex] = useState('NIFTY 50');
   const [expiries, setExpiries] = useState([]);
   const [isoExpiries, setIsoExpiries] = useState([]);

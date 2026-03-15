@@ -40,6 +40,7 @@ const TABS = [
   { id: 'courseEnrollments', label: 'Course Enrollments' },
   { id: 'userSignups', label: 'User Signups' },
   { id: 'schedulers', label: 'Schedulers' },
+  { id: 'detailedLogs', label: 'Detailed Logs' },
 ];
 
 // ── Row components ────────────────────────────────────────────────────────────
@@ -81,14 +82,197 @@ const btnCls   = (color = 'blue') => `px-4 py-2 rounded-lg font-medium transitio
   color === 'blue'   ? 'bg-blue-600   hover:bg-blue-500   disabled:bg-blue-900'   :
   color === 'red'    ? 'bg-red-600    hover:bg-red-500    disabled:bg-red-900'    :
   color === 'green'  ? 'bg-green-600  hover:bg-green-500  disabled:bg-green-900'  :
+  color === 'yellow' ? 'bg-yellow-600 hover:bg-yellow-500 disabled:bg-yellow-900' :
   color === 'indigo' ? 'bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900' :
   color === 'purple' ? 'bg-purple-600 hover:bg-purple-500 disabled:bg-purple-900' :
   'bg-gray-600 hover:bg-gray-500 disabled:bg-gray-900'
 }`;
 
+// ── User Detail Modal ─────────────────────────────────────────────────────────
+const UserDetailModal = ({ user, type, onClose }) => {
+  if (!user) return null;
+
+  const parseIp = (ipDetails) => {
+    if (!ipDetails) return null;
+    const s = String(ipDetails).trim();
+    if (s.startsWith('{') || s.startsWith('[')) {
+      try { return JSON.parse(s); } catch {}
+    }
+    return { ip: s };
+  };
+
+  const ipInfo = parseIp(user.ip_details);
+
+  const Field = ({ label, value }) => {
+    if (value === null || value === undefined || value === '') return null;
+    return (
+      <div>
+        <div className="text-xs text-zinc-400">{label}</div>
+        <div className="text-sm text-zinc-100 mt-0.5 break-all">{String(value)}</div>
+      </div>
+    );
+  };
+
+  const BoolField = ({ label, value }) => (
+    <div>
+      <div className="text-xs text-zinc-400">{label}</div>
+      <div className={`text-sm mt-0.5 font-semibold ${value ? 'text-green-400' : 'text-zinc-500'}`}>{value ? 'Yes' : 'No'}</div>
+    </div>
+  );
+
+  const statusColors = {
+    PENDING:  'bg-yellow-900/30 text-yellow-300 border-yellow-700/40',
+    APPROVED: 'bg-green-900/30  text-green-300  border-green-700/40',
+    REJECTED: 'bg-red-900/30    text-red-300    border-red-700/40',
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-zinc-700 sticky top-0 bg-zinc-900">
+          <div>
+            <h3 className="text-base font-semibold text-zinc-100">{user.name || '—'}</h3>
+            <p className="text-xs text-zinc-400 mt-0.5">{type === 'signup' ? 'User Signup Application' : 'Course Enrollment'}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            {type === 'signup' && (
+              <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${statusColors[user.status] || 'bg-zinc-800 text-zinc-300 border-zinc-600'}`}>
+                {user.status || 'PENDING'}
+              </span>
+            )}
+            <button
+              onClick={onClose}
+              className="text-zinc-400 hover:text-zinc-100 p-1.5 rounded-lg hover:bg-zinc-800 text-lg leading-none"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Personal Information */}
+          <div>
+            <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">Personal Information</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Full Name" value={user.name} />
+              {type === 'signup' && <>
+                <Field label="First Name" value={user.first_name} />
+                <Field label="Middle Name" value={user.middle_name} />
+                <Field label="Last Name" value={user.last_name} />
+              </>}
+              <Field label="Email" value={user.email} />
+              <Field label="Mobile" value={user.mobile} />
+              <Field label="City" value={user.city} />
+              {type === 'signup' && <>
+                <Field label="Address" value={user.address} />
+                <Field label="State" value={user.state} />
+                <Field label="Country" value={user.country} />
+              </>}
+              {type === 'enrollment' && <>
+                <Field label="Experience Level" value={user.experience_level} />
+                <Field label="Interest" value={user.interest} />
+              </>}
+            </div>
+            {type === 'enrollment' && user.learning_goal && (
+              <div className="mt-3">
+                <div className="text-xs text-zinc-400">Learning Goal</div>
+                <div className="text-sm text-zinc-100 mt-0.5">{user.learning_goal}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Verification */}
+          <div>
+            <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">Verification Status</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <BoolField label="SMS Verified" value={user.sms_verified} />
+              <BoolField label="Email Verified" value={user.email_verified} />
+            </div>
+          </div>
+
+          {/* KYC / Financial (signups only) */}
+          {type === 'signup' && (
+            <div>
+              <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">KYC & Financial Details</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="PAN Number" value={user.pan_number} />
+                <Field label="Aadhar Number" value={user.aadhar_number} />
+                <Field label="Bank Account Number" value={user.bank_account_number} />
+                <Field label="IFSC Code" value={user.ifsc} />
+                <Field label="UPI ID" value={user.upi_id} />
+              </div>
+            </div>
+          )}
+
+          {/* IP & Network Details */}
+          <div>
+            <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">IP & Network Details</h4>
+            {user.ip_details ? (
+              <div className="bg-zinc-800 rounded-lg p-3 border border-zinc-700">
+                {ipInfo && typeof ipInfo === 'object' ? (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {Object.entries(ipInfo).map(([key, val]) =>
+                      val !== null && val !== undefined && val !== '' ? (
+                        <div key={key}>
+                          <span className="text-zinc-400 capitalize">{key.replace(/_/g, ' ')}: </span>
+                          <span className="text-zinc-100 break-all">{String(val)}</span>
+                        </div>
+                      ) : null
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-100 break-all">{user.ip_details}</div>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-zinc-500">No IP information recorded</div>
+            )}
+          </div>
+
+          {/* Application Status (signups only) */}
+          {type === 'signup' && (
+            <div>
+              <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">Application Status</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs text-zinc-400">Status</div>
+                  <div className="mt-1">
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${statusColors[user.status] || 'bg-zinc-800 text-zinc-300 border-zinc-600'}`}>
+                      {user.status || 'PENDING'}
+                    </span>
+                  </div>
+                </div>
+                <Field label="Rejection Reason" value={user.rejection_reason} />
+                <Field label="Reviewed At" value={user.reviewed_at ? new Date(user.reviewed_at).toLocaleString() : null} />
+              </div>
+            </div>
+          )}
+
+          {/* Timestamps */}
+          <div>
+            <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">Timestamps</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Registered At" value={user.created_at ? new Date(user.created_at).toLocaleString() : null} />
+              <Field label="Last Updated" value={user.updated_at ? new Date(user.updated_at).toLocaleString() : null} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Main component ─────────────────────────────────────────────────────────────
 const SuperAdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('settings');
+
+  // ── User detail modal ──
+  const [selectedUser, setSelectedUser]     = useState(null);
+  const [selectedUserType, setSelectedUserType] = useState(null); // 'signup' | 'enrollment'
 
   // ── Auth settings ──
   const { localSettings, setLocalSettings, saved, loading: authLoading, isSaving, saveSettings } = useAuthSettings();
@@ -148,6 +332,19 @@ const SuperAdminDashboard = () => {
   const [portalUsersDeleteMsg, setPortalUsersDeleteMsg] = useState('');
   const [portalUsersStatus, setPortalUsersStatus] = useState('PENDING');
   const [portalActionBusyId, setPortalActionBusyId] = useState(null);
+  const [portalSignupActivity, setPortalSignupActivity] = useState([]);
+  const [portalSignupActivityLoading, setPortalSignupActivityLoading] = useState(false);
+
+  // ── Activity / Detailed Logs ──
+  const [activityLogs, setActivityLogs]           = useState([]);
+  const [activityLogsLoading, setActivityLogsLoading] = useState(false);
+  const [activityLogsError, setActivityLogsError] = useState('');
+  const [activityLogsTotal, setActivityLogsTotal] = useState(0);
+  const [activityLogsPage, setActivityLogsPage]   = useState(0);
+  const [activityLogsFilters, setActivityLogsFilters] = useState({
+    from_date: '', to_date: '', action_type: '', role: '', search: '', ip: '',
+  });
+  const LOGS_PAGE_SIZE = 50;
 
   // ── Backdate position ──
   const [backdateForm, setBackdateForm]     = useState({ user_id: '', symbol: '', qty: '', price: '', trade_date: '', trade_time: '09:15', instrument_type: 'EQ', exchange: 'NSE', product_type: 'MIS' });
@@ -371,6 +568,34 @@ const SuperAdminDashboard = () => {
     }
   }, []);
 
+  const fetchActivityLogs = useCallback(async (page = 0, filters = activityLogsFilters) => {
+    setActivityLogsLoading(true);
+    setActivityLogsError('');
+    try {
+      const params = new URLSearchParams({ limit: LOGS_PAGE_SIZE, offset: page * LOGS_PAGE_SIZE });
+      if (filters.from_date)   params.set('from_date',   filters.from_date);
+      if (filters.to_date)     params.set('to_date',     filters.to_date);
+      if (filters.action_type) params.set('action_type', filters.action_type);
+      if (filters.role)        params.set('role',        filters.role);
+      if (filters.search)      params.set('search',      filters.search);
+      if (filters.ip)          params.set('ip',          filters.ip);
+      const res = await req(`/admin/activity-logs?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setActivityLogs(data.items || []);
+        setActivityLogsTotal(data.total || 0);
+        setActivityLogsPage(page);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setActivityLogsError(err.detail || 'Failed to load activity logs');
+      }
+    } catch (e) {
+      setActivityLogsError(e?.message || 'Error loading activity logs');
+    } finally {
+      setActivityLogsLoading(false);
+    }
+  }, [activityLogsFilters]);
+
   const fetchPortalUsers = useCallback(async () => {
     setPortalUsersLoading(true);
     setPortalUsersError('');
@@ -392,12 +617,34 @@ const SuperAdminDashboard = () => {
     }
   }, [portalUsersStatus]);
 
+  const fetchPortalSignupActivity = useCallback(async () => {
+    setPortalSignupActivityLoading(true);
+    try {
+      const res = await req('/auth/portal/user-signups/activity?limit=20');
+      if (res.ok) {
+        const data = await res.json();
+        setPortalSignupActivity(data.items || []);
+      }
+    } catch {
+      // Keep the review table usable even if activity fetch fails.
+    } finally {
+      setPortalSignupActivityLoading(false);
+    }
+  }, []);
+
+  const refreshPortalSignupPanel = useCallback(async () => {
+    await Promise.all([fetchPortalUsers(), fetchPortalSignupActivity()]);
+  }, [fetchPortalUsers, fetchPortalSignupActivity]);
+
   const handlePortalSignupReview = async (signupId, action) => {
     if (!signupId) return;
 
     let reason = '';
     if (action === 'REJECT') {
       reason = window.prompt('Optional rejection reason:', '') || '';
+    } else if (action === 'RESTORE') {
+      const shouldRestore = window.confirm('Restore this rejected application back to pending?');
+      if (!shouldRestore) return;
     }
 
     setPortalActionBusyId(signupId);
@@ -413,7 +660,7 @@ const SuperAdminDashboard = () => {
         setPortalUsersError(data.detail || `Failed to ${action.toLowerCase()} signup`);
       } else {
         setPortalUsersDeleteMsg(data.message || `Signup ${action.toLowerCase()}d successfully`);
-        await fetchPortalUsers();
+        await refreshPortalSignupPanel();
       }
     } catch (e) {
       setPortalUsersError(e?.message || `Failed to ${action.toLowerCase()} signup`);
@@ -589,9 +836,15 @@ const SuperAdminDashboard = () => {
 
   useEffect(() => {
     if (activeTab === 'userSignups') {
-      fetchPortalUsers();
+      refreshPortalSignupPanel();
     }
-  }, [activeTab, fetchPortalUsers]);
+  }, [activeTab, refreshPortalSignupPanel]);
+
+  useEffect(() => {
+    if (activeTab === 'detailedLogs') {
+      fetchActivityLogs(0, activityLogsFilters);
+    }
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Handlers ──
   const handleSave = async () => {
@@ -1777,7 +2030,12 @@ const SuperAdminDashboard = () => {
                   </thead>
                   <tbody>
                     {courseEnrollments.map((user, idx) => (
-                      <tr key={user.id} className={`border-b border-zinc-700 hover:bg-zinc-700/30 ${idx % 2 === 0 ? 'bg-zinc-800/50' : ''}`}>
+                      <tr
+                        key={user.id}
+                        className={`border-b border-zinc-700 hover:bg-zinc-700/30 cursor-pointer ${idx % 2 === 0 ? 'bg-zinc-800/50' : ''}`}
+                        onClick={() => { setSelectedUser(user); setSelectedUserType('enrollment'); }}
+                        title="Click to view full details"
+                      >
                         <td className="py-3 px-4 font-medium text-zinc-100">{user.name}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.email}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.mobile || '—'}</td>
@@ -1804,6 +2062,64 @@ const SuperAdminDashboard = () => {
           <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
+                <h2 className="text-base font-semibold">Recent Review Activity</h2>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Approve, reject, and restore actions are recorded here.
+                </p>
+              </div>
+            </div>
+
+            {portalSignupActivityLoading ? (
+              <div className="text-center py-6 text-zinc-400">Loading review activity...</div>
+            ) : portalSignupActivity.length === 0 ? (
+              <div className="text-center py-6 text-zinc-400">No review activity yet</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-zinc-400 border-b border-zinc-700">
+                      <th className="text-left py-3 px-4">When</th>
+                      <th className="text-left py-3 px-4">Action</th>
+                      <th className="text-left py-3 px-4">Application</th>
+                      <th className="text-left py-3 px-4">Status Change</th>
+                      <th className="text-left py-3 px-4">Reviewed By</th>
+                      <th className="text-left py-3 px-4">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {portalSignupActivity.map((item, idx) => (
+                      <tr key={item.id} className={`border-b border-zinc-700 hover:bg-zinc-700/30 ${idx % 2 === 0 ? 'bg-zinc-800/50' : ''}`}>
+                        <td className="py-3 px-4 text-xs text-zinc-400">
+                          {item.created_at ? new Date(item.created_at).toLocaleString() : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-xs">
+                          <span className={`px-2 py-1 rounded-full font-semibold border ${item.action === 'APPROVE' ? 'bg-blue-900/20 text-blue-300 border-blue-700/40' : item.action === 'REJECT' ? 'bg-red-900/20 text-red-300 border-red-700/40' : 'bg-yellow-900/20 text-yellow-300 border-yellow-700/40'}`}>
+                            {item.action}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">
+                          <div className="font-medium text-zinc-100">{item.signup_name || '—'}</div>
+                          <div>{item.signup_email || item.signup_mobile || '—'}</div>
+                        </td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">
+                          {item.previous_status} → {item.new_status}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">
+                          <div>{item.actor_name || '—'}</div>
+                          <div className="text-zinc-400">{item.actor_mobile || '—'}</div>
+                        </td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">{item.reason || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl p-5 bg-zinc-800 border border-zinc-700">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
                 <h2 className="text-base font-semibold">User Signups</h2>
                 <p className="text-xs text-zinc-400 mt-1">
                   Total {portalUsersStatus.toLowerCase()} items: <span className="font-semibold text-zinc-100">{portalUsersTotal}</span>
@@ -1824,7 +2140,7 @@ const SuperAdminDashboard = () => {
                 <button onClick={handleExportPortalUsersCsv} disabled={!portalUsers.length || portalUsersLoading} className={btnCls('green')}>
                   Export CSV
                 </button>
-                <button onClick={fetchPortalUsers} disabled={portalUsersLoading} className={btnCls('blue')}>
+                <button onClick={refreshPortalSignupPanel} disabled={portalUsersLoading || portalSignupActivityLoading} className={btnCls('blue')}>
                   {portalUsersLoading ? 'Loading…' : 'Refresh'}
                 </button>
               </div>
@@ -1877,7 +2193,12 @@ const SuperAdminDashboard = () => {
                   </thead>
                   <tbody>
                     {portalUsers.map((user, idx) => (
-                      <tr key={user.id} className={`border-b border-zinc-700 hover:bg-zinc-700/30 ${idx % 2 === 0 ? 'bg-zinc-800/50' : ''}`}>
+                      <tr
+                        key={user.id}
+                        className={`border-b border-zinc-700 hover:bg-zinc-700/30 cursor-pointer ${idx % 2 === 0 ? 'bg-zinc-800/50' : ''}`}
+                        onClick={(e) => { if (!e.target.closest('button')) { setSelectedUser(user); setSelectedUserType('signup'); } }}
+                        title="Click to view full details"
+                      >
                         <td className="py-3 px-4 font-medium text-zinc-100">{user.name}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.email}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.mobile || '—'}</td>
@@ -1889,7 +2210,10 @@ const SuperAdminDashboard = () => {
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.bank_account_number || '—'}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.ifsc || '—'}</td>
                         <td className="py-3 px-4 text-xs text-zinc-300">{user.city || '—'}</td>
-                        <td className="py-3 px-4 text-xs text-zinc-300">{user.status || 'PENDING'}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-300">
+                          <div>{user.status || 'PENDING'}</div>
+                          {user.rejection_reason ? <div className="text-zinc-400 mt-1">Reason: {user.rejection_reason}</div> : null}
+                        </td>
                         <td className="py-3 px-4 text-xs text-zinc-400">
                           {user.created_at ? new Date(user.created_at).toLocaleString() : '—'}
                         </td>
@@ -1911,6 +2235,14 @@ const SuperAdminDashboard = () => {
                                 Reject
                               </button>
                             </div>
+                          ) : (user.status || 'PENDING') === 'REJECTED' ? (
+                            <button
+                              onClick={() => handlePortalSignupReview(user.id, 'RESTORE')}
+                              disabled={portalActionBusyId === user.id}
+                              className={btnCls('yellow')}
+                            >
+                              {portalActionBusyId === user.id ? 'Working...' : 'Restore'}
+                            </button>
                           ) : (
                             <span className="text-zinc-400">Addressed</span>
                           )}
@@ -1998,6 +2330,195 @@ const SuperAdminDashboard = () => {
             <div className="mt-4 text-xs text-zinc-400">
               Holidays loaded: NSE {schedSnapshot?.holidays?.NSE?.count ?? 0}, BSE {schedSnapshot?.holidays?.BSE?.count ?? 0}, MCX {schedSnapshot?.holidays?.MCX?.count ?? 0}
             </div>
+          </div>
+        </div>
+      )}
+
+      <UserDetailModal
+        user={selectedUser}
+        type={selectedUserType}
+        onClose={() => setSelectedUser(null)}
+      />
+
+      {/* ── Detailed Logs Tab ────────────────────────────────────────────── */}
+      {activeTab === 'detailedLogs' && (
+        <div className="space-y-4">
+          {/* Filters bar */}
+          <div className="rounded-xl border border-zinc-700 bg-zinc-800 p-4">
+            <h2 className="mb-3 text-sm font-semibold text-zinc-200">Activity Audit Log</h2>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+              <input
+                type="datetime-local"
+                className={inputCls}
+                value={activityLogsFilters.from_date}
+                onChange={e => setActivityLogsFilters(f => ({ ...f, from_date: e.target.value }))}
+              />
+              <input
+                type="datetime-local"
+                className={inputCls}
+                value={activityLogsFilters.to_date}
+                onChange={e => setActivityLogsFilters(f => ({ ...f, to_date: e.target.value }))}
+              />
+              <select
+                className={inputCls}
+                value={activityLogsFilters.action_type}
+                onChange={e => setActivityLogsFilters(f => ({ ...f, action_type: e.target.value }))}
+              >
+                <option value="">All actions</option>
+                {['LOGIN','LOGIN_FAILED','LOGOUT','OTP_SEND','OTP_VERIFIED','OTP_VERIFY_FAILED',
+                  'ENROLLMENT_SUBMIT','ACCOUNT_SIGNUP_SUBMIT','SIGNUP_APPROVED','SIGNUP_REJECTED','SIGNUP_RESTORED'].map(a => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+              <select
+                className={inputCls}
+                value={activityLogsFilters.role}
+                onChange={e => setActivityLogsFilters(f => ({ ...f, role: e.target.value }))}
+              >
+                <option value="">All roles</option>
+                {['USER','TRADER','ADMIN','SUPER_ADMIN'].map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+              <input
+                className={inputCls}
+                placeholder="IP address"
+                value={activityLogsFilters.ip}
+                onChange={e => setActivityLogsFilters(f => ({ ...f, ip: e.target.value }))}
+              />
+              <input
+                className={inputCls}
+                placeholder="Search name / city..."
+                value={activityLogsFilters.search}
+                onChange={e => setActivityLogsFilters(f => ({ ...f, search: e.target.value }))}
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => fetchActivityLogs(0, activityLogsFilters)}
+                disabled={activityLogsLoading}
+                className={btnCls('blue')}
+              >
+                {activityLogsLoading ? 'Loading...' : 'Apply Filters'}
+              </button>
+              <button
+                onClick={() => {
+                  const f = { from_date: '', to_date: '', action_type: '', role: '', search: '', ip: '' };
+                  setActivityLogsFilters(f);
+                  fetchActivityLogs(0, f);
+                }}
+                className={btnCls('zinc')}
+              >
+                Clear
+              </button>
+              <a
+                href={`/api/v2/admin/activity-logs/export?${new URLSearchParams(
+                  Object.fromEntries(Object.entries(activityLogsFilters).filter(([, v]) => v))
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={btnCls('green')}
+              >
+                Export CSV
+              </a>
+            </div>
+          </div>
+
+          {activityLogsError && (
+            <p className="rounded-lg bg-red-900/30 p-3 text-xs text-red-400">{activityLogsError}</p>
+          )}
+
+          <p className="text-xs text-zinc-400">
+            Showing {activityLogs.length} of {activityLogsTotal} entries
+          </p>
+
+          <div className="overflow-x-auto rounded-xl border border-zinc-700">
+            <table className="w-full text-xs text-zinc-300">
+              <thead>
+                <tr className="border-b border-zinc-700 bg-zinc-900 text-left text-zinc-400">
+                  <th className="px-3 py-2">Date / Time</th>
+                  <th className="px-3 py-2">Action</th>
+                  <th className="px-3 py-2">Actor</th>
+                  <th className="px-3 py-2">Role</th>
+                  <th className="px-3 py-2">IP Address</th>
+                  <th className="px-3 py-2">Location</th>
+                  <th className="px-3 py-2">Browser</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Resource</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activityLogsLoading && (
+                  <tr><td colSpan={9} className="py-8 text-center text-zinc-500">Loading...</td></tr>
+                )}
+                {!activityLogsLoading && activityLogs.length === 0 && (
+                  <tr><td colSpan={9} className="py-8 text-center text-zinc-500">No log entries found.</td></tr>
+                )}
+                {activityLogs.map((row, idx) => (
+                  <tr
+                    key={row.id}
+                    className={`border-b border-zinc-700 hover:bg-zinc-700/20 ${idx % 2 === 0 ? 'bg-zinc-800/40' : ''}`}
+                  >
+                    <td className="whitespace-nowrap px-3 py-2">
+                      {row.created_at ? new Date(row.created_at).toLocaleString('en-IN') : '\u2014'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+                        row.action_type?.includes('FAIL') || row.action_type?.includes('REJECT')
+                          ? 'bg-red-900/50 text-red-300'
+                          : row.action_type === 'LOGIN' || row.action_type === 'SIGNUP_APPROVED'
+                          ? 'bg-green-900/50 text-green-300'
+                          : 'bg-zinc-700 text-zinc-200'
+                      }`}>
+                        {row.action_type}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-medium text-zinc-100">{row.actor_name || '\u2014'}</td>
+                    <td className="px-3 py-2">{row.actor_role || '\u2014'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-[11px]">{row.ip_address || '\u2014'}</td>
+                    <td className="px-3 py-2">
+                      {[row.geo_city, row.geo_region, row.geo_country].filter(Boolean).join(', ') || '\u2014'}
+                    </td>
+                    <td className="max-w-[180px] truncate px-3 py-2 text-zinc-400" title={row.user_agent || ''}>
+                      {row.user_agent
+                        ? row.user_agent.replace(/^Mozilla\/\S+\s/, '').slice(0, 60)
+                        : '\u2014'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`rounded px-1 py-0.5 text-[10px] ${
+                        row.status_code >= 400 ? 'bg-red-900/40 text-red-300'
+                        : row.status_code >= 200 ? 'bg-green-900/40 text-green-300'
+                        : 'text-zinc-400'
+                      }`}>
+                        {row.status_code ?? '\u2014'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-zinc-400">
+                      {row.resource_type || ''}
+                      {row.resource_id ? ` #${row.resource_id.slice(0, 8)}` : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              disabled={activityLogsPage === 0 || activityLogsLoading}
+              onClick={() => fetchActivityLogs(activityLogsPage - 1, activityLogsFilters)}
+              className={btnCls('zinc')}
+            >
+              Prev
+            </button>
+            <span className="text-xs text-zinc-400">Page {activityLogsPage + 1}</span>
+            <button
+              disabled={(activityLogsPage + 1) * LOGS_PAGE_SIZE >= activityLogsTotal || activityLogsLoading}
+              onClick={() => fetchActivityLogs(activityLogsPage + 1, activityLogsFilters)}
+              className={btnCls('zinc')}
+            >
+              Next
+            </button>
           </div>
         </div>
       )}

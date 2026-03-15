@@ -3913,3 +3913,228 @@ async def rebuild_option_chain_skeleton(
             "offset": offset,
             "orders": orders,
         }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Activity Audit Log endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/admin/activity-logs")
+async def get_activity_logs(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    role: Optional[str] = None,
+    action_type: Optional[str] = None,
+    actor_user_id: Optional[str] = None,
+    subject_user_id: Optional[str] = None,
+    ip: Optional[str] = None,
+    search: Optional[str] = None,
+    include_super_admin: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+    _: CurrentUser = Depends(get_admin_user),
+):
+    """
+    List activity audit log entries.
+    SUPER_ADMIN rows are excluded by default (include_super_admin=False).
+    Supports filtering by date range, role, action type, user, IP and text search.
+    """
+    from app.database import get_pool
+    pool = get_pool()
+    safe_limit = max(1, min(limit, 200))
+    safe_offset = max(0, offset)
+
+    conditions = []
+    args = []
+
+    def _add(cond: str, val):
+        args.append(val)
+        conditions.append(cond.replace("?", f"${len(args)}"))
+
+    if not include_super_admin:
+        conditions.append("(a.actor_role IS NULL OR a.actor_role NOT IN ('SUPER_ADMIN'))")
+
+    if from_date:
+        _add("a.created_at >= ?::timestamptz", from_date)
+    if to_date:
+        _add("a.created_at <= ?::timestamptz", to_date)
+    if role:
+        _add("a.actor_role = ?", role.upper())
+    if action_type:
+        _add("a.action_type = ?", action_type.upper())
+    if actor_user_id:
+        _add("a.actor_user_id = ?::uuid", actor_user_id)
+    if subject_user_id:
+        _add("a.subject_user_id = ?::uuid", subject_user_id)
+    if ip:
+        _add("a.ip_address ILIKE ?", f"%{ip}%")
+    if search:
+        base_idx = len(args) + 1
+        for _ in range(5):
+            args.append(f"%{search}%")
+        conditions.append(
+            f"(a.actor_name ILIKE ${base_idx} OR a.subject_name ILIKE ${base_idx + 1}"
+            f" OR a.action_type ILIKE ${base_idx + 2} OR a.ip_address ILIKE ${base_idx + 3}"
+            f" OR a.geo_city ILIKE ${base_idx + 4})"
+        )
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    total = await pool.fetchval(
+        f"SELECT COUNT(*) FROM activity_audit_log a {where}",
+        *args,
+    )
+
+    args_page = args + [safe_limit, safe_offset]
+    rows = await pool.fetch(
+        f"""
+        SELECT a.id, a.actor_user_id, a.actor_name, a.actor_role,
+               a.subject_user_id, a.subject_name,
+               a.action_type, a.resource_type, a.resource_id,
+               a.endpoint, a.http_method, a.status_code, a.error_detail,
+               a.ip_address, a.user_agent,
+               a.geo_country, a.geo_country_code, a.geo_region, a.geo_city,
+               a.geo_latitude, a.geo_longitude,
+               a.metadata, a.created_at
+        FROM activity_audit_log a
+        {where}
+        ORDER BY a.created_at DESC
+        LIMIT ${len(args_page) - 1} OFFSET ${len(args_page)}
+        """,
+        *args_page,
+    )
+
+    def _row(r):
+        return {
+            "id": r["id"],
+            "actor_user_id": str(r["actor_user_id"]) if r["actor_user_id"] else None,
+            "actor_name": r["actor_name"],
+            "actor_role": r["actor_role"],
+            "subject_user_id": str(r["subject_user_id"]) if r["subject_user_id"] else None,
+            "subject_name": r["subject_name"],
+            "action_type": r["action_type"],
+            "resource_type": r["resource_type"],
+            "resource_id": r["resource_id"],
+            "endpoint": r["endpoint"],
+            "http_method": r["http_method"],
+            "status_code": r["status_code"],
+            "error_detail": r["error_detail"],
+            "ip_address": r["ip_address"],
+            "user_agent": r["user_agent"],
+            "geo_country": r["geo_country"],
+            "geo_country_code": r["geo_country_code"],
+            "geo_region": r["geo_region"],
+            "geo_city": r["geo_city"],
+            "geo_latitude": float(r["geo_latitude"]) if r["geo_latitude"] is not None else None,
+            "geo_longitude": float(r["geo_longitude"]) if r["geo_longitude"] is not None else None,
+            "metadata": r["metadata"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+
+    return {
+        "success": True,
+        "total": total,
+        "limit": safe_limit,
+        "offset": safe_offset,
+        "items": [_row(r) for r in rows],
+    }
+
+
+@router.get("/admin/activity-logs/export")
+async def export_activity_logs(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    role: Optional[str] = None,
+    action_type: Optional[str] = None,
+    actor_user_id: Optional[str] = None,
+    ip: Optional[str] = None,
+    search: Optional[str] = None,
+    include_super_admin: bool = False,
+    _: CurrentUser = Depends(get_admin_user),
+):
+    """Export activity log as CSV (max 10 000 rows)."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    pool = get_pool()
+    conditions = []
+    args = []
+
+    def _add(cond: str, val):
+        args.append(val)
+        conditions.append(cond.replace("?", f"${len(args)}"))
+
+    if not include_super_admin:
+        conditions.append("(a.actor_role IS NULL OR a.actor_role NOT IN ('SUPER_ADMIN'))")
+
+    if from_date:
+        _add("a.created_at >= ?::timestamptz", from_date)
+    if to_date:
+        _add("a.created_at <= ?::timestamptz", to_date)
+    if role:
+        _add("a.actor_role = ?", role.upper())
+    if action_type:
+        _add("a.action_type = ?", action_type.upper())
+    if actor_user_id:
+        _add("a.actor_user_id = ?::uuid", actor_user_id)
+    if ip:
+        _add("a.ip_address ILIKE ?", f"%{ip}%")
+    if search:
+        base_idx = len(args) + 1
+        for _ in range(5):
+            args.append(f"%{search}%")
+        conditions.append(
+            f"(a.actor_name ILIKE ${base_idx} OR a.subject_name ILIKE ${base_idx + 1}"
+            f" OR a.action_type ILIKE ${base_idx + 2} OR a.ip_address ILIKE ${base_idx + 3}"
+            f" OR a.geo_city ILIKE ${base_idx + 4})"
+        )
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    args_export = args + [10000]
+
+    rows = await pool.fetch(
+        f"""
+        SELECT a.id, a.actor_name, a.actor_role, a.subject_name,
+               a.action_type, a.resource_type, a.resource_id,
+               a.endpoint, a.http_method, a.status_code,
+               a.ip_address, a.user_agent,
+               a.geo_country, a.geo_region, a.geo_city,
+               a.geo_latitude, a.geo_longitude,
+               a.error_detail, a.created_at
+        FROM activity_audit_log a
+        {where}
+        ORDER BY a.created_at DESC
+        LIMIT ${len(args_export)}
+        """,
+        *args_export,
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ID", "Actor Name", "Actor Role", "Subject Name",
+        "Action Type", "Resource Type", "Resource ID",
+        "Endpoint", "Method", "Status Code",
+        "IP Address", "User Agent",
+        "Country", "Region", "City", "Latitude", "Longitude",
+        "Error Detail", "Created At",
+    ])
+    for r in rows:
+        writer.writerow([
+            r["id"], r["actor_name"], r["actor_role"], r["subject_name"],
+            r["action_type"], r["resource_type"], r["resource_id"],
+            r["endpoint"], r["http_method"], r["status_code"],
+            r["ip_address"], r["user_agent"],
+            r["geo_country"] or "", r["geo_region"] or "", r["geo_city"] or "",
+            r["geo_latitude"] or "", r["geo_longitude"] or "",
+            r["error_detail"],
+            r["created_at"].isoformat() if r["created_at"] else "",
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=activity_logs.csv"},
+    )

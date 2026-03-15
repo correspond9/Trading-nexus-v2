@@ -15,6 +15,8 @@ from pydantic import BaseModel
 from app.database      import get_pool
 from app.dependencies  import CurrentUser, get_current_user, get_admin_user
 from app.config import get_settings
+from app.runtime.audit_logger import log_activity
+from app.runtime.security_alerts import check_burst, check_impossible_travel, check_otp_failures
 
 log    = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -156,6 +158,58 @@ async def _get_sms_otp_runtime_settings() -> dict:
 
 def _normalize_email(email: str) -> str:
     return (email or "").strip().lower()
+
+
+def _serialize_signup_review_log(row) -> dict:
+    return {
+        "id": int(row["id"]),
+        "signup_id": str(row["signup_id"]),
+        "signup_name": row.get("signup_name") or "",
+        "signup_email": row.get("signup_email") or "",
+        "signup_mobile": row.get("signup_mobile") or "",
+        "action": row["action"],
+        "previous_status": row["previous_status"],
+        "new_status": row["new_status"],
+        "reason": row.get("reason") or "",
+        "actor_name": row.get("actor_name") or "",
+        "actor_mobile": row.get("actor_mobile") or "",
+        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+    }
+
+
+async def _insert_signup_review_log(
+    conn,
+    *,
+    signup_id: str,
+    action: str,
+    previous_status: str,
+    new_status: str,
+    reason: str,
+    actor: CurrentUser,
+) -> None:
+    await conn.execute(
+        """
+        INSERT INTO user_signup_review_log (
+            signup_id,
+            action,
+            previous_status,
+            new_status,
+            reason,
+            actor_user_id,
+            actor_name,
+            actor_mobile
+        )
+        VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7, $8)
+        """,
+        signup_id,
+        action,
+        previous_status,
+        new_status,
+        reason,
+        actor.id,
+        (actor.name or "").strip(),
+        (actor.mobile or "").strip(),
+    )
 
 
 def _normalize_mobile(phone: str) -> str:
@@ -482,31 +536,53 @@ async def _send_email_otp(email_raw: str, purpose_raw: str, request: Request) ->
 
 
 @router.post("/login")
-async def login(body: LoginRequest):
+async def login(body: LoginRequest, request: Request):
     pool = get_pool()
+    ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+          or (request.client.host if request.client else ""))
+    ua = request.headers.get("user-agent", "")
 
     user = await pool.fetchrow(
         "SELECT * FROM users WHERE mobile=$1 AND is_active=true", body.mobile
     )
     if not user:
+        log_activity(action_type="LOGIN_FAILED", request=request,
+                     status_code=401, error_detail="User not found",
+                     metadata={"mobile": body.mobile})
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Check if user is archived (soft deleted)
     if user.get("is_archived"):
+        log_activity(action_type="LOGIN_FAILED", request=request,
+                     actor_user_id=str(user["id"]), actor_name=user["name"],
+                     actor_role=user["role"], status_code=403,
+                     error_detail="Account archived")
         raise HTTPException(status_code=403, detail="Account has been archived and is unavailable")
 
     if not _check(body.password, user["password_hash"]):
+        log_activity(action_type="LOGIN_FAILED", request=request,
+                     actor_user_id=str(user["id"]), actor_name=user["name"],
+                     actor_role=user["role"], status_code=401,
+                     error_detail="Wrong password")
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     session = await pool.fetchrow(
         """
-        INSERT INTO user_sessions (user_id, expires_at)
-        VALUES ($1, NOW() + INTERVAL '30 days')
+        INSERT INTO user_sessions (user_id, expires_at, ip_address, user_agent)
+        VALUES ($1, NOW() + INTERVAL '30 days', $2, $3)
         RETURNING token
         """,
         user["id"],
+        ip or None,
+        ua or None,
     )
     access_token = str(session["token"])
+
+    log_activity(action_type="LOGIN", request=request,
+                 actor_user_id=str(user["id"]), actor_name=user["name"],
+                 actor_role=user["role"], status_code=200)
+    check_burst(ip, str(user["id"]))
+    check_impossible_travel(str(user["id"]), ip)
 
     return {
         "access_token": access_token,
@@ -526,7 +602,18 @@ async def logout(body: LogoutRequest, request: Request):
     if not token:
         return {"success": True}
     pool = get_pool()
+    # Fetch user info before deleting so we can log it
+    session_row = await pool.fetchrow(
+        "SELECT u.id, u.name, u.role FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token=$1::uuid",
+        token,
+    )
     await pool.execute("DELETE FROM user_sessions WHERE token=$1::uuid", token)
+    if session_row:
+        log_activity(action_type="LOGOUT", request=request,
+                     actor_user_id=str(session_row["id"]),
+                     actor_name=session_row["name"],
+                     actor_role=session_row["role"],
+                     status_code=200)
     return {"success": True}
 
 
@@ -587,12 +674,19 @@ async def portal_signup(body: PortalSignupRequest, request: Request):
             )
         
         # Insert new portal user
+        from app.runtime.geoip import lookup as _geo
+        _ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+               or (request.client.host if request.client else ""))
+        _ua = request.headers.get("user-agent", "")
+        _geo_r = _geo(_ip)
         user = await pool.fetchrow(
             """
             INSERT INTO portal_users
-                (name, email, mobile, city, experience_level, interest, learning_goal, ip_details, sms_verified, email_verified)
+                (name, email, mobile, city, experience_level, interest, learning_goal,
+                 ip_details, user_agent, geo_country, geo_region, geo_city,
+                 sms_verified, email_verified)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, FALSE)
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE, FALSE)
             RETURNING id, name, email, mobile, city, experience_level, interest, learning_goal, created_at
             """,
             name,
@@ -602,10 +696,18 @@ async def portal_signup(body: PortalSignupRequest, request: Request):
             experience_level,
             body.interest,
             body.learning_goal,
-            request.client.host if request.client else "",
+            _ip,
+            _ua,
+            _geo_r.country,
+            _geo_r.region,
+            _geo_r.city,
         )
         
         log.info(f"New portal signup: {email}")
+        log_activity(action_type="ENROLLMENT_SUBMIT", request=request,
+                     resource_type="portal_user", resource_id=str(user["id"]),
+                     status_code=200, metadata={"email": email, "name": name})
+        check_burst(_ip)
         
         return {
             "success": True,
@@ -632,7 +734,7 @@ async def send_email_otp(body: SendEmailOtpRequest, request: Request):
 
 
 @router.post("/otp/verify-phone")
-async def verify_phone_otp(body: VerifyPhoneOtpRequest):
+async def verify_phone_otp(body: VerifyPhoneOtpRequest, request: Request):
     purpose = (body.purpose or "").strip().lower()
     if purpose not in _OTP_PURPOSES:
         raise HTTPException(status_code=400, detail="Invalid OTP purpose")
@@ -674,17 +776,24 @@ async def verify_phone_otp(body: VerifyPhoneOtpRequest):
             "UPDATE otp_verifications SET attempt_count = attempt_count + 1 WHERE id=$1",
             row["id"],
         )
+        _otp_ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                   or (request.client.host if request.client else ""))
+        log_activity(action_type="OTP_VERIFY_FAILED", request=request,
+                     status_code=400, metadata={"contact_value": phone, "purpose": purpose})
+        check_otp_failures(phone, _otp_ip)
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
     await pool.execute(
         "UPDATE otp_verifications SET verified_at = NOW() WHERE id=$1",
         row["id"],
     )
+    log_activity(action_type="OTP_VERIFIED", request=request,
+                 status_code=200, metadata={"contact_value": phone, "purpose": purpose})
     return {"success": True, "verified": True}
 
 
 @router.post("/otp/verify-email")
-async def verify_email_otp(body: VerifyEmailOtpRequest):
+async def verify_email_otp(body: VerifyEmailOtpRequest, request: Request):
     purpose = (body.purpose or "").strip().lower()
     if purpose not in _OTP_PURPOSES:
         raise HTTPException(status_code=400, detail="Invalid OTP purpose")
@@ -728,12 +837,19 @@ async def verify_email_otp(body: VerifyEmailOtpRequest):
             "UPDATE otp_verifications SET attempt_count = attempt_count + 1 WHERE id=$1",
             row["id"],
         )
+        _email_otp_ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                         or (request.client.host if request.client else ""))
+        log_activity(action_type="OTP_VERIFY_FAILED", request=request,
+                     status_code=400, metadata={"contact_value": email, "purpose": purpose})
+        check_otp_failures(email, _email_otp_ip)
         raise
 
     await pool.execute(
         "UPDATE otp_verifications SET verified_at = NOW() WHERE id=$1",
         row["id"],
     )
+    log_activity(action_type="OTP_VERIFIED", request=request,
+                 status_code=200, metadata={"contact_value": email, "purpose": purpose})
     return {"success": True, "verified": True}
 
 
@@ -822,6 +938,12 @@ async def account_signup(body: AccountSignupRequest, request: Request):
     if not email_otp_row:
         raise HTTPException(status_code=400, detail="Email OTP verification is required")
 
+    from app.runtime.geoip import lookup as _geo
+    _signup_ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                  or (request.client.host if request.client else ""))
+    _signup_ua = request.headers.get("user-agent", "")
+    _signup_geo = _geo(_signup_ip)
+
     signup = await pool.fetchrow(
         """
         INSERT INTO user_signups
@@ -829,13 +951,15 @@ async def account_signup(body: AccountSignupRequest, request: Request):
              address, city, state, country,
              pan_number, aadhar_number, pan_upload, aadhar_upload,
              bank_account_number, ifsc, upi_id,
-             ip_details, sms_verified, email_verified, status)
+             ip_details, user_agent, geo_country, geo_region, geo_city,
+             sms_verified, email_verified, status)
         VALUES
             ($1, $2, $3, $4, $5, $6,
              $7, $8, $9, $10,
              $11, $12, $13, $14,
              $15, $16, $17,
-               $18, TRUE, TRUE, 'PENDING')
+             $18, $19, $20, $21, $22,
+             TRUE, TRUE, 'PENDING')
         RETURNING id
         """,
         " ".join([x for x in [body.first_name.strip(), (body.middle_name or "").strip(), body.last_name.strip()] if x]),
@@ -855,7 +979,11 @@ async def account_signup(body: AccountSignupRequest, request: Request):
         body.bank_account_number.strip(),
         body.ifsc.strip().upper(),
         (body.upi_id or "").strip(),
-        request.client.host if request.client else "",
+        _signup_ip,
+        _signup_ua,
+        _signup_geo.country,
+        _signup_geo.region,
+        _signup_geo.city,
     )
 
     await pool.execute(
@@ -866,6 +994,11 @@ async def account_signup(body: AccountSignupRequest, request: Request):
         "UPDATE otp_verifications SET consumed_at=NOW() WHERE id=$1",
         email_otp_row["id"],
     )
+
+    log_activity(action_type="ACCOUNT_SIGNUP_SUBMIT", request=request,
+                 resource_type="user_signup", resource_id=str(signup["id"]),
+                 status_code=200, metadata={"email": email, "mobile": phone})
+    check_burst(_signup_ip)
 
     return {
         "success": True,
@@ -1007,124 +1140,216 @@ async def get_user_signups(status: str = "PENDING", user: CurrentUser = Depends(
 async def review_user_signup(
     signup_id: str,
     body: PortalSignupReviewRequest,
+    request: Request,
     user: CurrentUser = Depends(get_admin_user),
 ):
     action = (body.action or "").strip().upper()
-    if action not in ("APPROVE", "REJECT"):
-        raise HTTPException(status_code=400, detail="Action must be APPROVE or REJECT")
+    if action not in ("APPROVE", "REJECT", "RESTORE"):
+        raise HTTPException(status_code=400, detail="Action must be APPROVE, REJECT or RESTORE")
 
     pool = get_pool()
-    signup = await pool.fetchrow(
-        "SELECT * FROM user_signups WHERE id=$1::uuid",
-        signup_id,
-    )
-    if not signup:
-        raise HTTPException(status_code=404, detail="Signup not found")
-    if (signup.get("status") or "PENDING") != "PENDING":
-        raise HTTPException(status_code=400, detail="Only pending signups can be reviewed")
+    reason = (body.reason or "").strip()
 
-    if action == "REJECT":
-        await pool.execute(
-            """
-            UPDATE user_signups
-            SET status='REJECTED', reviewed_by=$2::uuid, reviewed_at=NOW(), rejection_reason=$3
-            WHERE id=$1::uuid
-            """,
-            signup_id,
-            user.id,
-            (body.reason or "").strip(),
-        )
-        return {
-            "success": True,
-            "message": "Signup rejected and removed from pending queue",
-        }
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            signup = await conn.fetchrow(
+                "SELECT * FROM user_signups WHERE id=$1::uuid FOR UPDATE",
+                signup_id,
+            )
+            if not signup:
+                raise HTTPException(status_code=404, detail="Signup not found")
 
-    email = _normalize_email(signup.get("email") or "")
-    mobile = _normalize_mobile(signup.get("mobile") or "")
+            current_status = (signup.get("status") or "PENDING").strip().upper()
 
-    dup_user = await pool.fetchval(
-        "SELECT 1 FROM users WHERE mobile=$1 OR lower(email)=lower($2)",
-        mobile,
-        email,
-    )
-    if dup_user:
-        raise HTTPException(status_code=409, detail="number/email already registered")
+            if action == "RESTORE":
+                if current_status != "REJECTED":
+                    raise HTTPException(status_code=400, detail="Only rejected signups can be restored")
 
-    full_name = " ".join(
-        [
-            x
-            for x in [
-                (signup.get("first_name") or "").strip(),
-                (signup.get("middle_name") or "").strip(),
+                await conn.execute(
+                    """
+                    UPDATE user_signups
+                    SET status='PENDING', reviewed_by=NULL, reviewed_at=NULL, rejection_reason=''
+                    WHERE id=$1::uuid
+                    """,
+                    signup_id,
+                )
+                await _insert_signup_review_log(
+                    conn,
+                    signup_id=signup_id,
+                    action="RESTORE",
+                    previous_status=current_status,
+                    new_status="PENDING",
+                    reason=reason,
+                    actor=user,
+                )
+                log_activity(action_type="SIGNUP_RESTORED", request=request,
+                             actor_user_id=str(user.id), actor_name=user.name, actor_role=user.role,
+                             resource_type="user_signup", resource_id=signup_id,
+                             status_code=200, metadata={"reason": reason})
+                return {
+                    "success": True,
+                    "message": "Signup restored to pending queue",
+                }
+
+            if current_status != "PENDING":
+                raise HTTPException(status_code=400, detail="Only pending signups can be reviewed")
+
+            if action == "REJECT":
+                await conn.execute(
+                    """
+                    UPDATE user_signups
+                    SET status='REJECTED', reviewed_by=$2::uuid, reviewed_at=NOW(), rejection_reason=$3
+                    WHERE id=$1::uuid
+                    """,
+                    signup_id,
+                    user.id,
+                    reason,
+                )
+                await _insert_signup_review_log(
+                    conn,
+                    signup_id=signup_id,
+                    action="REJECT",
+                    previous_status=current_status,
+                    new_status="REJECTED",
+                    reason=reason,
+                    actor=user,
+                )
+                log_activity(action_type="SIGNUP_REJECTED", request=request,
+                             actor_user_id=str(user.id), actor_name=user.name, actor_role=user.role,
+                             resource_type="user_signup", resource_id=signup_id,
+                             status_code=200, metadata={"reason": reason})
+                return {
+                    "success": True,
+                    "message": "Signup rejected and removed from pending queue",
+                }
+
+            email = _normalize_email(signup.get("email") or "")
+            mobile = _normalize_mobile(signup.get("mobile") or "")
+
+            dup_user = await conn.fetchval(
+                "SELECT 1 FROM users WHERE mobile=$1 OR lower(email)=lower($2)",
+                mobile,
+                email,
+            )
+            if dup_user:
+                raise HTTPException(status_code=409, detail="number/email already registered")
+
+            full_name = " ".join(
+                [
+                    x
+                    for x in [
+                        (signup.get("first_name") or "").strip(),
+                        (signup.get("middle_name") or "").strip(),
+                        (signup.get("last_name") or "").strip(),
+                    ]
+                    if x
+                ]
+            ).strip() or (signup.get("name") or "").strip() or "User"
+
+            temporary_password = secrets.token_urlsafe(12)
+            password_hash = _hash(temporary_password)
+
+            created_user = await conn.fetchrow(
+                """
+                INSERT INTO users
+                    (name, first_name, last_name, email, mobile, password_hash,
+                     role, status, is_active,
+                     address, country, state, city,
+                     aadhar_number, pan_number, upi, bank_account, ifsc_code,
+                     aadhar_doc, pan_card_doc)
+                VALUES
+                    ($1,$2,$3,$4,$5,$6,
+                     'USER','ACTIVE',TRUE,
+                     $7,$8,$9,$10,
+                     $11,$12,$13,$14,$15,
+                     $16,$17)
+                RETURNING id, user_no
+                """,
+                full_name,
+                (signup.get("first_name") or "").strip() or full_name,
                 (signup.get("last_name") or "").strip(),
-            ]
-            if x
-        ]
-    ).strip() or (signup.get("name") or "").strip() or "User"
+                email,
+                mobile,
+                password_hash,
+                (signup.get("address") or "").strip(),
+                (signup.get("country") or "India").strip() or "India",
+                (signup.get("state") or "").strip(),
+                (signup.get("city") or "").strip(),
+                (signup.get("aadhar_number") or "").strip(),
+                (signup.get("pan_number") or "").strip().upper(),
+                (signup.get("upi_id") or "").strip(),
+                (signup.get("bank_account_number") or "").strip(),
+                (signup.get("ifsc") or "").strip().upper(),
+                signup.get("aadhar_upload"),
+                signup.get("pan_upload"),
+            )
 
-    temporary_password = secrets.token_urlsafe(12)
-    password_hash = _hash(temporary_password)
+            await conn.execute(
+                """
+                INSERT INTO paper_accounts (user_id, display_name, balance, margin_allotted)
+                VALUES ($1, $2, 0, 0)
+                ON CONFLICT (user_id) DO NOTHING
+                """,
+                created_user["id"],
+                full_name,
+            )
 
-    created_user = await pool.fetchrow(
-        """
-        INSERT INTO users
-            (name, first_name, last_name, email, mobile, password_hash,
-             role, status, is_active,
-             address, country, state, city,
-             aadhar_number, pan_number, upi, bank_account, ifsc_code,
-             aadhar_doc, pan_card_doc)
-        VALUES
-            ($1,$2,$3,$4,$5,$6,
-             'USER','ACTIVE',TRUE,
-             $7,$8,$9,$10,
-             $11,$12,$13,$14,$15,
-             $16,$17)
-        RETURNING id, user_no
-        """,
-        full_name,
-        (signup.get("first_name") or "").strip() or full_name,
-        (signup.get("last_name") or "").strip(),
-        email,
-        mobile,
-        password_hash,
-        (signup.get("address") or "").strip(),
-        (signup.get("country") or "India").strip() or "India",
-        (signup.get("state") or "").strip(),
-        (signup.get("city") or "").strip(),
-        (signup.get("aadhar_number") or "").strip(),
-        (signup.get("pan_number") or "").strip().upper(),
-        (signup.get("upi_id") or "").strip(),
-        (signup.get("bank_account_number") or "").strip(),
-        (signup.get("ifsc") or "").strip().upper(),
-        signup.get("aadhar_upload"),
-        signup.get("pan_upload"),
-    )
+            await conn.execute(
+                """
+                UPDATE user_signups
+                SET status='APPROVED', reviewed_by=$2::uuid, reviewed_at=NOW(), rejection_reason=''
+                WHERE id=$1::uuid
+                """,
+                signup_id,
+                user.id,
+            )
+            await _insert_signup_review_log(
+                conn,
+                signup_id=signup_id,
+                action="APPROVE",
+                previous_status=current_status,
+                new_status="APPROVED",
+                reason=reason,
+                actor=user,
+            )
 
-    await pool.execute(
-        """
-        INSERT INTO paper_accounts (user_id, display_name, balance, margin_allotted)
-        VALUES ($1, $2, 0, 0)
-        ON CONFLICT (user_id) DO NOTHING
-        """,
-        created_user["id"],
-        full_name,
-    )
-
-    await pool.execute(
-        """
-        UPDATE user_signups
-        SET status='APPROVED', reviewed_by=$2::uuid, reviewed_at=NOW(), rejection_reason=''
-        WHERE id=$1::uuid
-        """,
-        signup_id,
-        user.id,
-    )
-
+    log_activity(action_type="SIGNUP_APPROVED", request=request,
+                 actor_user_id=str(user.id), actor_name=user.name, actor_role=user.role,
+                 subject_user_id=str(created_user["id"]), subject_name=full_name,
+                 resource_type="user_signup", resource_id=signup_id,
+                 status_code=200, metadata={"new_user_id": str(created_user["id"])})
     return {
         "success": True,
         "message": "Signup approved and user created as ACTIVE USER",
         "user_id": str(created_user["id"]),
         "user_no": int(created_user["user_no"]),
+    }
+
+
+@router.get("/portal/user-signups/activity")
+async def get_user_signup_review_activity(
+    limit: int = 25,
+    _: CurrentUser = Depends(get_admin_user),
+):
+    safe_limit = max(1, min(limit, 100))
+    pool = get_pool()
+    rows = await pool.fetch(
+        """
+         SELECT log.id, log.signup_id, log.action, log.previous_status, log.new_status, log.reason,
+             log.actor_name, log.actor_mobile, log.created_at,
+             COALESCE(signup.name, '') AS signup_name,
+             COALESCE(signup.email, '') AS signup_email,
+             COALESCE(signup.mobile, '') AS signup_mobile
+         FROM user_signup_review_log log
+         LEFT JOIN user_signups signup ON signup.id = log.signup_id
+        ORDER BY log.created_at DESC
+        LIMIT $1
+        """,
+        safe_limit,
+    )
+    return {
+        "items": [_serialize_signup_review_log(row) for row in rows],
+        "limit": safe_limit,
     }
 
 

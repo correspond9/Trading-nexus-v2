@@ -46,6 +46,22 @@ class Settings(BaseSettings):
     email_otp_service_timeout_seconds: int = 15
     email_otp_expiry_seconds: int = 300
 
+    # ── Security alert thresholds (tunable via env) ──────────────────────────
+    # Unusual activity burst detection
+    security_burst_window_seconds: int = 300          # rolling window to count actions
+    security_burst_actions_threshold: int = 60        # total actions/IP triggering warning
+    security_sensitive_burst_threshold: int = 20      # login/OTP actions/IP triggering warning
+    # Impossible travel detection (applies after successful logins with geo data)
+    security_impossible_travel_window_minutes: int = 120   # max window between two logins
+    security_impossible_travel_speed_kmh: float = 900.0    # alert if implied speed exceeds this
+    # Repeated failed OTP attempt detection
+    security_otp_fail_window_minutes: int = 15        # rolling window
+    security_otp_fail_threshold_per_contact: int = 5  # failures on same contact
+    security_otp_fail_threshold_per_ip: int = 20      # failures from same IP
+
+    # ── Geoip ────────────────────────────────────────────────────────────────
+    geoip_db_path: str = "/app/geoip/GeoLite2-City.mmdb"  # local MaxMind DB path
+
     @property
     def cors_origins(self) -> list[str]:
         """Return CORS origins list."""

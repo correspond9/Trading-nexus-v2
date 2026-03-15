@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  network_security_config.xml
+  ============================
+  Allows the Capacitor WebView to reach the Trading Nexus backend over HTTPS.
+  The production domain (api.tradingnexus.pro) is pinning-free so updates
+  don't require an app release.
+
+  If you need to test against a local dev server (e.g. 192.168.x.x:8000),
+  add a <domain includeSubdomains="false">192.168.x.x</domain> inside a
+  separate <domain-config cleartextTrafficPermitted="true"> block here,
+  OR temporarily set VITE_API_URL to an https:// ngrok/localtunnel URL
+  and keep production-quality TLS.
+-->
+<network-security-config>
+    <!-- Production backend: HTTPS only, system trust anchors -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">tradingnexus.pro</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+
+    <!-- Capacitor localhost bridge: required for WebView to load assets -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>
+
